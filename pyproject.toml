@@ -5,9 +5,9 @@ build-backend = "flit.buildapi"
 [project]
 name =  "py-project-toml"
 authors = [
-    {name = "Daniel Ciborowski", email = "dciborow@microsoft.com"},
+    {name = "Alex Fishlock", email = "alex.fishlock@racingjag.com"},
 ]
-description = "Sample Python Project for creating a new Python Module"
+description = "Library to control Lyngdorf A/V processors"
 readme = "README.md"
 classifiers = [
     "Development Status :: 3 - Alpha",
@@ -21,6 +21,9 @@ classifiers = [
 ]
 requires-python = ">=3.8.1"
 dynamic = ["version"]
+
+[pytest]
+pythonpath = . src
 
 [project.optional-dependencies]
 spark = [
@@ -47,12 +50,12 @@ test = [
 ]
 
 [project.urls]
-Documentation = "https://github.com/microsoft/python-package-template/tree/main#readme"
-Source = "https://github.com/microsoft/python-package-template"
-Tracker = "https://github.com/microsoft/python-package-template/issues"
+Documentation = "https://github.com/fishloa/lyngdorf/tree/main#readme"
+Source = "https://github.com/fishloa/lyngdorf"
+Tracker = "https://github.com/fishloa/lyngdorf/issues"
 
 [tool.flit.module]
-name = "python_package"
+name = "lyngdorf"
 
 [tool.bandit]
 exclude_dirs = ["build","dist","tests","scripts"]
