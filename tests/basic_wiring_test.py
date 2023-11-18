@@ -69,8 +69,6 @@ SETUP_RESPONSES = [
 ]
 
 
-
-REAL_HOST = "192.168.16.16"
 FAKE_IP = "0.0.0.0"
 
 class TestMainFunctions():
@@ -84,40 +82,6 @@ class TestMainFunctions():
     def test_instantiate(self):
         LyngdorfMP60Client(FAKE_IP)
         
-
-    @pytest.mark.asyncio
-    async def test_connect(self):
-        client = LyngdorfMP60Client(REAL_HOST)
-        result = await client.async_connect()
-        await asyncio.sleep(.1)
-        assert result is None
-
-
-    @pytest.mark.asyncio
-    async def test_get_volume(self):
-        client = LyngdorfMP60Client(REAL_HOST)
-        result = await client.async_connect()
-        await asyncio.sleep(.1)
-        assert result is None
-        _LOGGER.debug(client.volume)
-        
-    # @pytest.mark.asyncio
-    # async def test_get_and_set_source():
-    #     client = LyngdorfMP60Client(FAKE_IP)
-    #     result = await client.async_connect()
-    #     await asyncio.sleep(.1)
-    #     assert result is None
-        
-    #     assert "Sky" in client.available_sources
-    #     assert client.source is not None
-        
-    #     available_sources = client.available_sources[:]
-    #     assert len(available_sources) > 1
-    #     available_sources.remove(client.source)
-    #     client.source = client.available_sources[0]
-    #     await asyncio.sleep(.1)
-    #     await client.source == client.available_sources[0]
-
 
    
     @pytest.mark.asyncio     
@@ -139,7 +103,7 @@ class TestMainFunctions():
         
         
     @pytest.mark.asyncio     
-    async def test_available_sources(self):
+    async def test_audio_sources(self):
         # # Check that the sources are set by the mock processor and the current source is playstation as we will shortly change it
         def test_function(client: LyngdorfMP60Client):
             assert len(client.available_sources) == 24
