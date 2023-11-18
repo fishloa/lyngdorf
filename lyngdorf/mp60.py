@@ -15,8 +15,9 @@ def convert_volume(value: Union[float, str]) -> float:
 @s(auto_attribs=True, init=False)
 class LyngdorfMP60Client:
     """Lyngdorf client class."""
+
     _api: LyngdorfApi = field()
-    _volume: float = field() #validator=[validators.ge(-99.9), validators.lt(10.0) ])
+    _volume: float = field()  # validator=[validators.ge(-99.9), validators.lt(10.0) ])
 
     def __init__(self, host: str):
         """Initialize the client."""
@@ -24,17 +25,17 @@ class LyngdorfMP60Client:
         self._audio_sources = CountingNumberDict()
         self._audio_source: str = None
         self._volume = -99.9
-        
+
     async def async_connect(self):
         self._api.register_callback("VOL", self.volume_callback)
         self._api.register_callback("SRCCOUNT", self._audio_sources.count_callback)
         self._api.register_callback("SRC", self.audio_source_callback)
-        
+
         await self._api.async_connect()
-        
+
     async def async_disconnect(self):
         await self._api.async_disconnect()
-        
+
     def volume_callback(self, param1: str, ignored: str) -> None:
         self._volume = convert_volume(param1)
 
@@ -52,13 +53,11 @@ class LyngdorfMP60Client:
 
     @audio_source.setter
     def audio_source(self, source: str):
-        index=self._audio_sources.lookupIndex(source)
-        if (index>-1):
+        index = self._audio_sources.lookupIndex(source)
+        if index > -1:
             self._api.change_source(index)
         else:
             _LOGGER.warning(source, " is not a valid source name, and cannot be chosen")
- 
-        
 
     def audio_source_callback(self, param1: str, param2: str):
         if self._audio_sources.is_full():
@@ -69,5 +68,3 @@ class LyngdorfMP60Client:
     @property
     def available_sources(self):
         return self._audio_sources.values()
-
-    

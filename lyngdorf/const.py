@@ -24,15 +24,10 @@ VIDEO_INPUTS = {
     6: "HDMI 6",
     7: "HDMI 7",
     8: "HDMI 8",
-    9: "Internal"
+    9: "Internal",
 }
 
-VIDEO_OUTPUTS = {
-    0: "None",
-    1: "HDMI Out 1",
-    2: "HDMI Out 2",
-    3: "HDBT Out"
-}
+VIDEO_OUTPUTS = {0: "None", 1: "HDMI Out 1", 2: "HDMI Out 2", 3: "HDBT Out"}
 
 AUDIO_INPUTS = {
     0: "None",
@@ -51,7 +46,7 @@ AUDIO_INPUTS = {
     21: "16-Channel 2.0 (optional AES module)",
     22: "16-Channel 5.1 (optional AES module)",
     23: "16-Channel 7.1 (optional AES module)",
-    24: "Audio Return Channel"
+    24: "Audio Return Channel",
 }
 
 STREAM_TYPES = {
@@ -62,7 +57,7 @@ STREAM_TYPES = {
     4: "UPnP",
     5: "Storage",
     6: "Roon ready",
-    7: "Unknown"
+    7: "Unknown",
 }
 
 COMMANDS_SETUP = [
@@ -85,7 +80,7 @@ COMMANDS_SETUP = [
     "VIDIN?",
     "VIDTYPE?",
     "STREAMTYPE?",
-    "ZSTREAMTYPE?"
+    "ZSTREAMTYPE?",
 ]
 
 COMMAND_KEEP_ALIVE = "PING?"
@@ -132,7 +127,7 @@ RESPONSES = {
     "SRC": "Active source",
     "ZSRC": "Zone B source",
     "ZMUTEON": "Zone B Mute is ON",
-    "ZMUTEOFF": "Zone B Mute is OFF"
+    "ZMUTEOFF": "Zone B Mute is OFF",
 }
 
 RESPONSES_KEYS_ALL = sorted(set(RESPONSES.keys()))

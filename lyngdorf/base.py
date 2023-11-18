@@ -12,12 +12,14 @@ from attr import s, field
 
 _LOGGER = logging.getLogger(__package__)
 
+
 @s(auto_attribs=True, init=False)
 class CountingNumberDict(dict):
     """An integer:String map, that keeps track of how many elements it should have"""
+
     count: int = 0
 
-    def __init__(self, count:int =0):
+    def __init__(self, count: int = 0):
         super().__init__()
         self.count: int = count
 
@@ -28,12 +30,11 @@ class CountingNumberDict(dict):
         self.clear()
         self.count = int(param1)
 
-    def add(self, index:int, value:str):
+    def add(self, index: int, value: str):
         self.__setitem__(index, value)
-        
-    def lookupIndex(self, value: str): 
+
+    def lookupIndex(self, value: str):
         for k, v in self.items():
-            if (value == v):
+            if value == v:
                 return k
         return -1
-            
