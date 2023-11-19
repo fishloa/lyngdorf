@@ -101,7 +101,6 @@ class TestMainFunctions:
             
         def assertion_function(client: LyngdorfMP60Client, commandsSent: []):
             assert ['!POWERONMAIN', '!POWEROFFMAIN', '!POWERONZONE2', '!POWEROFFZONE2'] == commandsSent
-            _LOGGER.fatal(','.join(commandsSent))
 
         await self._test_sending_commands(['!AUDTYPE(PCM zero, 2.0.0)'], "AUDTYPE", client_functions, assertion_function)
         
@@ -130,8 +129,9 @@ class TestMainFunctions:
             client.zone_b_mute_enabled=False
             
         def assertion_function(client: LyngdorfMP60Client, commandsSent: []):
+            _LOGGER.debug(','.join(commandsSent))
             assert ['!VOL(-220)', '!VOL+', '!VOL-', '!ZVOL+', '!ZVOL-', '!MUTEON', '!MUTEOFF', '!ZMUTEON', '!ZMUTEOFF'] == commandsSent
-            _LOGGER.fatal(','.join(commandsSent))
+            
 
         await self._test_sending_commands(['!AUDTYPE(PCM zero, 2.0.0)'], "AUDTYPE", client_functions, assertion_function)
 
