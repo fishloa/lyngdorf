@@ -10,10 +10,10 @@ from lyngdorf.mp60 import LyngdorfMP60Client
 
 _LOGGER = logging.getLogger(__package__)
 
+SETUP_LAST_RESPONSE="AUDTYPE"
 SETUP_RESPONSES = [
     "!DEVICE(MP-60)",
     "!POWER(1)",
-    "!POWERZONE2(0)",
     "!POWERZONE2(0)",
     "!AUDIN(1)",
     '!AUDMODE(1)"Dolby Upmixer"',
@@ -63,6 +63,7 @@ SETUP_RESPONSES = [
     "!VIDIN(1)",
     "!VIDTYPE(2160p50 RGB 4:4:4)",
     "!MUTEOFF",
+    "!ZMUTEON",
     "!STREAMTYPE(2)",
     "!ZSTREAMTYPE(3)",
     "!AUDTYPE(PCM zero, 2.0.0)",
@@ -82,23 +83,57 @@ class TestMainFunctions:
         LyngdorfMP60Client(FAKE_IP)
 
     @pytest.mark.asyncio
-    async def test_volume(self):
+    async def test_powers(self):
         # Receive a volume level from the processor, and validate our API has determined the volume correctly
         def test_function(client: LyngdorfMP60Client):
-            assert client.volume == -30.0
+            assert client.power_on
+            assert not client.zone_b_power_on
 
-        await self._test_receiving_commands(["!VOL(-300)"], "VOL", test_function)
+        await self._test_receiving_commands(SETUP_RESPONSES, SETUP_LAST_RESPONSE, test_function)
 
-        # check that when we set the colume the receiver gets the correct command
-        def test_function(client: LyngdorfMP60Client, commandsSent: []):
-            assert "!VOL(-220)" in commandsSent
+        # check that when we set the volume the receiver gets the correct command
+
+        def client_functions(client: LyngdorfMP60Client):
+            client.power_on=True
+            client.power_on=False
+            client.zone_b_power_on=True
+            client.zone_b_power_on=False
+            
+        def assertion_function(client: LyngdorfMP60Client, commandsSent: []):
+            assert ['!POWERONMAIN', '!POWEROFFMAIN', '!POWERONZONE2', '!POWEROFFZONE2'] == commandsSent
+            _LOGGER.fatal(','.join(commandsSent))
+
+        await self._test_sending_commands(['!AUDTYPE(PCM zero, 2.0.0)'], "AUDTYPE", client_functions, assertion_function)
+        
+    @pytest.mark.asyncio
+    async def test_volumes_and_mutes(self):
+        # Receive a volume level from the processor, and validate our API has determined the volume correctly
+        def test_function(client: LyngdorfMP60Client):
+            assert client.volume == -28.1
+            assert client._zone_b_volume == -55.0
+            assert client.mute_enabled == False
+            assert client.zone_b_mute_enabled == True
+
+        await self._test_receiving_commands(SETUP_RESPONSES, SETUP_LAST_RESPONSE, test_function)
+
+        # check that when we set the volume the receiver gets the correct command
 
         def client_functions(client: LyngdorfMP60Client):
             client.volume = -22
+            client.volume_up()
+            client.volume_down()
+            client.zone_b_volume_up()
+            client.zone_b_volume_down()
+            client.mute_enabled=True
+            client.mute_enabled=False
+            client.zone_b_mute_enabled=True
+            client.zone_b_mute_enabled=False
+            
+        def assertion_function(client: LyngdorfMP60Client, commandsSent: []):
+            assert ['!VOL(-220)', '!VOL+', '!VOL-', '!ZVOL+', '!ZVOL-', '!MUTEON', '!MUTEOFF', '!ZMUTEON', '!ZMUTEOFF'] == commandsSent
+            _LOGGER.fatal(','.join(commandsSent))
 
-        await self._test_sending_commands(
-            SETUP_RESPONSES, "AUDTYPE", client_functions, test_function
-        )
+        await self._test_sending_commands(['!AUDTYPE(PCM zero, 2.0.0)'], "AUDTYPE", client_functions, assertion_function)
 
     @pytest.mark.asyncio
     async def test_audio_sources(self):

@@ -14,7 +14,7 @@ POWER_ON = "1"
 POWER_OFF = "0"
 
 
-VIDEO_INPUTS = {
+MP60_VIDEO_INPUTS = {
     0: "None",
     1: "HDMI 1",
     2: "HDMI 2",
@@ -27,9 +27,9 @@ VIDEO_INPUTS = {
     9: "Internal",
 }
 
-VIDEO_OUTPUTS = {0: "None", 1: "HDMI Out 1", 2: "HDMI Out 2", 3: "HDBT Out"}
+MP60_VIDEO_OUTPUTS = {0: "None", 1: "HDMI Out 1", 2: "HDMI Out 2", 3: "HDBT Out"}
 
-AUDIO_INPUTS = {
+MP60_AUDIO_INPUTS = {
     0: "None",
     1: "HDMI",
     3: "Spdif 1 (Opt.)",
@@ -49,7 +49,7 @@ AUDIO_INPUTS = {
     24: "Audio Return Channel",
 }
 
-STREAM_TYPES = {
+MP60_STREAM_TYPES = {
     0: "None",
     1: "vTuner",
     2: "Spotify",

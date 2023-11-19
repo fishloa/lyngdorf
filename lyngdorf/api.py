@@ -8,7 +8,6 @@ Automation Library for Lyngdorf receivers.
 
 import asyncio
 import contextlib
-import sys
 import time
 import logging
 import attr
@@ -16,26 +15,17 @@ import traceback
 
 from asyncio import timeout as asyncio_timeout
 from typing import (
-    Awaitable,
     Callable,
     Dict,
     Optional,
     cast,
 )
 
-from .const import (
-    COMMANDS_SETUP,
-    RESPONSES_KEYS_ALL,
-    COMMAND_KEEP_ALIVE,
-    RESPONSE_KEEP_ALIVE,
-    AUDIO_INPUTS,
-    VIDEO_INPUTS,
-    VIDEO_OUTPUTS,
-    STREAM_TYPES,
-)
+from .const import COMMANDS_SETUP, RESPONSES_KEYS_ALL, COMMAND_KEEP_ALIVE, RESPONSE_KEEP_ALIVE, MP60_AUDIO_INPUTS, MP60_VIDEO_INPUTS, MP60_VIDEO_OUTPUTS, MP60_STREAM_TYPES
 
 _MONITOR_INTERVAL = 5
 _LYNGDORF_PORT = 84
+
 
 
 _LOGGER = logging.getLogger(__package__)
@@ -45,9 +35,9 @@ class LyngdorfProtocol(asyncio.Protocol):
     """Protocol for the Lyngdorf interface."""
 
     def __init__(
-        self,
-        on_message: Callable[[str], None],
-        on_connection_lost: Callable[[], None],
+            self,
+            on_message: Callable[[str], None],
+            on_connection_lost: Callable[[], None],
     ) -> None:
         """Initialize the protocol."""
         self._buffer = b""
@@ -102,11 +92,13 @@ class LyngdorfProtocol(asyncio.Protocol):
 class LyngdorfApi:
     """Handle responses from the Lyngdorf interface."""
 
+    
+
     def __init__(self, host):
         """Initialize the client."""
         self._connection_enabled = False
         self.host = host
-        self._connect_lock = asyncio.Lock()
+        self._connect_lock=asyncio.Lock()
         self.host: str
         self.timeout: float
         self._connection_enabled: bool
@@ -114,7 +106,8 @@ class LyngdorfApi:
             converter=attr.converters.optional(bool), default=None
         )
         self._last_message_time: float = -1.0
-        self._connect_lock: asyncio.Lock  # = attr.ib(default=attr.Factory(asyncio.Lock))
+        self._connect_lock: asyncio.Lock\
+        # = attr.ib(default=attr.Factory(asyncio.Lock))
         self._reconnect_task: asyncio.Task = None
         self._monitor_handle: asyncio.TimerHandle
         self._protocol: LyngdorfProtocol
@@ -145,7 +138,9 @@ class LyngdorfApi:
             _LOGGER.debug("%s: Timeout exception on connect", self.host)
             raise asyncio.TimeoutError(f"TimeoutException: {err}", "connect") from err
         except ConnectionRefusedError as err:
-            _LOGGER.debug("%s: Connection refused on connect", self.host, exc_info=True)
+            _LOGGER.debug(
+                "%s: Connection refused on connect", self.host, exc_info=True
+            )
             raise ConnectionRefusedError(
                 f"ConnectionRefusedError: {err}", "connect"
             ) from err
@@ -242,29 +237,29 @@ class LyngdorfApi:
         self._protocol.write(f"!{command}\r")
         _LOGGER.debug("%s send: '!%s'", self.host, command)
 
-    def power_on(self):
-        self._writeCommand("POWERONMAIN")
+    def power_on(self, enabled: bool):
+        if (enabled):
+            self._writeCommand("POWERONMAIN")
+        else:
+            self._writeCommand("POWEROFFMAIN")
 
-    def power_off(self):
-        self._writeCommand("POWEROFFMAIN")
-
-    def zone_b_power_on(self):
-        self._writeCommand("POWERONZONE2")
-
-    def zone_b_power_off(self):
-        self._writeCommand("POWEROFFZONE2")
+    def zone_b_power_on(self, enabled: bool):
+        if (enabled):
+            self._writeCommand("POWERONZONE2")
+        else:
+            self._writeCommand("POWEROFFZONE2")
 
     def mute_enabled(self, mute: bool):
         if mute:
-            self._writeCommand("MUTEON")
+            self._writeCommand('MUTEON')
         else:
-            self._writeCommand("MUTEOFF")
+            self._writeCommand('MUTEOFF')
 
     def zone_b_mute_enabled(self, mute: bool):
         if mute:
-            self._writeCommand("ZMUTEON")
+            self._writeCommand('ZMUTEON')
         else:
-            self._writeCommand("ZMUTEOFF")
+            self._writeCommand('ZMUTEOFF')
 
     def volume_up(self):
         self._writeCommand("VOL+")
@@ -279,16 +274,16 @@ class LyngdorfApi:
         self._writeCommand("ZVOL-")
 
     def volume(self, volume: float):
-        self._writeCommand(f"VOL({volume*10.0:.0f})")
+        self._writeCommand(f'VOL({volume*10.0:.0f})')
 
     def zone_b_volume(self, volume: float):
-        self._writeCommand(f"VOL({volume*10.0:.0f})")
+        self._writeCommand(f'VOL({volume*10.0:.0f})')
 
     def change_source(self, source: int):
-        self._writeCommand(f"SRC({source})")
+        self._writeCommand(f'SRC({source})')
 
     def change_zone_b_source(self, zone_b_source: int):
-        self._writeCommand(f"ZSRC({zone_b_source})")
+        self._writeCommand(f'ZSRC({zone_b_source})')
 
     def _process_event(self, message: str) -> None:
         """Process a realtime event."""
@@ -296,27 +291,27 @@ class LyngdorfApi:
         _LOGGER.debug("%s recv: '%s'", self.host, message)
         # print("\r"+message+"\r")
         self._last_message_time = time.monotonic()
-        if message.startswith("!"):
+        if message.startswith('!'):
             cmd: str = ""
             first: str = ""
             second: str = ""
             message = message[1:]
-            if 1 < message.find("(") < message.find(")"):
-                cmd = message[: message.find("(")]
-                first = message[1 + message.find("(") : message.find(")")]
-                second = message[1 + message.find(")") :]
+            if 1 < message.find('(') < message.find(')'):
+                cmd = message[:message.find('(')]
+                first = message[1+message.find('('):message.find(')')]
+                second = message[1+message.find(')'):]
             else:
                 cmd = message
 
             if cmd == RESPONSE_KEEP_ALIVE:
                 return
 
-            if len(second) > 0 and second.startswith('"') and second.endswith('"'):
+            if len(second) > 0 and second.startswith("\"") and second.endswith("\""):
                 second = second[1:-1]
             asyncio.create_task(self._async_run_callbacks(cmd, first, second))
 
     def register_callback(
-        self, command: str, callback: Callable[[str, str], None]
+            self, command: str, callback: Callable[[str, str], None]
     ) -> None:
         """Register a callback handler for an event type."""
         # Validate the passed in type
@@ -327,9 +322,7 @@ class LyngdorfApi:
             self._callbacks[command] = []
         self._callbacks[command].append(callback)
 
-    async def _async_run_callbacks(
-        self, command: str, param1: str, param2: str
-    ) -> None:
+    async def _async_run_callbacks(self, command: str, param1: str, param2: str) -> None:
         """Handle triggering the registered callbacks for the event."""
         if command in self._callbacks.keys():
             for callback in self._callbacks[command]:
@@ -339,16 +332,13 @@ class LyngdorfApi:
                 except Exception as err:  # pylint: disable=broad-except
                     # We don't want a single bad callback to trip up the
                     # whole system and prevent further execution
-                    # TIM. TODO. need to log the stack trace of the error found here, as at the moment v hard to find errors
-
+                    # TIM. TODO. need to log the stack trace of the error found here, as at the moment v hard to find errors 
+                    
                     _LOGGER.error(
                         "%s: Event callback caused an unhandled exception '%s' for Command %s callback (%s, %s) calling %s",
                         self.host,
                         traceback.format_exc(),
-                        command,
-                        param1,
-                        param2,
-                        callback,
+                        command, param1, param2, callback
                     )
 
     @property
