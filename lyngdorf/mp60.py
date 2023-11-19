@@ -3,7 +3,7 @@ from attr import define, field, s, validators
 from typing import Optional, Union
 from .api import LyngdorfApi, LyngdorfProtocol
 from .base import CountingNumberDict
-from .const import POWER_ON, POWER_OFF, MP60_STREAM_TYPES, MP60_VIDEO_INPUTS
+from .const import POWER_ON, POWER_OFF, MP60_STREAM_TYPES, MP60_VIDEO_INPUTS, MP60_AUDIO_INPUTS
 
 _LOGGER = logging.getLogger(__package__)
 
@@ -22,8 +22,13 @@ class LyngdorfMP60Client:
     _zone_b_volume: float = field(validator=[validators.ge(-99.9), validators.lt(10.0) ])
     _mute_enabled: bool
     _zone_b_mute_enabled: bool
-    _audio_sources = CountingNumberDict()
-    _audio_source: str = None
+    _sources = CountingNumberDict()
+    _source: str = None
+    _audio_input: str = None
+    _video_input: str = None
+    _video_info: str = None
+    _streaming_source: str = None
+    _zone_b_streaming_source: str = None
     _power_on: bool
     _zone_b_power_on: bool
 
@@ -42,8 +47,14 @@ class LyngdorfMP60Client:
         self._api.register_callback("ZMUTEOFF", self.zone_b_mute_off_callback)
         
         # Sources
-        self._api.register_callback("SRCCOUNT", self._audio_sources.count_callback)
-        self._api.register_callback("SRC", self.audio_source_callback)
+        self._api.register_callback("SRCCOUNT", self._sources.count_callback)
+        self._api.register_callback("SRC", self.source_callback)
+        self._api.register_callback("AUDIN", self.audio_input_callback)
+        self._api.register_callback("VIDIN", self.video_input_callback)
+        self._api.register_callback("STREAMTYPE", self.stream_type_callback)
+        self._api.register_callback("ZSTREAMTYPE", self.zone_b_stream_type_callback)
+        self._api.register_callback("VIDTYPE", self.video_info_callback)
+
         
         # Power
         self._api.register_callback("POWER", self.power_callback)
@@ -110,26 +121,61 @@ class LyngdorfMP60Client:
         self._api.zone_b_mute_enabled(enabled) 
         
     @property
-    def audio_source(self):
-        return self._audio_source
+    def source(self):
+        return self._source
 
-    @audio_source.setter
-    def audio_source(self, source: str):
-        index = self._audio_sources.lookupIndex(source)
+    @source.setter
+    def source(self, source: str):
+        index = self._sources.lookupIndex(source)
         if index > -1:
             self._api.change_source(index)
         else:
             _LOGGER.warning(source, " is not a valid source name, and cannot be chosen")
 
-    def audio_source_callback(self, param1: str, param2: str):
-        if self._audio_sources.is_full():
-            self._audio_source = param2
+    def source_callback(self, param1: str, param2: str):
+        if self._sources.is_full():
+            self._source = param2
         else:
-            self._audio_sources.add(int(param1), param2)
+            self._sources.add(int(param1), param2)
 
     @property
     def available_sources(self):
-        return self._audio_sources.values()
+        return self._sources.values()
+    
+    @property
+    def audio_input(self):
+        return self._audio_input
+    
+    def audio_input_callback(self, param1: str, param2: str):
+        self._audio_input=MP60_AUDIO_INPUTS[int(param1)]
+        
+    @property
+    def video_input(self):
+        return self._video_input
+    
+    def video_input_callback(self, param1: str, param2: str):
+        self._video_input=MP60_VIDEO_INPUTS[int(param1)]
+        
+    @property
+    def streaming_source(self):
+        return self._streaming_source
+    
+    @property
+    def zone_b_streaming_source(self):
+        return self._zone_b_streaming_source
+    
+    def stream_type_callback(self, param1: str, param2: str):
+        self._streaming_source=MP60_STREAM_TYPES[int(param1)]
+    
+    def zone_b_stream_type_callback(self, param1: str, param2: str):
+        self._zone_b_streaming_source=MP60_STREAM_TYPES[int(param1)]
+        
+    @property
+    def video_information(self):
+        return self._video_info
+    
+    def video_info_callback(self, param1: str, param2: str):
+        self._video_info = param1
     
     def power_callback(self, param1: str, param2: str):
         self._power_on = POWER_ON == param1

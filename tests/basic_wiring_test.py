@@ -136,24 +136,27 @@ class TestMainFunctions:
         await self._test_sending_commands(['!AUDTYPE(PCM zero, 2.0.0)'], "AUDTYPE", client_functions, assertion_function)
 
     @pytest.mark.asyncio
-    async def test_audio_sources(self):
+    async def test_sources(self):
         # # Check that the sources are set by the mock processor and the current source is playstation as we will shortly change it
         def test_function(client: LyngdorfMP60Client):
             assert len(client.available_sources) == 24
             assert "Playstation" in client.available_sources
-            assert client.audio_source == "Apple TV"
+            assert client.source == "Apple TV"
+            assert client.audio_input == "HDMI"
+            assert client.video_input == "HDMI 1"
+            assert client.video_information == "2160p50 RGB 4:4:4"
 
-        await self._test_receiving_commands(SETUP_RESPONSES, "AUDTYPE", test_function)
+        await self._test_receiving_commands(SETUP_RESPONSES, SETUP_LAST_RESPONSE, test_function)
 
         # Now we set the audio source and make sure that the correct command is sent to the processor
         def test_function(client: LyngdorfMP60Client, commandsSent: []):
             assert "!SRC(1)" in commandsSent
 
         def client_functions(client: LyngdorfMP60Client):
-            client.audio_source = "Playstation"
+            client.source = "Playstation"
 
         await self._test_sending_commands(
-            SETUP_RESPONSES, "AUDTYPE", client_functions, test_function
+            SETUP_RESPONSES, SETUP_LAST_RESPONSE, client_functions, test_function
         )
 
     async def _test_receiving_commands(
