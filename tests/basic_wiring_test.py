@@ -71,6 +71,7 @@ SETUP_RESPONSES = [
 
 
 FAKE_IP = "0.0.0.0"
+CALL_COUNT = 0
 
 
 class TestMainFunctions:
@@ -90,7 +91,7 @@ class TestMainFunctions:
             assert not client.zone_b_power_on
 
         await self._test_receiving_commands(
-            SETUP_RESPONSES, SETUP_LAST_RESPONSE, test_function
+            SETUP_RESPONSES, SETUP_LAST_RESPONSE, test_function, None
         )
 
         # check that when we set the volume the receiver gets the correct command
@@ -114,19 +115,21 @@ class TestMainFunctions:
             "AUDTYPE",
             client_functions,
             assertion_function,
+            None,
         )
 
     @pytest.mark.asyncio
-    async def test_volumes_and_mutes(self):
+    async def test_basics_volumes_and_mutes(self):
         # Receive a volume level from the processor, and validate our API has determined the volume correctly
         def test_function(client: LyngdorfMP60Client):
+            assert client.name == "MP-60"
             assert client.volume == -28.1
-            assert client._zone_b_volume == -55.0
+            assert client.zone_b_volume == -55.0
             assert client.mute_enabled == False
             assert client.zone_b_mute_enabled == True
 
         await self._test_receiving_commands(
-            SETUP_RESPONSES, SETUP_LAST_RESPONSE, test_function
+            SETUP_RESPONSES, SETUP_LAST_RESPONSE, test_function, None
         )
 
         # check that when we set the volume the receiver gets the correct command
@@ -164,11 +167,33 @@ class TestMainFunctions:
         )
 
     @pytest.mark.asyncio
-    async def test_sources(self):
+    async def test_notifications(self):
+        cc: int = 0
+
+        def notify_me():
+            notify_me.counter += 1
+
+        notify_me.counter = 0
+
+        def test_function(client: LyngdorfMP60Client):
+            assert notify_me.counter == 13
+
+        def before_connect_function(client: LyngdorfMP60Client):
+            client.register_notification_callback(notify_me)
+
+        await self._test_receiving_commands(
+            SETUP_RESPONSES, SETUP_LAST_RESPONSE, test_function, before_connect_function
+        )
+
+    @pytest.mark.asyncio
+    async def test_sound_modes_and_sources(self):
         # # Check that the sources are set by the mock processor and the current source is playstation as we will shortly change it
         def test_function(client: LyngdorfMP60Client):
             assert len(client.available_sources) == 24
             assert "Playstation" in client.available_sources
+            assert len(client.available_sound_modes) == 10
+            assert "Party" in client.available_sound_modes
+            assert client.sound_mode == "Dolby Upmixer"
             assert client.source == "Apple TV"
             assert client.audio_input == "HDMI"
             assert client.video_input == "HDMI 1"
@@ -181,16 +206,22 @@ class TestMainFunctions:
         # Now we set the audio source and make sure that the correct command is sent to the processor
         def test_function(client: LyngdorfMP60Client, commandsSent: []):
             assert "!SRC(1)" in commandsSent
+            assert "!AUDMODE(9)" in commandsSent
 
         def client_functions(client: LyngdorfMP60Client):
             client.source = "Playstation"
+            client.sound_mode = "Party"
 
         await self._test_sending_commands(
             SETUP_RESPONSES, SETUP_LAST_RESPONSE, client_functions, test_function
         )
 
     async def _test_receiving_commands(
-        self, commands_received, wait_for_command, test_function
+        self,
+        commands_received,
+        wait_for_command,
+        test_function,
+        before_connect_function=None,
     ):
         transport = mock.Mock()
         protocol = LyngdorfProtocol(None, None)
@@ -204,6 +235,8 @@ class TestMainFunctions:
             return [transport, proto]
 
         client = LyngdorfMP60Client(FAKE_IP)
+        if before_connect_function is not None:
+            before_connect_function(client)
 
         with mock.patch("asyncio.get_event_loop", new_callable=mock.Mock) as debug_mock:
             debug_mock.return_value.create_connection = AsyncMock(
@@ -214,17 +247,19 @@ class TestMainFunctions:
             client._api.register_callback(wait_for_command, self._callback)
             protocol.data_received(bytes("\r".join(commands_received) + "\r", "utf-8"))
             await self.future
-            try:
-                test_function(client)
-            except Exception as err:
-                _LOGGER.fatal("puke", err)
+            test_function(client)
             await client.async_disconnect()
 
     def _callback(self, param1, param2):
         self.future.set_result(True)
 
     async def _test_sending_commands(
-        self, commands_received, wait_for_command, client_functions, test_function
+        self,
+        commands_received,
+        wait_for_command,
+        client_functions,
+        test_function,
+        before_connect_function=None,
     ):
         transport = mock.Mock()
 
@@ -240,6 +275,8 @@ class TestMainFunctions:
             return [transport, proto]
 
         client = LyngdorfMP60Client(FAKE_IP)
+        if before_connect_function is not None:
+            before_connect_function(client)
 
         # # pylint: disable=protected-access
         # write_function=create_autospec(client._api._protocol.write, return_value=None)

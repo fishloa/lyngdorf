@@ -10,6 +10,8 @@ import attr
 
 ATTR_SETATTR = [attr.setters.validate, attr.setters.convert]
 
+DEFAULT_LYNGDORF_PORT = 84
+
 POWER_ON = "1"
 POWER_OFF = "0"
 

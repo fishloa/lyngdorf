@@ -14,14 +14,10 @@ import attr
 import traceback
 
 from asyncio import timeout as asyncio_timeout
-from typing import (
-    Callable,
-    Dict,
-    Optional,
-    cast,
-)
+from typing import Callable, Dict, Optional, cast, List
 
 from .const import (
+    DEFAULT_LYNGDORF_PORT,
     COMMANDS_SETUP,
     RESPONSES_KEYS_ALL,
     COMMAND_KEEP_ALIVE,
@@ -33,8 +29,6 @@ from .const import (
 )
 
 _MONITOR_INTERVAL = 5
-_LYNGDORF_PORT = 84
-
 
 _LOGGER = logging.getLogger(__package__)
 
@@ -117,6 +111,7 @@ class LyngdorfApi:
         self._monitor_handle: asyncio.TimerHandle
         self._protocol: LyngdorfProtocol
         self._callbacks: Dict[str, Callable] = {}
+        self._notification_callbacks: List = list()
 
     async def async_connect(self) -> None:
         """Connect to the receiver asynchronously."""
@@ -137,7 +132,7 @@ class LyngdorfApi:
                         on_message=self._process_event,
                     ),
                     self.host,
-                    _LYNGDORF_PORT,
+                    DEFAULT_LYNGDORF_PORT,
                 )
         except asyncio.TimeoutError as err:
             _LOGGER.debug("%s: Timeout exception on connect", self.host)
@@ -288,6 +283,9 @@ class LyngdorfApi:
     def change_zone_b_source(self, zone_b_source: int):
         self._writeCommand(f"ZSRC({zone_b_source})")
 
+    def change_sound_mode(self, sound_mode: int):
+        self._writeCommand(f"AUDMODE({sound_mode})")
+
     def _process_event(self, message: str) -> None:
         """Process a realtime event."""
 
@@ -312,6 +310,28 @@ class LyngdorfApi:
             if len(second) > 0 and second.startswith('"') and second.endswith('"'):
                 second = second[1:-1]
             asyncio.create_task(self._async_run_callbacks(cmd, first, second))
+            asyncio.create_task(self._notify_notification_callbacks())
+
+    def register_notification_callback(self, callback: Callable[[], None]) -> None:
+        self._notification_callbacks.append(callback)
+
+    def un_register_notification_callback(self, callback: Callable[[], None]) -> None:
+        self._notification_callbacks.remove(callback)
+
+    async def _notify_notification_callbacks(self) -> None:
+        for callback in self._notification_callbacks:
+            try:
+                callback()
+            except Exception as err:
+                # We don't want a single bad callback to trip up the
+                # whole system and prevent further execution
+                # TIM. TODO. need to log the stack trace of the error found here, as at the moment v hard to find errors
+
+                _LOGGER.error(
+                    "%s: Event callback caused an unhandled exception '%s' (%s)",
+                    self.host,
+                    traceback.format_exc(),
+                )
 
     def register_callback(
         self, command: str, callback: Callable[[str, str], None]
