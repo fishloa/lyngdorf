@@ -198,6 +198,8 @@ class TestMainFunctions:
             assert client.audio_input == "HDMI"
             assert client.video_input == "HDMI 1"
             assert client.video_information == "2160p50 RGB 4:4:4"
+            assert isinstance(client.available_sound_modes, list)
+            assert isinstance(client.available_sources, list)
 
         await self._test_receiving_commands(
             SETUP_RESPONSES, SETUP_LAST_RESPONSE, test_function

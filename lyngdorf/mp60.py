@@ -199,7 +199,7 @@ class LyngdorfMP60Client:
 
     @property
     def available_sources(self):
-        return self._sources.values()
+        return list(self._sources.values())
 
     @property
     def audio_input(self):
@@ -264,7 +264,7 @@ class LyngdorfMP60Client:
 
     @property
     def available_sound_modes(self):
-        return self._sound_modes.values()
+        return list(self._sound_modes.values())
 
     def _power_callback(self, param1: str, param2: str):
         self._power_on = POWER_ON == param1

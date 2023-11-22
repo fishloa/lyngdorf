@@ -16,7 +16,7 @@ import traceback
 from asyncio import timeout as asyncio_timeout
 from typing import Callable, Dict, Optional, cast, List
 
-from .const import (
+from lyngdorf.const import (
     DEFAULT_LYNGDORF_PORT,
     COMMANDS_SETUP,
     RESPONSES_KEYS_ALL,
@@ -56,9 +56,7 @@ class LyngdorfProtocol(asyncio.Protocol):
 
     def write(self, data: str) -> None:
         """Write data to the transport."""
-        if self.transport is None:
-            return
-        if self.transport.is_closing():
+        if self.transport is None or self.transport.is_closing():
             return
         self.transport.write(data.encode("utf-8"))
 
@@ -374,12 +372,7 @@ class LyngdorfApi:
         """Return True if telnet connection is enabled."""
         return self._connection_enabled
 
-    # @property
-    # def device(self) -> Lyngdorf:
-    #     """Return True if telnet connection is enabled."""
-    #     return self._lyngdorf
-
     @property
     def healthy(self) -> bool:
-        """Return True if telnet connection is healthy."""
+        """Return True if the connection is healthy."""
         return self._protocol is not None and self._protocol.connected

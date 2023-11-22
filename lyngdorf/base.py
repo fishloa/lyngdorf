@@ -32,6 +32,10 @@ class CountingNumberDict(dict):
 
     def add(self, index: int, value: str):
         self.__setitem__(index, value)
+        
+    @property
+    def list_of_values(self): 
+        return list(self.values()) 
 
     def lookupIndex(self, value: str):
         for k, v in self.items():
