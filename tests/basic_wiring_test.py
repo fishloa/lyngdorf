@@ -21,6 +21,10 @@ SETUP_RESPONSES = [
     '!RPFOC(9)"Global"',
     '!RPFOC(1)"Focus 1"',
     '!RPFOC(1)"Focus 1"',
+    "!RPVOICOUNT(2)",
+    '!RPVOI(0)"Voice 0"',
+    '!RPVOI(1)"Voice 1"',
+    '!RPVOI(1)"Voice 1"',
     "!AUDMODECOUNT(10)",
     '!AUDMODE(0)"None"',
     '!AUDMODE(1)"Dolby Upmixer"',
@@ -117,7 +121,31 @@ class TestMainFunctions:
             assertion_function,
             None,
         )
+    
+    @pytest.mark.asyncio
+    async def test_power_off(self):
+        # make sure POWER(0) turns the API off
+        def test_function(client: LyngdorfMP60Client):
+            assert client.power_on == False
 
+
+        await self._test_receiving_commands(
+            ["!POWER(0)"], "POWER", test_function, None
+        )
+    
+    @pytest.mark.asyncio
+    async def test_power_on(self):    
+        def test_function(client: LyngdorfMP60Client):
+            assert client.power_on == True
+
+
+        await self._test_receiving_commands(
+            ["!POWER(1)"], "POWER", test_function, None
+        )
+            
+        
+            
+            
     @pytest.mark.asyncio
     async def test_basics_volumes_and_mutes(self):
         # Receive a volume level from the processor, and validate our API has determined the volume correctly
@@ -144,6 +172,9 @@ class TestMainFunctions:
             client.mute_enabled = False
             client.zone_b_mute_enabled = True
             client.zone_b_mute_enabled = False
+            client.lipsync = 10
+            client.room_perfect_position = "Focus 1"
+            client.voicing = "Voice 1"
 
         def assertion_function(client: LyngdorfMP60Client, commandsSent: []):
             _LOGGER.debug(",".join(commandsSent))
@@ -157,6 +188,9 @@ class TestMainFunctions:
                 "!MUTEOFF",
                 "!ZMUTEON",
                 "!ZMUTEOFF",
+                "!LIPSYNC(10)",
+                "!RPFOC(1)",
+                "!RPVOI(1)"
             ] == commandsSent
 
         await self._test_sending_commands(
@@ -176,7 +210,7 @@ class TestMainFunctions:
         notify_me.counter = 0
 
         def test_function(client: LyngdorfMP60Client):
-            assert notify_me.counter == 14
+            assert notify_me.counter == 16
 
         def before_connect_function(client: LyngdorfMP60Client):
             client.register_notification_callback(notify_me)

@@ -23,22 +23,32 @@ class LyngdorfMP60Client:
     _api: LyngdorfApi
     _notification_callbacks: List = list()
 
-    _name: str
+    _name: str = None
     _volume: float = field(validator=[validators.ge(-99.9), validators.lt(10.0)])
     _zone_b_volume: float = field(validator=[validators.ge(-99.9), validators.lt(10.0)])
-    _mute_enabled: bool
-    _zone_b_mute_enabled: bool
+    _mute_enabled: bool = None
+    _zone_b_mute_enabled: bool = None
     _sources = CountingNumberDict()
     _sound_modes = CountingNumberDict()
+    _sound_mode: str = None;
+    
     _source: str = None
     _audio_input: str = None
+    _zone_b_audio_input: str = None
     _video_input: str = None
     _audio_info: str = None
     _video_info: str = None
     _streaming_source: str = None
     _zone_b_streaming_source: str = None
-    _power_on: bool
-    _zone_b_power_on: bool
+    _power_on: bool = None
+    _zone_b_power_on: bool = None
+    
+    # Audio Tuning
+    _room_perfect_positions = CountingNumberDict()
+    _room_perfect_position: str = None
+    _voicings = CountingNumberDict()
+    _voicing: str = None
+    _lipsync: int = None
 
     def __init__(self, host: str):
         """Initialize the client."""
@@ -60,6 +70,7 @@ class LyngdorfMP60Client:
         self._api.register_callback("SRCCOUNT", self._sources.count_callback)
         self._api.register_callback("SRC", self._source_callback)
         self._api.register_callback("AUDIN", self._audio_input_callback)
+        self._api.register_callback("ZAUDIN", self._zone_b_audio_input_callback)
         self._api.register_callback("VIDIN", self._video_input_callback)
         self._api.register_callback("STREAMTYPE", self._stream_type_callback)
         self._api.register_callback("ZSTREAMTYPE", self._zone_b_stream_type_callback)
@@ -72,6 +83,15 @@ class LyngdorfMP60Client:
         # Power
         self._api.register_callback("POWER", self._power_callback)
         self._api.register_callback("POWERZONE2", self._zone_b_power_callback)
+        
+        # Audio Tuning
+        self._api.register_callback("RPFOCCOUNT", self._room_perfect_positions.count_callback)
+        self._api.register_callback("RPFOC", self._room_perfect_position_callback)
+        self._api.register_callback("RPVOICOUNT", self._voicings.count_callback)
+        self._api.register_callback("RPVOI", self._voicing_callback)
+        self._api.register_callback("LIPSYNC", self._lipsync_callback)
+        
+        
         
         await self._api.async_connect()
 
@@ -212,6 +232,15 @@ class LyngdorfMP60Client:
         self._audio_input = MP60_AUDIO_INPUTS[int(param1)]
         self._notify_notification_callbacks()
 
+
+    @property
+    def zone_b_audio_input(self):
+        return self._zone_b_audio_input
+
+    def _zone_b_audio_input_callback(self, param1: str, param2: str):
+        self._zone_b_audio_input = MP60_AUDIO_INPUTS[int(param1)]
+        self._notify_notification_callbacks()
+
     @property
     def video_input(self):
         return self._video_input
@@ -219,6 +248,7 @@ class LyngdorfMP60Client:
     def _video_input_callback(self, param1: str, param2: str):
         self._video_input = MP60_VIDEO_INPUTS[int(param1)]
         self._notify_notification_callbacks()
+    
 
     @property
     def streaming_source(self):
@@ -300,3 +330,62 @@ class LyngdorfMP60Client:
     @zone_b_power_on.setter
     def zone_b_power_on(self, enabled: bool):
         self._api.zone_b_power_on(enabled)
+        
+    # Audio Tuning
+    def _room_perfect_position_callback(self, param1: str, param2: str):
+        if self._room_perfect_positions.is_full():
+            self._room_perfect_position = param2
+            self._notify_notification_callbacks()
+        else:
+            self._room_perfect_positions.add(int(param1), param2)
+            
+    @property
+    def room_perfect_position(self):
+        return self._room_perfect_position
+
+    @room_perfect_position.setter
+    def room_perfect_position(self, room_perfect_position: str):
+        index = self._room_perfect_positions.lookupIndex(room_perfect_position)
+        if index > -1:
+            self._api.change_room_perfect_position(index)
+        else:
+            raise LyngdorfInvalidValueError(
+                "%s is not a valid room_perfect_position name, and cannot be chosen", room_perfect_position
+            )
+            
+    def _voicing_callback(self, param1: str, param2: str):
+        if self._voicings.is_full():
+            self._voicing = param2
+            self._notify_notification_callbacks()
+        else:
+            self._voicings.add(int(param1), param2)
+    
+    @property
+    def available_voicings(self):
+        return list(self._voicings.values())
+       
+    @property
+    def voicing(self):
+        return self._voicing
+
+    @voicing.setter
+    def voicing(self, voicing: str):
+        index = self._voicings.lookupIndex(voicing)
+        if index > -1:
+            self._api.change_voicing(index)
+        else:
+            raise LyngdorfInvalidValueError(
+                "%s is not a valid voicing name, and cannot be chosen", voicing
+            )
+      
+    def _lipsync_callback(self, param1: str, param2: str):
+        self._lipsync=int(param1)
+        self._notify_notification_callbacks()
+        
+    @property
+    def lipsync(self):
+        return self._lipsync
+
+    @lipsync.setter
+    def lipsync(self, lipsync: int):
+        self._api.change_lipsync(lipsync)

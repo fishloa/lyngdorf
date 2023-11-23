@@ -19,7 +19,6 @@ from typing import Callable, Dict, Optional, cast, List
 from lyngdorf.const import (
     DEFAULT_LYNGDORF_PORT,
     COMMANDS_SETUP,
-    RESPONSES_KEYS_ALL,
     COMMAND_KEEP_ALIVE,
     RESPONSE_KEEP_ALIVE,
     MP60_AUDIO_INPUTS,
@@ -283,6 +282,18 @@ class LyngdorfApi:
 
     def change_sound_mode(self, sound_mode: int):
         self._writeCommand(f"AUDMODE({sound_mode})")
+        
+    def change_hdmi_main_out(self, hdmi_index: int):
+        self._writeCommand(f"HDMIMAINOUT({hdmi_index})")
+        
+    def change_room_perfect_position(self, room_perfect_position_index: int):
+        self._writeCommand(f"RPFOC({room_perfect_position_index})")
+    
+    def change_lipsync(self, lipsync: int):
+        self._writeCommand(f"LIPSYNC({lipsync})")
+    
+    def change_voicing(self, oicing: int):
+        self._writeCommand(f"RPVOI({oicing})")
 
     def _process_event(self, message: str) -> None:
         """Process a realtime event."""
@@ -335,9 +346,6 @@ class LyngdorfApi:
         self, command: str, callback: Callable[[str, str], None]
     ) -> None:
         """Register a callback handler for an event type."""
-        # Validate the passed in type
-        if command not in RESPONSES_KEYS_ALL:
-            raise ValueError(f"{command} is not a valid callback type.")
 
         if command not in self._callbacks.keys():
             self._callbacks[command] = []

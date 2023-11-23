@@ -51,6 +51,15 @@ MP60_AUDIO_INPUTS = {
     24: "Audio Return Channel",
 }
 
+MP60_ROOM_PERFECT_POSITIONS = {
+    0: "Bypass",
+    1: "Focus 1",
+    2: "Focus 2",
+    3: "Focus 3",
+    4: "Focus 4",
+    9: "Global"
+}
+
 MP60_STREAM_TYPES = {
     0: "None",
     1: "vTuner",
@@ -82,6 +91,7 @@ COMMANDS_SETUP = [
     "VIDIN?",
     "VIDTYPE?",
     "STREAMTYPE?",
+    "LIPSYNC?"
     "ZSTREAMTYPE?",
 ]
 
