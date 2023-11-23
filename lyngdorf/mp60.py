@@ -33,6 +33,7 @@ class LyngdorfMP60Client:
     _source: str = None
     _audio_input: str = None
     _video_input: str = None
+    _audio_info: str = None
     _video_info: str = None
     _streaming_source: str = None
     _zone_b_streaming_source: str = None
@@ -63,13 +64,15 @@ class LyngdorfMP60Client:
         self._api.register_callback("STREAMTYPE", self._stream_type_callback)
         self._api.register_callback("ZSTREAMTYPE", self._zone_b_stream_type_callback)
         self._api.register_callback("VIDTYPE", self._video_info_callback)
+        self._api.register_callback("AUDTYPE", self._audio_info_callback)
+
         self._api.register_callback("AUDMODECOUNT", self._sound_modes.count_callback)
         self._api.register_callback("AUDMODE", self._sound_mode_callback)
 
         # Power
         self._api.register_callback("POWER", self._power_callback)
         self._api.register_callback("POWERZONE2", self._zone_b_power_callback)
-
+        
         await self._api.async_connect()
 
     async def async_disconnect(self):
@@ -233,6 +236,14 @@ class LyngdorfMP60Client:
         self._zone_b_streaming_source = MP60_STREAM_TYPES[int(param1)]
         self._notify_notification_callbacks()
 
+    @property
+    def audio_information(self):
+        return self._audio_info
+
+    def _audio_info_callback(self, param1: str, param2: str):
+        self._audio_info = param1
+        self._notify_notification_callbacks()
+        
     @property
     def video_information(self):
         return self._video_info

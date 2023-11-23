@@ -176,7 +176,7 @@ class TestMainFunctions:
         notify_me.counter = 0
 
         def test_function(client: LyngdorfMP60Client):
-            assert notify_me.counter == 13
+            assert notify_me.counter == 14
 
         def before_connect_function(client: LyngdorfMP60Client):
             client.register_notification_callback(notify_me)
@@ -198,6 +198,7 @@ class TestMainFunctions:
             assert client.audio_input == "HDMI"
             assert client.video_input == "HDMI 1"
             assert client.video_information == "2160p50 RGB 4:4:4"
+            assert client.audio_information == "PCM zero, 2.0.0"
             assert isinstance(client.available_sound_modes, list)
             assert isinstance(client.available_sources, list)
 
