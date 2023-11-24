@@ -36,6 +36,10 @@ SETUP_RESPONSES = [
     '!AUDMODE(7)"Legacy"',
     '!AUDMODE(8)"Stereo"',
     '!AUDMODE(9)"Party"',
+    '!ZSRC(0)"Apple TV"',
+    "!ZSRCCOUNT(2)",
+    '!ZSRC(0)"Apple TV"',
+    '!ZSRC(1)"Wonk"',
     '!SRC(0)"Apple TV"',
     "!SRCCOUNT(24)",
     '!SRC(0)"Apple TV"',
@@ -210,7 +214,7 @@ class TestMainFunctions:
         notify_me.counter = 0
 
         def test_function(client: LyngdorfMP60Client):
-            assert notify_me.counter == 16
+            assert notify_me.counter == 17
 
         def before_connect_function(client: LyngdorfMP60Client):
             client.register_notification_callback(notify_me)
@@ -235,6 +239,10 @@ class TestMainFunctions:
             assert client.audio_information == "PCM zero, 2.0.0"
             assert isinstance(client.available_sound_modes, list)
             assert isinstance(client.available_sources, list)
+            assert isinstance(client.available_zone_b_sources, list)
+            assert client.available_zone_b_sources == ["Apple TV", "Wonk"]
+            assert client.zone_b_source == "Apple TV"
+            
 
         await self._test_receiving_commands(
             SETUP_RESPONSES, SETUP_LAST_RESPONSE, test_function
@@ -244,10 +252,12 @@ class TestMainFunctions:
         def test_function(client: LyngdorfMP60Client, commandsSent: []):
             assert "!SRC(1)" in commandsSent
             assert "!AUDMODE(9)" in commandsSent
+            assert "!ZSRC(1)" in commandsSent
 
         def client_functions(client: LyngdorfMP60Client):
             client.source = "Playstation"
             client.sound_mode = "Party"
+            client.zone_b_source = "Wonk"
 
         await self._test_sending_commands(
             SETUP_RESPONSES, SETUP_LAST_RESPONSE, client_functions, test_function

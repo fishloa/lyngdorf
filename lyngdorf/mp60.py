@@ -29,10 +29,11 @@ class LyngdorfMP60Client:
     _mute_enabled: bool = None
     _zone_b_mute_enabled: bool = None
     _sources = CountingNumberDict()
-    _sound_modes = CountingNumberDict()
-    _sound_mode: str = None;
-    
     _source: str = None
+    _zone_b_sources = CountingNumberDict()
+    _zone_b_source: str = None
+    _sound_modes = CountingNumberDict()
+    _sound_mode: str = None
     _audio_input: str = None
     _zone_b_audio_input: str = None
     _video_input: str = None
@@ -69,6 +70,8 @@ class LyngdorfMP60Client:
         # Sources
         self._api.register_callback("SRCCOUNT", self._sources.count_callback)
         self._api.register_callback("SRC", self._source_callback)
+        self._api.register_callback("ZSRCCOUNT", self._zone_b_sources.count_callback)
+        self._api.register_callback("ZSRC", self._zone_b_source_callback)
         self._api.register_callback("AUDIN", self._audio_input_callback)
         self._api.register_callback("ZAUDIN", self._zone_b_audio_input_callback)
         self._api.register_callback("VIDIN", self._video_input_callback)
@@ -223,6 +226,31 @@ class LyngdorfMP60Client:
     @property
     def available_sources(self):
         return list(self._sources.values())
+    
+    @property
+    def zone_b_source(self):
+        return self._zone_b_source
+
+    @zone_b_source.setter
+    def zone_b_source(self, zone_b_source: str):
+        index = self._zone_b_sources.lookupIndex(zone_b_source)
+        if index > -1:
+            self._api.change_zone_b_source(index)
+        else:
+            raise LyngdorfInvalidValueError(
+                "%s is not a valid zone b source name, and cannot be chosen", zone_b_source
+            )
+
+    def _zone_b_source_callback(self, param1: str, param2: str):
+        if self._zone_b_sources.is_full():
+            self._zone_b_source = param2
+            self._notify_notification_callbacks()
+        else:
+            self._zone_b_sources.add(int(param1), param2)
+
+    @property
+    def available_zone_b_sources(self):
+        return list(self._zone_b_sources.values())
 
     @property
     def audio_input(self):
