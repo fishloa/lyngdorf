@@ -239,8 +239,8 @@ class TestMainFunctions:
             assert client.audio_information == "PCM zero, 2.0.0"
             assert isinstance(client.available_sound_modes, list)
             assert isinstance(client.available_sources, list)
-            assert isinstance(client.available_zone_b_sources, list)
-            assert client.available_zone_b_sources == ["Apple TV", "Wonk"]
+            assert isinstance(client.zone_b_available_sources, list)
+            assert client.zone_b_available_sources == ["Apple TV", "Wonk"]
             assert client.zone_b_source == "Apple TV"
             
 

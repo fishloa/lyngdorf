@@ -249,7 +249,7 @@ class LyngdorfMP60Client:
             self._zone_b_sources.add(int(param1), param2)
 
     @property
-    def available_zone_b_sources(self):
+    def zone_b_available_sources(self):
         return list(self._zone_b_sources.values())
 
     @property
