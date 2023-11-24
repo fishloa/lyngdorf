@@ -41,6 +41,7 @@ class LyngdorfMP60Client:
     _video_info: str = None
     _streaming_source: str = None
     _zone_b_streaming_source: str = None
+    _zone_b_audio_info: str = None
     _power_on: bool = None
     _zone_b_power_on: bool = None
     
@@ -257,7 +258,11 @@ class LyngdorfMP60Client:
         return self._audio_input
 
     def _audio_input_callback(self, param1: str, param2: str):
-        self._audio_input = MP60_AUDIO_INPUTS[int(param1)]
+        if int(param1) in MP60_AUDIO_INPUTS:
+            self._audio_input = MP60_AUDIO_INPUTS[int(param1)]
+        else:
+            self._audio_input =f'audio-{param1}'
+            _LOGGER.warning(f'audio_input({param1} is not known, so ignoring)')
         self._notify_notification_callbacks()
 
 
@@ -266,7 +271,11 @@ class LyngdorfMP60Client:
         return self._zone_b_audio_input
 
     def _zone_b_audio_input_callback(self, param1: str, param2: str):
-        self._zone_b_audio_input = MP60_AUDIO_INPUTS[int(param1)]
+        if int(param1) in MP60_AUDIO_INPUTS:
+            self._zone_b_audio_input = MP60_AUDIO_INPUTS[int(param1)]
+        else:
+            self._zone_b_audio_input =f'audio-{param1}'
+            _LOGGER.warning(f'zone_b_audio_input({param1}) is not known, so ignoring')
         self._notify_notification_callbacks()
 
     @property
@@ -274,7 +283,11 @@ class LyngdorfMP60Client:
         return self._video_input
 
     def _video_input_callback(self, param1: str, param2: str):
-        self._video_input = MP60_VIDEO_INPUTS[int(param1)]
+        if int(param1) in MP60_AUDIO_INPUTS:
+            self._video_input = MP60_VIDEO_INPUTS[int(param1)]
+        else:
+            self._video_input =f'video-{param1}'
+            _LOGGER.warning(f'zone_b_audio_input({param1}) is not known, so ignoring')
         self._notify_notification_callbacks()
     
 
@@ -287,11 +300,19 @@ class LyngdorfMP60Client:
         return self._zone_b_streaming_source
 
     def _stream_type_callback(self, param1: str, param2: str):
-        self._streaming_source = MP60_STREAM_TYPES[int(param1)]
+        if int(param1) in MP60_STREAM_TYPES:
+            self._streaming_source = MP60_STREAM_TYPES[int(param1)]
+        else:
+            self._streaming_source =f'video-{param1}'
+            _LOGGER.warning(f'stream_type({param1}) is not known, so ignoring')
         self._notify_notification_callbacks()
 
     def _zone_b_stream_type_callback(self, param1: str, param2: str):
-        self._zone_b_streaming_source = MP60_STREAM_TYPES[int(param1)]
+        if int(param1) in MP60_STREAM_TYPES:
+            self._zone_b_streaming_source = MP60_STREAM_TYPES[int(param1)]
+        else:
+            self._zone_b_streaming_source =f'video-{param1}'
+            _LOGGER.warning(f'zone_b_stream_type({param1}) is not known, so ignoring')
         self._notify_notification_callbacks()
 
     @property
