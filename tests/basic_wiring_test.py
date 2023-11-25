@@ -68,7 +68,7 @@ SETUP_RESPONSES = [
     '!SRC(23)"Storage"',
     "!VOL(-281)",
     "!ZVOL(-550)",
-    "!VIDIN(1)",
+    "!VIDIN(2)",
     "!VIDTYPE(2160p50 RGB 4:4:4)",
     "!MUTEOFF",
     "!ZMUTEON",
@@ -235,7 +235,7 @@ class TestMainFunctions:
             assert client.sound_mode == "Dolby Upmixer"
             assert client.source == "Apple TV"
             assert client.audio_input == "HDMI"
-            assert client.video_input == "HDMI 1"
+            assert client.video_input == "HDMI 2"
             assert client.video_information == "2160p50 RGB 4:4:4"
             assert client.audio_information == "PCM zero, 2.0.0"
             assert isinstance(client.available_sound_modes, list)

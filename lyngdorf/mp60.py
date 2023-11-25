@@ -283,7 +283,7 @@ class LyngdorfMP60Client:
         return self._video_input
 
     def _video_input_callback(self, param1: str, param2: str):
-        if int(param1) in MP60_AUDIO_INPUTS:
+        if int(param1) in MP60_VIDEO_INPUTS:
             self._video_input = MP60_VIDEO_INPUTS[int(param1)]
         else:
             self._video_input =f'video-{param1}'
