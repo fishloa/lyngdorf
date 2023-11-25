@@ -225,7 +225,7 @@ class LyngdorfMP60Client:
             self._sources.add(int(param1), param2)
 
     @property
-    def available_sources(self):
+    def available_sources(self) -> list[str]:
         return list(self._sources.values())
     
     @property
@@ -250,7 +250,7 @@ class LyngdorfMP60Client:
             self._zone_b_sources.add(int(param1), param2)
 
     @property
-    def zone_b_available_sources(self):
+    def zone_b_available_sources(self) -> list[str]:
         return list(self._zone_b_sources.values())
 
     @property
@@ -353,7 +353,7 @@ class LyngdorfMP60Client:
             self._sound_modes.add(int(param1), param2)
 
     @property
-    def available_sound_modes(self):
+    def available_sound_modes(self) -> list[str]:
         return list(self._sound_modes.values())
 
     def _power_callback(self, param1: str, param2: str):
@@ -389,6 +389,10 @@ class LyngdorfMP60Client:
             self._room_perfect_positions.add(int(param1), param2)
             
     @property
+    def available_room_perfect_positions(self) -> list[str]:
+        return list(self._room_perfect_positions.values())
+            
+    @property
     def room_perfect_position(self):
         return self._room_perfect_position
 
@@ -410,7 +414,7 @@ class LyngdorfMP60Client:
             self._voicings.add(int(param1), param2)
     
     @property
-    def available_voicings(self):
+    def available_voicings(self) -> list[str]:
         return list(self._voicings.values())
        
     @property

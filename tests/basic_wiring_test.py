@@ -89,7 +89,8 @@ class TestMainFunctions:
         _LOGGER.debug("Hello from debug logging")
 
     def test_instantiate(self):
-        LyngdorfMP60Client(FAKE_IP)
+        client0= lyngdorf.create_client(lyngdorf.LyngdorfModel.MP_60, FAKE_IP)
+        
 
     @pytest.mark.asyncio
     async def test_powers(self):
@@ -242,6 +243,7 @@ class TestMainFunctions:
             assert isinstance(client.zone_b_available_sources, list)
             assert client.zone_b_available_sources == ["Apple TV", "Wonk"]
             assert client.zone_b_source == "Apple TV"
+            assert client.available_room_perfect_positions == ["Global", "Focus 1"]
             
 
         await self._test_receiving_commands(
@@ -281,7 +283,7 @@ class TestMainFunctions:
             protocol._on_message = proto._on_message
             return [transport, proto]
 
-        client = LyngdorfMP60Client(FAKE_IP)
+        client = lyngdorf.create_client(lyngdorf.LyngdorfModel.MP_60, FAKE_IP)
         if before_connect_function is not None:
             before_connect_function(client)
 
@@ -321,7 +323,7 @@ class TestMainFunctions:
             # pylint: disable=protected-access
             return [transport, proto]
 
-        client = LyngdorfMP60Client(FAKE_IP)
+        client = lyngdorf.create_client(lyngdorf.LyngdorfModel.MP_60, FAKE_IP)
         if before_connect_function is not None:
             before_connect_function(client)
 
