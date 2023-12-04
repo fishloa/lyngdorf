@@ -1,11 +1,12 @@
 import logging
 import traceback
 import asyncio
+from . import LyngdorfModel
 from attr import field, validators
 from typing import Union, Callable, List
 from .api import LyngdorfApi
 from .base import CountingNumberDict
-from .const import POWER_ON, MP60_STREAM_TYPES, MP60_VIDEO_INPUTS, MP60_AUDIO_INPUTS
+from .const import POWER_ON
 from .exceptions import LyngdorfInvalidValueError
 
 _LOGGER = logging.getLogger(__package__)
@@ -16,11 +17,17 @@ def convert_volume(value: Union[float, str]) -> float:
     return float(value) / 10.0
 
 
-# @s(auto_attribs=True, init=False)
-class LyngdorfMP60Client:
+
+class Receiver:
     """Lyngdorf client class."""
 
     _api: LyngdorfApi
+    _model: LyngdorfModel = None
+    
+    _stream_types=dict()
+    _audio_inputs=dict()
+    _video_inputs=dict()
+    
     _notification_callbacks: List = list()
 
     _name: str = None
@@ -132,6 +139,10 @@ class LyngdorfMP60Client:
     @property
     def name(self):
         return self._name
+    
+    @property
+    def model(self):
+        return self._model
 
     # Volumes
 
@@ -258,8 +269,8 @@ class LyngdorfMP60Client:
         return self._audio_input
 
     def _audio_input_callback(self, param1: str, param2: str):
-        if int(param1) in MP60_AUDIO_INPUTS:
-            self._audio_input = MP60_AUDIO_INPUTS[int(param1)]
+        if int(param1) in self._audio_inputs:
+            self._audio_input = self._audio_inputs[int(param1)]
         else:
             self._audio_input =f'audio-{param1}'
             _LOGGER.warning(f'audio_input({param1} is not known, so ignoring)')
@@ -271,8 +282,8 @@ class LyngdorfMP60Client:
         return self._zone_b_audio_input
 
     def _zone_b_audio_input_callback(self, param1: str, param2: str):
-        if int(param1) in MP60_AUDIO_INPUTS:
-            self._zone_b_audio_input = MP60_AUDIO_INPUTS[int(param1)]
+        if int(param1) in self._audio_inputs:
+            self._zone_b_audio_input = self._audio_inputs[int(param1)]
         else:
             self._zone_b_audio_input =f'audio-{param1}'
             _LOGGER.warning(f'zone_b_audio_input({param1}) is not known, so ignoring')
@@ -283,8 +294,8 @@ class LyngdorfMP60Client:
         return self._video_input
 
     def _video_input_callback(self, param1: str, param2: str):
-        if int(param1) in MP60_VIDEO_INPUTS:
-            self._video_input = MP60_VIDEO_INPUTS[int(param1)]
+        if int(param1) in self._video_inputs:
+            self._video_input = self._video_inputs[int(param1)]
         else:
             self._video_input =f'video-{param1}'
             _LOGGER.warning(f'zone_b_audio_input({param1}) is not known, so ignoring')
@@ -300,16 +311,16 @@ class LyngdorfMP60Client:
         return self._zone_b_streaming_source
 
     def _stream_type_callback(self, param1: str, param2: str):
-        if int(param1) in MP60_STREAM_TYPES:
-            self._streaming_source = MP60_STREAM_TYPES[int(param1)]
+        if int(param1) in self._stream_types:
+            self._streaming_source = self._stream_types[int(param1)]
         else:
             self._streaming_source =f'video-{param1}'
             _LOGGER.warning(f'stream_type({param1}) is not known, so ignoring')
         self._notify_notification_callbacks()
 
     def _zone_b_stream_type_callback(self, param1: str, param2: str):
-        if int(param1) in MP60_STREAM_TYPES:
-            self._zone_b_streaming_source = MP60_STREAM_TYPES[int(param1)]
+        if int(param1) in self._stream_types:
+            self._zone_b_streaming_source = self._stream_types[int(param1)]
         else:
             self._zone_b_streaming_source =f'video-{param1}'
             _LOGGER.warning(f'zone_b_stream_type({param1}) is not known, so ignoring')
@@ -442,3 +453,23 @@ class LyngdorfMP60Client:
     @lipsync.setter
     def lipsync(self, lipsync: int):
         self._api.change_lipsync(lipsync)
+        
+        
+        
+from .const import MP60_AUDIO_INPUTS, MP60_VIDEO_INPUTS, MP60_STREAM_TYPES       
+class MP60Receiver(Receiver):
+
+    def __init__(self, host: str):
+        """Initialize the client."""
+        super().__init__(host)
+        self._model=LyngdorfModel.MP_60
+        self._audio_inputs=MP60_AUDIO_INPUTS
+        self._video_inputs=MP60_VIDEO_INPUTS
+        self._stream_types=MP60_STREAM_TYPES
+        
+    
+    
+def create_device(model: LyngdorfModel, host: str) -> Receiver: 
+    if (model == LyngdorfModel.MP_60):
+        return MP60Receiver(host)
+    raise NotImplementedError()

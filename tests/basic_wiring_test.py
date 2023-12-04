@@ -4,9 +4,9 @@ import pytest
 from unittest import mock
 from unittest.mock import create_autospec
 
-import lyngdorf
-from lyngdorf.api import LyngdorfApi, LyngdorfProtocol
-from lyngdorf.mp60 import LyngdorfMP60Client
+from lyngdorf import LyngdorfModel
+from lyngdorf.api import LyngdorfProtocol
+from lyngdorf.device import Receiver, create_device
 
 _LOGGER = logging.getLogger(__package__)
 
@@ -89,13 +89,16 @@ class TestMainFunctions:
         _LOGGER.debug("Hello from debug logging")
 
     def test_instantiate(self):
-        client0= lyngdorf.create_client(lyngdorf.LyngdorfModel.MP_60, FAKE_IP)
+        client0= create_device(LyngdorfModel.MP_60, FAKE_IP)
+        assert client0.model.model=="mp-60"
+        assert client0.model.manufacterer=="Lyngdorf"
+        assert client0.model.name=="MP_60"
         
 
     @pytest.mark.asyncio
     async def test_powers(self):
         # Receive a volume level from the processor, and validate our API has determined the volume correctly
-        def test_function(client: LyngdorfMP60Client):
+        def test_function(client: Receiver):
             assert client.power_on
             assert not client.zone_b_power_on
 
@@ -105,13 +108,13 @@ class TestMainFunctions:
 
         # check that when we set the volume the receiver gets the correct command
 
-        def client_functions(client: LyngdorfMP60Client):
+        def client_functions(client: Receiver):
             client.power_on = True
             client.power_on = False
             client.zone_b_power_on = True
             client.zone_b_power_on = False
 
-        def assertion_function(client: LyngdorfMP60Client, commandsSent: []):
+        def assertion_function(client: Receiver, commandsSent: []):
             assert [
                 "!POWERONMAIN",
                 "!POWEROFFMAIN",
@@ -130,7 +133,7 @@ class TestMainFunctions:
     @pytest.mark.asyncio
     async def test_power_off(self):
         # make sure POWER(0) turns the API off
-        def test_function(client: LyngdorfMP60Client):
+        def test_function(client: Receiver):
             assert client.power_on == False
 
 
@@ -140,7 +143,7 @@ class TestMainFunctions:
     
     @pytest.mark.asyncio
     async def test_power_on(self):    
-        def test_function(client: LyngdorfMP60Client):
+        def test_function(client: Receiver):
             assert client.power_on == True
 
 
@@ -154,7 +157,7 @@ class TestMainFunctions:
     @pytest.mark.asyncio
     async def test_basics_volumes_and_mutes(self):
         # Receive a volume level from the processor, and validate our API has determined the volume correctly
-        def test_function(client: LyngdorfMP60Client):
+        def test_function(client: Receiver):
             assert client.name == "MP-60"
             assert client.volume == -28.1
             assert client.zone_b_volume == -55.0
@@ -167,7 +170,7 @@ class TestMainFunctions:
 
         # check that when we set the volume the receiver gets the correct command
 
-        def client_functions(client: LyngdorfMP60Client):
+        def client_functions(client: Receiver):
             client.volume = -22
             client.volume_up()
             client.volume_down()
@@ -181,7 +184,7 @@ class TestMainFunctions:
             client.room_perfect_position = "Focus 1"
             client.voicing = "Voice 1"
 
-        def assertion_function(client: LyngdorfMP60Client, commandsSent: []):
+        def assertion_function(client: Receiver, commandsSent: []):
             _LOGGER.debug(",".join(commandsSent))
             assert [
                 "!VOL(-220)",
@@ -214,10 +217,10 @@ class TestMainFunctions:
 
         notify_me.counter = 0
 
-        def test_function(client: LyngdorfMP60Client):
+        def test_function(client: Receiver):
             assert notify_me.counter == 17
 
-        def before_connect_function(client: LyngdorfMP60Client):
+        def before_connect_function(client: Receiver):
             client.register_notification_callback(notify_me)
 
         await self._test_receiving_commands(
@@ -227,7 +230,7 @@ class TestMainFunctions:
     @pytest.mark.asyncio
     async def test_sound_modes_and_sources(self):
         # # Check that the sources are set by the mock processor and the current source is playstation as we will shortly change it
-        def test_function(client: LyngdorfMP60Client):
+        def test_function(client: Receiver):
             assert len(client.available_sources) == 24
             assert "Playstation" in client.available_sources
             assert len(client.available_sound_modes) == 10
@@ -251,12 +254,12 @@ class TestMainFunctions:
         )
 
         # Now we set the audio source and make sure that the correct command is sent to the processor
-        def test_function(client: LyngdorfMP60Client, commandsSent: []):
+        def test_function(client: Receiver, commandsSent: []):
             assert "!SRC(1)" in commandsSent
             assert "!AUDMODE(9)" in commandsSent
             assert "!ZSRC(1)" in commandsSent
 
-        def client_functions(client: LyngdorfMP60Client):
+        def client_functions(client: Receiver):
             client.source = "Playstation"
             client.sound_mode = "Party"
             client.zone_b_source = "Wonk"
@@ -283,7 +286,7 @@ class TestMainFunctions:
             protocol._on_message = proto._on_message
             return [transport, proto]
 
-        client = lyngdorf.create_client(lyngdorf.LyngdorfModel.MP_60, FAKE_IP)
+        client = create_device(LyngdorfModel.MP_60, FAKE_IP)
         if before_connect_function is not None:
             before_connect_function(client)
 
@@ -323,7 +326,7 @@ class TestMainFunctions:
             # pylint: disable=protected-access
             return [transport, proto]
 
-        client = lyngdorf.create_client(lyngdorf.LyngdorfModel.MP_60, FAKE_IP)
+        client = create_device(LyngdorfModel.MP_60, FAKE_IP)
         if before_connect_function is not None:
             before_connect_function(client)
 
