@@ -18,16 +18,12 @@ from typing import Callable, Dict, Optional, cast, List
 
 from lyngdorf.const import (
     DEFAULT_LYNGDORF_PORT,
-    COMMANDS_SETUP,
-    COMMAND_KEEP_ALIVE,
-    RESPONSE_KEEP_ALIVE,
-    MP60_AUDIO_INPUTS,
-    MP60_VIDEO_INPUTS,
-    MP60_VIDEO_OUTPUTS,
-    MP60_STREAM_TYPES,
+    MP60_SETUP_MESSAGES,
+    RECONNECT_BACKOFF, RECONNECT_MAX_WAIT, RECONNECT_SCALE, MONITOR_INTERVAL,
+    Msg, LyngdorfModel
 )
 
-_MONITOR_INTERVAL = 5
+
 
 _LOGGER = logging.getLogger(__package__)
 
@@ -91,10 +87,11 @@ class LyngdorfProtocol(asyncio.Protocol):
 class LyngdorfApi:
     """Handle responses from the Lyngdorf interface."""
 
-    def __init__(self, host):
+    def __init__(self, host: str, model: LyngdorfModel):
         """Initialize the client."""
         self._connection_enabled = False
         self.host = host
+        self._model: LyngdorfModel = model
         self._connect_lock = asyncio.Lock()
         self.host: str
         self.timeout: float
@@ -149,7 +146,7 @@ class LyngdorfApi:
     def _schedule_monitor(self) -> None:
         """Start the monitor task."""
         loop = asyncio.get_event_loop()
-        self._monitor_handle = loop.call_later(_MONITOR_INTERVAL, self._monitor)
+        self._monitor_handle = loop.call_later(MONITOR_INTERVAL, self._monitor)
 
     def _stop_monitor(self) -> None:
         """Stop the monitor task."""
@@ -160,7 +157,7 @@ class LyngdorfApi:
     def _monitor(self) -> None:
         """Monitor the connection."""
         time_since_response = time.monotonic() - self._last_message_time
-        if time_since_response > _MONITOR_INTERVAL * 4:
+        if time_since_response > MONITOR_INTERVAL * 4:
             _LOGGER.info(
                 "%s: Keep alive failed, disconnecting and reconnecting", self.host
             )
@@ -169,9 +166,9 @@ class LyngdorfApi:
             self._handle_disconnected()
             return
 
-        if time_since_response > _MONITOR_INTERVAL and self._protocol:
+        if time_since_response > MONITOR_INTERVAL and self._protocol:
             # Keep the connection alive
-            self._writeCommand(COMMAND_KEEP_ALIVE)
+            self._writeCommand(f'{self._model.lookup_command(Msg.PING)}?')
         self._schedule_monitor()
 
     def _handle_disconnected(self) -> None:
@@ -195,15 +192,9 @@ class LyngdorfApi:
                 self._protocol.close()
                 self._protocol = None
 
-            # if self._reconnect_task is not None:
-            #     try:
-            #         await self._reconnect_task
-            #     except asyncio.CancelledError:
-            #         pass
-
     async def _async_reconnect(self) -> None:
         """Reconnect to the receiver asynchronously."""
-        backoff = 0.5
+        backoff = RECONNECT_BACKOFF
         _LOGGER.debug("Trying to reconnect")
         while self._connection_enabled and not self.healthy:
             _LOGGER.debug("Trying to reconnect...")
@@ -221,10 +212,10 @@ class LyngdorfApi:
                     return
 
             await asyncio.sleep(backoff)
-            backoff = min(30.0, backoff * 2)
+            backoff = min(RECONNECT_MAX_WAIT, backoff * RECONNECT_SCALE)
 
     def _writeSetup(self):
-        for cmd in COMMANDS_SETUP:
+        for cmd in MP60_SETUP_MESSAGES:
             self._writeCommand(cmd)
 
     def _writeCommand(self, command):
@@ -234,67 +225,121 @@ class LyngdorfApi:
 
     def power_on(self, enabled: bool):
         if enabled:
-            self._writeCommand("POWERONMAIN")
+            self._writeCommand(f'{self._model.lookup_command(Msg.POWER_ON)}')
         else:
-            self._writeCommand("POWEROFFMAIN")
+            self._writeCommand(f'{self._model.lookup_command(Msg.POWER_OFF)}')
 
     def zone_b_power_on(self, enabled: bool):
         if enabled:
-            self._writeCommand("POWERONZONE2")
+            self._writeCommand(f'{self._model.lookup_command(Msg.ZONE_B_POWER_ON)}')
         else:
-            self._writeCommand("POWEROFFZONE2")
+            self._writeCommand(f'{self._model.lookup_command(Msg.ZONE_B_POWER_OFF)}')
 
     def mute_enabled(self, mute: bool):
         if mute:
-            self._writeCommand("MUTEON")
+            self._writeCommand(f'{self._model.lookup_command(Msg.MUTE_ON)}')
         else:
-            self._writeCommand("MUTEOFF")
+            self._writeCommand(f'{self._model.lookup_command(Msg.MUTE_OFF)}')
 
     def zone_b_mute_enabled(self, mute: bool):
         if mute:
-            self._writeCommand("ZMUTEON")
+            self._writeCommand(f'{self._model.lookup_command(Msg.ZONE_B_MUTE_ON)}')
         else:
-            self._writeCommand("ZMUTEOFF")
+            self._writeCommand(f'{self._model.lookup_command(Msg.ZONE_B_MUTE_OFF)}')
 
     def volume_up(self):
-        self._writeCommand("VOL+")
+        self._writeCommand(f'{self._model.lookup_command(Msg.VOLUME)}+')
 
     def volume_down(self):
-        self._writeCommand("VOL-")
+        self._writeCommand(f'{self._model.lookup_command(Msg.VOLUME)}-')
 
     def zone_b_volume_up(self):
-        self._writeCommand("ZVOL+")
+        self._writeCommand(f'{self._model.lookup_command(Msg.ZONE_B_VOLUME)}+')
 
     def zone_b_volume_down(self):
-        self._writeCommand("ZVOL-")
+        self._writeCommand(f'{self._model.lookup_command(Msg.ZONE_B_VOLUME)}-')
 
     def volume(self, volume: float):
-        self._writeCommand(f"VOL({volume*10.0:.0f})")
+        self._writeCommand(f"{self._model.lookup_command(Msg.VOLUME)}({volume*10.0:.0f})")
 
     def zone_b_volume(self, volume: float):
-        self._writeCommand(f"VOL({volume*10.0:.0f})")
+        self._writeCommand(f"{self._model.lookup_command(Msg.VOLUME)}({volume*10.0:.0f})")
 
     def change_source(self, source: int):
-        self._writeCommand(f"SRC({source})")
+        self._writeCommand(f"{self._model.lookup_command(Msg.SOURCE)}({source})")
 
     def change_zone_b_source(self, zone_b_source: int):
-        self._writeCommand(f"ZSRC({zone_b_source})")
+        self._writeCommand(f"{self._model.lookup_command(Msg.ZONE_B_SOURCE)}({zone_b_source})")
 
     def change_sound_mode(self, sound_mode: int):
-        self._writeCommand(f"AUDMODE({sound_mode})")
+        self._writeCommand(f"{self._model.lookup_command(Msg.AUDIO_MODE)}({sound_mode})")
         
     def change_hdmi_main_out(self, hdmi_index: int):
         self._writeCommand(f"HDMIMAINOUT({hdmi_index})")
         
     def change_room_perfect_position(self, room_perfect_position_index: int):
-        self._writeCommand(f"RPFOC({room_perfect_position_index})")
+        self._writeCommand(f"{self._model.lookup_command(Msg.ROOM_PERFECT_POSITION)}({room_perfect_position_index})")
     
     def change_lipsync(self, lipsync: int):
-        self._writeCommand(f"LIPSYNC({lipsync})")
+        self._writeCommand(f"{self._model.lookup_command(Msg.LIP_SYNC)}({lipsync})")
     
-    def change_voicing(self, oicing: int):
-        self._writeCommand(f"RPVOI({oicing})")
+    def change_voicing(self, voicing: int):
+        self._writeCommand(f"{self._model.lookup_command(Msg.ROOM_PERFECT_VOICING)}({voicing})")
+        
+    def change_trim_bass(self, trim: float):
+        self._writeCommand(f"{self._model.lookup_command(Msg.TRIM_BASS)}({trim*10.0:.0f})")
+    
+    def change_trim_centre(self, trim: float):
+        self._writeCommand(f"{self._model.lookup_command(Msg.TRIM_CENTRE)}({trim*10.0:.0f})")
+        
+    def change_trim_height(self, trim: float):
+        self._writeCommand(f"{self._model.lookup_command(Msg.TRIM_HEIGHT)}({trim*10.0:.0f})")
+        
+    def change_trim_lfe(self, trim: float):
+        self._writeCommand(f"{self._model.lookup_command(Msg.TRIM_LFE)}({trim*10.0:.0f})")
+        
+    def change_trim_surround(self, trim: float):
+        self._writeCommand(f"{self._model.lookup_command(Msg.TRIM_SURROUND)}({trim*10.0:.0f})")
+        
+    def change_trim_treble(self, trim: float):
+        self._writeCommand(f"{self._model.lookup_command(Msg.TRIM_TREBLE)}({trim*10.0:.0f})")
+        
+    def trim_bass_up(self):
+        self._writeCommand(f'{self._model.lookup_command(Msg.TRIM_BASS)}+')
 
+    def trim_bass_down(self):
+        self._writeCommand(f'{self._model.lookup_command(Msg.TRIM_BASS)}-')
+        
+    def trim_centre_up(self):
+        self._writeCommand(f'{self._model.lookup_command(Msg.TRIM_CENTRE)}+')
+
+    def trim_centre_down(self):
+        self._writeCommand(f'{self._model.lookup_command(Msg.TRIM_CENTRE)}-')
+    
+    def trim_height_up(self):
+        self._writeCommand(f'{self._model.lookup_command(Msg.TRIM_HEIGHT)}+')
+
+    def trim_height_down(self):
+        self._writeCommand(f'{self._model.lookup_command(Msg.TRIM_HEIGHT)}-')
+
+    def trim_lfe_up(self):
+        self._writeCommand(f'{self._model.lookup_command(Msg.TRIM_LFE)}+')
+
+    def trim_lfe_down(self):
+        self._writeCommand(f'{self._model.lookup_command(Msg.TRIM_LFE)}-')
+        
+    def trim_surround_up(self):
+        self._writeCommand(f'{self._model.lookup_command(Msg.TRIM_SURROUND)}+')
+
+    def trim_surround_down(self):
+        self._writeCommand(f'{self._model.lookup_command(Msg.TRIM_SURROUND)}-')
+        
+    def trim_treble_up(self):
+        self._writeCommand(f'{self._model.lookup_command(Msg.TRIM_TREBLE)}+')
+
+    def trim_treble_down(self):
+        self._writeCommand(f'{self._model.lookup_command(Msg.TRIM_TREBLE)}-')
+        
     def _process_event(self, message: str) -> None:
         """Process a realtime event."""
 
@@ -313,7 +358,7 @@ class LyngdorfApi:
             else:
                 cmd = message
 
-            if cmd == RESPONSE_KEEP_ALIVE:
+            if cmd == self._model.lookup_command(Msg.PONG):
                 return
 
             if len(second) > 0 and second.startswith('"') and second.endswith('"'):

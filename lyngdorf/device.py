@@ -1,21 +1,19 @@
 import logging
 import traceback
 import asyncio
-from . import LyngdorfModel
 from attr import field, validators
 from typing import Union, Callable, List
 from .api import LyngdorfApi
 from .base import CountingNumberDict
-from .const import POWER_ON
+from .const import POWER_ON, LyngdorfModel, Msg
 from .exceptions import LyngdorfInvalidValueError
 
 _LOGGER = logging.getLogger(__package__)
 
 
-def convert_volume(value: Union[float, str]) -> float:
+def convert_decibel(value: Union[float, str]) -> float:
     """Convert volume to float."""
     return float(value) / 10.0
-
 
 
 class Receiver:
@@ -23,6 +21,7 @@ class Receiver:
 
     _api: LyngdorfApi
     _model: LyngdorfModel = None
+    _host: str = None
     
     _stream_types=dict()
     _audio_inputs=dict()
@@ -52,6 +51,15 @@ class Receiver:
     _power_on: bool = None
     _zone_b_power_on: bool = None
     
+    # Trims
+    _trim_bass: float = field(validator=[validators.ge(-12.0), validators.lt(12.0)])
+    _trim_centre: float = field(validator=[validators.ge(-12.0), validators.lt(12.0)])
+    _trim_height: float = field(validator=[validators.ge(-12.0), validators.lt(12.0)])
+    _trim_lfe: float = field(validator=[validators.ge(-12.0), validators.lt(12.0)])
+    _trim_surround: float = field(validator=[validators.ge(-12.0), validators.lt(12.0)])
+    _trim_treble: float = field(validator=[validators.ge(-12.0), validators.lt(12.0)])
+    
+    
     # Audio Tuning
     _room_perfect_positions = CountingNumberDict()
     _room_perfect_position: str = None
@@ -59,55 +67,70 @@ class Receiver:
     _voicing: str = None
     _lipsync: int = None
 
-    def __init__(self, host: str):
+    def __init__(self, host: str, model: LyngdorfModel):
         """Initialize the client."""
-        self._api: LyngdorfApi = LyngdorfApi(host)
+        self._host=host
+        self._model=model
+        assert model
+        assert host
+        self._api: LyngdorfApi = LyngdorfApi(host, model)
 
     async def async_connect(self):
         # Basics
-        self._api.register_callback("DEVICE", self._name_callback)
+        self._api.register_callback(self.lookup_command(Msg.DEVICE), self._name_callback)
 
         # Volumes and Mutes
-        self._api.register_callback("VOL", self._volume_callback)
-        self._api.register_callback("ZVOL", self._zone_b_volume_callback)
-        self._api.register_callback("MUTEON", self._mute_on_callback)
-        self._api.register_callback("MUTEOFF", self._mute_off_callback)
-        self._api.register_callback("ZMUTEON", self._zone_b_mute_on_callback)
-        self._api.register_callback("ZMUTEOFF", self._zone_b_mute_off_callback)
+        self._api.register_callback(self.lookup_command(Msg.VOLUME), self._volume_callback)
+        self._api.register_callback(self.lookup_command(Msg.ZONE_B_VOLUME), self._zone_b_volume_callback)
+        self._api.register_callback(self.lookup_command(Msg.MUTE_ON), self._mute_on_callback)
+        self._api.register_callback(self.lookup_command(Msg.MUTE_OFF), self._mute_off_callback)
+        self._api.register_callback(self.lookup_command(Msg.ZONE_B_MUTE_ON), self._zone_b_mute_on_callback)
+        self._api.register_callback(self.lookup_command(Msg.ZONE_B_MUTE_OFF), self._zone_b_mute_off_callback)
 
         # Sources
-        self._api.register_callback("SRCCOUNT", self._sources.count_callback)
-        self._api.register_callback("SRC", self._source_callback)
-        self._api.register_callback("ZSRCCOUNT", self._zone_b_sources.count_callback)
-        self._api.register_callback("ZSRC", self._zone_b_source_callback)
-        self._api.register_callback("AUDIN", self._audio_input_callback)
-        self._api.register_callback("ZAUDIN", self._zone_b_audio_input_callback)
-        self._api.register_callback("VIDIN", self._video_input_callback)
-        self._api.register_callback("STREAMTYPE", self._stream_type_callback)
-        self._api.register_callback("ZSTREAMTYPE", self._zone_b_stream_type_callback)
-        self._api.register_callback("VIDTYPE", self._video_info_callback)
-        self._api.register_callback("AUDTYPE", self._audio_info_callback)
+        self._api.register_callback(self.lookup_command(Msg.SOURCES_COUNT), self._sources.count_callback)
+        self._api.register_callback(self.lookup_command(Msg.SOURCE), self._source_callback)
+        self._api.register_callback(self.lookup_command(Msg.ZONE_B_SOURCES_COUNT), self._zone_b_sources.count_callback)
+        self._api.register_callback(self.lookup_command(Msg.ZONE_B_SOURCE), self._zone_b_source_callback)
+        self._api.register_callback(self.lookup_command(Msg.AUDIO_IN), self._audio_input_callback)
+        self._api.register_callback(self.lookup_command(Msg.ZONE_B_AUDIO_IN), self._zone_b_audio_input_callback)
+        self._api.register_callback(self.lookup_command(Msg.VIDEO_IN), self._video_input_callback)
+        self._api.register_callback(self.lookup_command(Msg.STREAM_TYPE), self._stream_type_callback)
+        self._api.register_callback(self.lookup_command(Msg.ZONE_B_STREAM_TYPE), self._zone_b_stream_type_callback)
+        self._api.register_callback(self.lookup_command(Msg.VIDEO_TYPE), self._video_info_callback)
+        self._api.register_callback(self.lookup_command(Msg.AUDIO_TYPE), self._audio_info_callback)
 
-        self._api.register_callback("AUDMODECOUNT", self._sound_modes.count_callback)
-        self._api.register_callback("AUDMODE", self._sound_mode_callback)
+        self._api.register_callback(self.lookup_command(Msg.AUDIO_MODES_COUNT), self._sound_modes.count_callback)
+        self._api.register_callback(self.lookup_command(Msg.AUDIO_MODE), self._sound_mode_callback)
 
         # Power
-        self._api.register_callback("POWER", self._power_callback)
-        self._api.register_callback("POWERZONE2", self._zone_b_power_callback)
+        self._api.register_callback(self.lookup_command(Msg.POWER), self._power_callback)
+        self._api.register_callback(self.lookup_command(Msg.ZONE_B_POWER), self._zone_b_power_callback)
         
         # Audio Tuning
-        self._api.register_callback("RPFOCCOUNT", self._room_perfect_positions.count_callback)
-        self._api.register_callback("RPFOC", self._room_perfect_position_callback)
-        self._api.register_callback("RPVOICOUNT", self._voicings.count_callback)
-        self._api.register_callback("RPVOI", self._voicing_callback)
-        self._api.register_callback("LIPSYNC", self._lipsync_callback)
+        self._api.register_callback(self.lookup_command(Msg.ROOM_PERFECT_POSITIONS_COUNT), self._room_perfect_positions.count_callback)
+        self._api.register_callback(self.lookup_command(Msg.ROOM_PERFECT_POSITION), self._room_perfect_position_callback)
+        self._api.register_callback(self.lookup_command(Msg.ROOM_PERFECT_VOICINGS_COUNT), self._voicings.count_callback)
+        self._api.register_callback(self.lookup_command(Msg.ROOM_PERFECT_VOICING), self._voicing_callback)
+        self._api.register_callback(self.lookup_command(Msg.LIP_SYNC), self._lipsync_callback)
         
+        # Trim
+        self._api.register_callback(self.lookup_command(Msg.TRIM_BASS), self._trim_bass_callback)
+        self._api.register_callback(self.lookup_command(Msg.TRIM_CENTRE), self._trim_centre_callback)
+        self._api.register_callback(self.lookup_command(Msg.TRIM_HEIGHT), self._trim_height_callback)
+        self._api.register_callback(self.lookup_command(Msg.TRIM_LFE), self._trim_lfe_callback)
+        self._api.register_callback(self.lookup_command(Msg.TRIM_SURROUND), self._trim_surround_callback)
+        self._api.register_callback(self.lookup_command(Msg.TRIM_TREBLE), self._trim_treble_callback)
+
         
         
         await self._api.async_connect()
 
     async def async_disconnect(self):
         await self._api.async_disconnect()
+        
+    def lookup_command(self, key: Msg):
+        return self._model.lookup_command(key)
 
     # Notifications Support
     def register_notification_callback(self, callback: Callable[[], None]) -> None:
@@ -135,10 +158,14 @@ class Receiver:
 
     def _name_callback(self, param1: str, param2: str) -> None:
         self._name = param1
-
+        
     @property
     def name(self):
         return self._name
+    
+    @property
+    def host(self) -> str:
+        return self._host
     
     @property
     def model(self):
@@ -147,11 +174,11 @@ class Receiver:
     # Volumes
 
     def _volume_callback(self, param1: str, ignored: str) -> None:
-        self._volume = convert_volume(param1)
+        self._volume = convert_decibel(param1)
         self._notify_notification_callbacks()
 
     def _zone_b_volume_callback(self, param1: str, ignored: str) -> None:
-        self._zone_b_volume = convert_volume(param1)
+        self._zone_b_volume = convert_decibel(param1)
         self._notify_notification_callbacks()
 
     def _mute_on_callback(self, param1: str, param2: str):
@@ -454,6 +481,116 @@ class Receiver:
     def lipsync(self, lipsync: int):
         self._api.change_lipsync(lipsync)
         
+    # trims
+    def _trim_bass_callback(self, param1: str, ignored: str) -> None:
+        self._trim_bass = convert_decibel(param1)
+        self._notify_notification_callbacks()
+        
+    @property
+    def trim_bass(self):
+        return self._trim_bass
+    
+    @trim_bass.setter
+    def trim_bass(self, trim: float):
+        self._api.change_trim_bass(trim)
+        
+    def trim_bass_up(self):
+        self._api.trim_bass_up()
+
+    def trim_bass_down(self):
+        self._api.trim_bass_down()
+        
+    def _trim_centre_callback(self, param1: str, ignored: str) -> None:
+        self._trim_centre = convert_decibel(param1)
+        self._notify_notification_callbacks()
+        
+    @property
+    def trim_centre(self):
+        return self._trim_centre
+    
+    @trim_centre.setter
+    def trim_centre(self, trim: float):
+        self._api.change_trim_centre(trim)
+        
+    def trim_centre_up(self):
+        self._api.trim_centre_up()
+
+    def trim_centre_down(self):
+        self._api.trim_centre_down()
+    
+    def _trim_height_callback(self, param1: str, ignored: str) -> None:
+        self._trim_height = convert_decibel(param1)
+        self._notify_notification_callbacks()
+        
+    @property
+    def trim_height(self):
+        return self._trim_height
+    
+    @trim_height.setter
+    def trim_height(self, trim: float):
+        self._api.change_trim_height(trim)
+        
+    def trim_height_up(self):
+        self._api.trim_height_up()
+
+    def trim_height_down(self):
+        self._api.trim_height_down()
+        
+    def _trim_lfe_callback(self, param1: str, ignored: str) -> None:
+        self._trim_lfe = convert_decibel(param1)
+        self._notify_notification_callbacks()
+        
+    @property
+    def trim_lfe(self):
+        return self._trim_lfe
+    
+    @trim_lfe.setter
+    def trim_lfe(self, trim: float):
+        self._api.change_trim_lfe(trim)
+        
+    def trim_lfe_up(self):
+        self._api.trim_lfe_up()
+
+    def trim_lfe_down(self):
+        self._api.trim_lfe_down()
+            
+    def _trim_surround_callback(self, param1: str, ignored: str) -> None:
+        self._trim_surround = convert_decibel(param1)
+        self._notify_notification_callbacks()
+        
+    @property
+    def trim_surround(self):
+        return self._trim_surround
+    
+    @trim_surround.setter
+    def trim_surround(self, trim: float):
+        self._api.change_trim_surround(trim)
+        
+    def trim_surround_up(self):
+        self._api.trim_surround_up()
+
+    def trim_surround_down(self):
+        self._api.trim_surround_down()
+        
+    def _trim_treble_callback(self, param1: str, ignored: str) -> None:
+        self._trim_treble = convert_decibel(param1)
+        self._notify_notification_callbacks()
+        
+    @property
+    def trim_treble(self):
+        return self._trim_treble
+    
+    @trim_treble.setter
+    def trim_treble(self, trim: float):
+        self._api.change_trim_treble(trim)
+        
+    def trim_treble_up(self):
+        self._api.trim_treble_up()
+
+    def trim_treble_down(self):
+        self._api.trim_treble_down()
+        
+        
         
         
 from .const import MP60_AUDIO_INPUTS, MP60_VIDEO_INPUTS, MP60_STREAM_TYPES       
@@ -461,11 +598,10 @@ class MP60Receiver(Receiver):
 
     def __init__(self, host: str):
         """Initialize the client."""
-        super().__init__(host)
-        self._model=LyngdorfModel.MP_60
         self._audio_inputs=MP60_AUDIO_INPUTS
         self._video_inputs=MP60_VIDEO_INPUTS
         self._stream_types=MP60_STREAM_TYPES
+        super().__init__(host, LyngdorfModel.MP_60)
         
     
     

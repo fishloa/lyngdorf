@@ -4,7 +4,7 @@ import pytest
 from unittest import mock
 from unittest.mock import create_autospec
 
-from lyngdorf import LyngdorfModel
+from lyngdorf.const import LyngdorfModel, Msg
 from lyngdorf.api import LyngdorfProtocol
 from lyngdorf.device import Receiver, create_device
 
@@ -84,6 +84,11 @@ CALL_COUNT = 0
 
 class TestMainFunctions:
     future = None
+    
+    def test_model(self):
+        mp60: LyngdorfModel=LyngdorfModel.MP_60
+        l= f'{mp60.lookup_command(Msg.PONG)}'
+        assert l=="PONG"   
 
     def test_logging(self):
         _LOGGER.debug("Hello from debug logging")
@@ -120,6 +125,49 @@ class TestMainFunctions:
                 "!POWEROFFMAIN",
                 "!POWERONZONE2",
                 "!POWEROFFZONE2",
+            ] == commandsSent
+
+        await self._test_sending_commands(
+            ["!AUDTYPE(PCM zero, 2.0.0)"],
+            "AUDTYPE",
+            client_functions,
+            assertion_function,
+            None,
+        )
+        
+    @pytest.mark.asyncio
+    async def testtrims(self):
+
+        # check that when we set the trims the receiver gets the correct commands
+
+        def client_functions(client: Receiver):
+            client.trim_bass=1.0
+            client.trim_centre=-5.0
+            client.trim_height=-3.0
+            client.trim_lfe=-2.0
+            client.trim_surround=5.0
+            client.trim_treble=6.0
+            
+            client.trim_bass_up()
+            client.trim_bass_down()
+            client.trim_centre_up()
+            client.trim_centre_down()   
+            client.trim_height_up()
+            client.trim_height_down()
+            client.trim_lfe_up()
+            client.trim_lfe_down()
+            client.trim_surround_up()
+            client.trim_surround_down()
+            client.trim_treble_up()
+            client.trim_treble_down()
+            
+
+
+        def assertion_function(client: Receiver, commandsSent: []):
+            assert [
+                "!TRIMBASS(10)","!TRIMCENTER(-50)","!TRIMHEIGHT(-30)","!TRIMLFE(-20)","!TRIMSURRS(50)","!TRIMTREB(60)",
+                "!TRIMBASS+","!TRIMBASS-","!TRIMCENTER+","!TRIMCENTER-","!TRIMHEIGHT+","!TRIMHEIGHT-",
+                "!TRIMLFE+","!TRIMLFE-","!TRIMSURRS+","!TRIMSURRS-","!TRIMTREB+","!TRIMTREB-"
             ] == commandsSent
 
         await self._test_sending_commands(

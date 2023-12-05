@@ -7,10 +7,17 @@ This module inherits constants for Lyngdorf receivers.
 """
 
 import attr
+from enum import Enum
+from typing import Dict
+from dataclasses import dataclass
 
 ATTR_SETATTR = [attr.setters.validate, attr.setters.convert]
 
 DEFAULT_LYNGDORF_PORT = 84
+RECONNECT_BACKOFF = 0.5 # half a second to wait for the first reconnect
+RECONNECT_SCALE = 2.5 # each reconnect attempt waits this times longer than the previous one
+RECONNECT_MAX_WAIT = 30.0 # Reconnect tasks will wait this many seconds at a maximum between each attempt
+MONITOR_INTERVAL = 90 # 90 seconds between PING commands
 
 POWER_ON = "1"
 POWER_OFF = "0"
@@ -70,8 +77,65 @@ MP60_STREAM_TYPES = {
     6: "Roon ready",
     7: "Unknown",
 }
+    
+Msg = Enum('Msg',
+    ['DEVICE','VERBOSE', 'PING','PONG',
+     'POWER', 'POWER_ON', 'POWER_OFF', 'VOLUME', 'MUTE_ON', "MUTE_OFF", 'SOURCES_COUNT', 'SOURCE',
+     'ZONE_B_POWER', 'ZONE_B_POWER_ON', 'ZONE_B_POWER_OFF', 'ZONE_B_VOLUME', 'ZONE_B_MUTE_ON', "ZONE_B_MUTE_OFF", 'ZONE_B_SOURCES_COUNT', 'ZONE_B_SOURCE',
+     'AUDIO_IN', 'ZONE_B_AUDIO_IN', 'VIDEO_IN', 'STREAM_TYPE', 'ZONE_B_STREAM_TYPE',
+     'VIDEO_TYPE', 'AUDIO_TYPE', 'AUDIO_MODES_COUNT', 'AUDIO_MODE',
+     'ROOM_PERFECT_POSITIONS_COUNT', 'ROOM_PERFECT_POSITION', 'ROOM_PERFECT_VOICINGS_COUNT', 'ROOM_PERFECT_VOICING',
+     'LIP_SYNC',
+     'TRIM_BASS', 'TRIM_CENTRE', 'TRIM_HEIGHT', 'TRIM_LFE', 'TRIM_SURROUND', 'TRIM_TREBLE'
+     ]
+    )
 
-COMMANDS_SETUP = [
+
+
+MP60_MESSAGES: Dict[Msg, str] = {
+    Msg.DEVICE: "DEVICE",
+    Msg.VERBOSE: "VERB",
+    Msg.PING: "PING",
+    Msg.PONG: "PONG",
+    Msg.POWER: "POWER",
+    Msg.POWER_ON: "POWERONMAIN",
+    Msg.POWER_OFF: "POWEROFFMAIN",
+    Msg.VOLUME: "VOL",
+    Msg.MUTE_ON: "MUTEON",
+    Msg.MUTE_OFF: "MUTEOFF",
+    Msg.SOURCES_COUNT: "SRCCOUNT",
+    Msg.SOURCE: "SRC",
+    Msg.AUDIO_IN: "AUDIN",
+    Msg.STREAM_TYPE: "STREAMTYPE",
+    Msg.VIDEO_IN: "VIDIN",
+    Msg.AUDIO_MODES_COUNT: "AUDMODECOUNT",
+    Msg.AUDIO_MODE: "AUDMODE",
+    Msg.AUDIO_TYPE: "AUDTYPE",
+    Msg.VIDEO_TYPE: "VIDTYPE",
+    Msg.ROOM_PERFECT_POSITIONS_COUNT: "RPFOCCOUNT",
+    Msg.ROOM_PERFECT_POSITION: "RPFOC",
+    Msg.ROOM_PERFECT_VOICINGS_COUNT: "RPVOICOUNT",
+    Msg.ROOM_PERFECT_VOICING: "RPVOI",
+    Msg.LIP_SYNC: "LIPSYNC",
+    Msg.ZONE_B_POWER: "POWERZONE2",
+    Msg.ZONE_B_POWER_ON: "POWERONZONE2",
+    Msg.ZONE_B_POWER_OFF: "POWEROFFZONE2",
+    Msg.ZONE_B_VOLUME: "ZVOL",
+    Msg.ZONE_B_MUTE_ON: "ZMUTEON",
+    Msg.ZONE_B_MUTE_OFF: "ZMUTEOFF",
+    Msg.ZONE_B_SOURCES_COUNT: "ZSRCCOUNT",
+    Msg.ZONE_B_SOURCE: "ZSRC",
+    Msg.ZONE_B_AUDIO_IN: "ZAUDIN",
+    Msg.ZONE_B_STREAM_TYPE: "ZSTREAMTYPE",
+    Msg.TRIM_BASS: "TRIMBASS",
+    Msg.TRIM_CENTRE: "TRIMCENTER",
+    Msg.TRIM_HEIGHT: "TRIMHEIGHT",
+    Msg.TRIM_LFE: "TRIMLFE",
+    Msg.TRIM_SURROUND: "TRIMSURRS",
+    Msg.TRIM_TREBLE: "TRIMTREB",
+}
+
+MP60_SETUP_MESSAGES = [
     "VERB(1)",
     "DEVICE?",
     "POWER?",
@@ -99,10 +163,28 @@ COMMANDS_SETUP = [
     "ZVOL?",
     "MUTE?",
     "ZMUTE?",
+    
+    "TRIMBASS?",
+    "TRIMCENTER?",
+    "TRIMHEIGHT?",
+    "TRIMLFE?",
+    "TRIMSURRS?",
+    "TRIMTREB?"
 ]
 
-COMMAND_KEEP_ALIVE = "PING?"
-RESPONSE_KEEP_ALIVE = "PONG"
+
+@dataclass
+class LyngdorfModelMixin:
+    model: str
+    manufacterer: str
+    commands: Dict[Msg, str]
+    
+    def lookup_command(self, key: Msg) -> str:
+        return self.commands[key]
+
+class LyngdorfModel(LyngdorfModelMixin, Enum):
+    MP_60 = "mp-60", "Lyngdorf", MP60_MESSAGES
+
 
 # RESPONSES = {
 #     "AUDIN": "Selected audio input",
