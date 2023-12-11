@@ -165,9 +165,9 @@ class TestMainFunctions:
 
         def assertion_function(client: Receiver, commandsSent: []):
             assert [
-                "!TRIMBASS(10)","!TRIMCENTER(-50)","!TRIMHEIGHT(-30)","!TRIMLFE(-20)","!TRIMSURRS(50)","!TRIMTREBLE(60)",
+                "!TRIMBASS(10)","!TRIMCENTER(-50)","!TRIMHEIGHT(-30)","!TRIMLFE(-20)","!TRIMSURRS(50)","!TRIMTREB(60)",
                 "!TRIMBASS+","!TRIMBASS-","!TRIMCENTER+","!TRIMCENTER-","!TRIMHEIGHT+","!TRIMHEIGHT-",
-                "!TRIMLFE+","!TRIMLFE-","!TRIMSURRS+","!TRIMSURRS-","!TRIMTREBLE+","!TRIMTREBLE-"
+                "!TRIMLFE+","!TRIMLFE-","!TRIMSURRS+","!TRIMSURRS-","!TRIMTREB+","!TRIMTREB-"
             ] == commandsSent
 
         await self._test_sending_commands(

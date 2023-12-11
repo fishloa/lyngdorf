@@ -301,7 +301,7 @@ class LyngdorfApi:
         self._writeCommand(f"{self._model.lookup_command(Msg.TRIM_SURROUND)}({trim*10.0:.0f})")
         
     def change_trim_treble(self, trim: float):
-        self._writeCommand(f"{self._model.lookup_command(Msg.TRIM_TREBLE)}({trim*10.0:.0f})")
+        self._writeCommand(f"{self._model.lookup_command(Msg.TRIM_TREBLE_SET)}({trim*10.0:.0f})")
         
     def trim_bass_up(self):
         self._writeCommand(f'{self._model.lookup_command(Msg.TRIM_BASS)}+')
@@ -334,10 +334,10 @@ class LyngdorfApi:
         self._writeCommand(f'{self._model.lookup_command(Msg.TRIM_SURROUND)}-')
         
     def trim_treble_up(self):
-        self._writeCommand(f'{self._model.lookup_command(Msg.TRIM_TREBLE)}+')
+        self._writeCommand(f'{self._model.lookup_command(Msg.TRIM_TREBLE_SET)}+')
 
     def trim_treble_down(self):
-        self._writeCommand(f'{self._model.lookup_command(Msg.TRIM_TREBLE)}-')
+        self._writeCommand(f'{self._model.lookup_command(Msg.TRIM_TREBLE_SET)}-')
         
     def _process_event(self, message: str) -> None:
         """Process a realtime event."""
