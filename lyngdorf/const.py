@@ -80,12 +80,12 @@ MP60_STREAM_TYPES = {
     
 Msg = Enum('Msg',
     ['DEVICE','VERBOSE', 'PING','PONG',
-     'POWER', 'POWER_ON', 'POWER_OFF', 'VOLUME', 'MUTE_ON', "MUTE_OFF", 'SOURCES_COUNT', 'SOURCE',
+     'POWER', 'POWER_ON', 'POWER_OFF', 'VOLUME', 'MUTE', 'MUTE_ON', "MUTE_OFF", 'SOURCES_COUNT', 'SOURCE',
      'ZONE_B_POWER', 'ZONE_B_POWER_ON', 'ZONE_B_POWER_OFF', 'ZONE_B_VOLUME', 'ZONE_B_MUTE_ON', "ZONE_B_MUTE_OFF", 'ZONE_B_SOURCES_COUNT', 'ZONE_B_SOURCE',
      'AUDIO_IN', 'ZONE_B_AUDIO_IN', 'VIDEO_IN', 'STREAM_TYPE', 'ZONE_B_STREAM_TYPE',
      'VIDEO_TYPE', 'AUDIO_TYPE', 'AUDIO_MODES_COUNT', 'AUDIO_MODE',
      'ROOM_PERFECT_POSITIONS_COUNT', 'ROOM_PERFECT_POSITION', 'ROOM_PERFECT_VOICINGS_COUNT', 'ROOM_PERFECT_VOICING',
-     'LIP_SYNC',
+     'LIP_SYNC', 'LIP_SYNC_MIN_MAX',
      'TRIM_BASS', 'TRIM_CENTRE', 'TRIM_HEIGHT', 'TRIM_LFE', 'TRIM_SURROUND', 'TRIM_TREBLE'
      ]
     )
@@ -101,6 +101,7 @@ MP60_MESSAGES: Dict[Msg, str] = {
     Msg.POWER_ON: "POWERONMAIN",
     Msg.POWER_OFF: "POWEROFFMAIN",
     Msg.VOLUME: "VOL",
+    Msg.MUTE: "MUTE",
     Msg.MUTE_ON: "MUTEON",
     Msg.MUTE_OFF: "MUTEOFF",
     Msg.SOURCES_COUNT: "SRCCOUNT",
@@ -117,6 +118,7 @@ MP60_MESSAGES: Dict[Msg, str] = {
     Msg.ROOM_PERFECT_VOICINGS_COUNT: "RPVOICOUNT",
     Msg.ROOM_PERFECT_VOICING: "RPVOI",
     Msg.LIP_SYNC: "LIPSYNC",
+    Msg.LIP_SYNC_MIN_MAX: "LIPSYNCRANGE",
     Msg.ZONE_B_POWER: "POWERZONE2",
     Msg.ZONE_B_POWER_ON: "POWERONZONE2",
     Msg.ZONE_B_POWER_OFF: "POWEROFFZONE2",
@@ -132,8 +134,9 @@ MP60_MESSAGES: Dict[Msg, str] = {
     Msg.TRIM_HEIGHT: "TRIMHEIGHT",
     Msg.TRIM_LFE: "TRIMLFE",
     Msg.TRIM_SURROUND: "TRIMSURRS",
-    Msg.TRIM_TREBLE: "TRIMTREB",
+    Msg.TRIM_TREBLE: "TRIMTREBLE",
 }
+ 
 
 MP60_SETUP_MESSAGES = [
     "VERB(1)",
@@ -169,21 +172,60 @@ MP60_SETUP_MESSAGES = [
     "TRIMHEIGHT?",
     "TRIMLFE?",
     "TRIMSURRS?",
-    "TRIMTREB?"
+    "TRIMTREBLE?"
 ]
 
 
+# @dataclass
+# class LyngdorfModelMixin:
+#     _model: str
+#     _manufacterer: str
+#     _commands: Dict[Msg, str]
+#     _setup_commands: list[str]
+    
+#     @property
+#     def model(self) -> str:
+#         return self._model
+    
+#     @property
+#     def manufacturer(self) -> str:
+#         return self._manufacterer
+    
+#     @property
+#     def setup_commands(self) -> list[str]:
+#         return self._setup_commands
+    
+#     @property
+#     def commands(self) -> Dict[Msg, str]:
+#         return self._commands
+    
+#     def lookup_command(self, key: Msg) -> str:
+#         return self.commands[key]
 @dataclass
 class LyngdorfModelMixin:
-    model: str
-    manufacterer: str
-    commands: Dict[Msg, str]
+    _model: str
+    _manufacterer: str
+    _commands: Dict[Msg, str]
+    _setup_commands: list[str]
+    
+    @property
+    def model(self) -> str:
+        return self._model
+    
+    @property
+    def manufacturer(self) -> str:
+        return self._manufacterer
+    
+    @property
+    def setup_commands(self) -> list[str]:
+        return self._setup_commands
     
     def lookup_command(self, key: Msg) -> str:
-        return self.commands[key]
+        return self._commands[key]
+    
 
 class LyngdorfModel(LyngdorfModelMixin, Enum):
-    MP_60 = "mp-60", "Lyngdorf", MP60_MESSAGES
+    MP_60 = "mp-60", "Lyngdorf", MP60_MESSAGES, MP60_SETUP_MESSAGES
 
 
 # RESPONSES = {

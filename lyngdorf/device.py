@@ -30,8 +30,8 @@ class Receiver:
     _notification_callbacks: List = list()
 
     _name: str = None
-    _volume: float = field(validator=[validators.ge(-99.9), validators.lt(10.0)])
-    _zone_b_volume: float = field(validator=[validators.ge(-99.9), validators.lt(10.0)])
+    _volume: float = field(validator=[validators.ge(-99.9), validators.lt(10.0)],default=None)
+    _zone_b_volume: float = field(validator=[validators.ge(-99.9), validators.lt(10.0)],default=None)
     _mute_enabled: bool = None
     _zone_b_mute_enabled: bool = None
     _sources = CountingNumberDict()
@@ -52,12 +52,12 @@ class Receiver:
     _zone_b_power_on: bool = None
     
     # Trims
-    _trim_bass: float = field(validator=[validators.ge(-12.0), validators.lt(12.0)])
-    _trim_centre: float = field(validator=[validators.ge(-12.0), validators.lt(12.0)])
-    _trim_height: float = field(validator=[validators.ge(-12.0), validators.lt(12.0)])
-    _trim_lfe: float = field(validator=[validators.ge(-12.0), validators.lt(12.0)])
-    _trim_surround: float = field(validator=[validators.ge(-12.0), validators.lt(12.0)])
-    _trim_treble: float = field(validator=[validators.ge(-12.0), validators.lt(12.0)])
+    _trim_bass: float = field(validator=[validators.ge(-12.0), validators.lt(12.0)],default=None)
+    _trim_centre: float = field(validator=[validators.ge(-10.0), validators.lt(10.0)],default=None)
+    _trim_height: float = field(validator=[validators.ge(-10.0), validators.lt(10.0)],default=None)
+    _trim_lfe: float = field(validator=[validators.ge(-10.0), validators.lt(10.0)],default=None)
+    _trim_surround: float = field(validator=[validators.ge(-10.0), validators.lt(10.0)],default=None)
+    _trim_treble: float = field(validator=[validators.ge(-12.0), validators.lt(12.0)],default=None)
     
     
     # Audio Tuning

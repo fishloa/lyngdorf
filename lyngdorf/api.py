@@ -18,7 +18,6 @@ from typing import Callable, Dict, Optional, cast, List
 
 from lyngdorf.const import (
     DEFAULT_LYNGDORF_PORT,
-    MP60_SETUP_MESSAGES,
     RECONNECT_BACKOFF, RECONNECT_MAX_WAIT, RECONNECT_SCALE, MONITOR_INTERVAL,
     Msg, LyngdorfModel
 )
@@ -215,7 +214,7 @@ class LyngdorfApi:
             backoff = min(RECONNECT_MAX_WAIT, backoff * RECONNECT_SCALE)
 
     def _writeSetup(self):
-        for cmd in MP60_SETUP_MESSAGES:
+        for cmd in self._model.setup_commands:
             self._writeCommand(cmd)
 
     def _writeCommand(self, command):

@@ -96,7 +96,7 @@ class TestMainFunctions:
     def test_instantiate(self):
         client0= create_device(LyngdorfModel.MP_60, FAKE_IP)
         assert client0.model.model=="mp-60"
-        assert client0.model.manufacterer=="Lyngdorf"
+        assert client0.model.manufacturer=="Lyngdorf"
         assert client0.model.name=="MP_60"
         
 
@@ -165,9 +165,9 @@ class TestMainFunctions:
 
         def assertion_function(client: Receiver, commandsSent: []):
             assert [
-                "!TRIMBASS(10)","!TRIMCENTER(-50)","!TRIMHEIGHT(-30)","!TRIMLFE(-20)","!TRIMSURRS(50)","!TRIMTREB(60)",
+                "!TRIMBASS(10)","!TRIMCENTER(-50)","!TRIMHEIGHT(-30)","!TRIMLFE(-20)","!TRIMSURRS(50)","!TRIMTREBLE(60)",
                 "!TRIMBASS+","!TRIMBASS-","!TRIMCENTER+","!TRIMCENTER-","!TRIMHEIGHT+","!TRIMHEIGHT-",
-                "!TRIMLFE+","!TRIMLFE-","!TRIMSURRS+","!TRIMSURRS-","!TRIMTREB+","!TRIMTREB-"
+                "!TRIMLFE+","!TRIMLFE-","!TRIMSURRS+","!TRIMSURRS-","!TRIMTREBLE+","!TRIMTREBLE-"
             ] == commandsSent
 
         await self._test_sending_commands(
