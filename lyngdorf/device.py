@@ -1,11 +1,12 @@
 import logging
 import traceback
 import asyncio
+import socket
 from attr import field, validators
 from typing import Union, Callable, List
 from .api import LyngdorfApi
 from .base import CountingNumberDict
-from .const import POWER_ON, LyngdorfModel, Msg
+from .const import POWER_ON, LyngdorfModel, Msg, DEFAULT_LYNGDORF_PORT
 from .exceptions import LyngdorfInvalidValueError
 
 _LOGGER = logging.getLogger(__package__)
@@ -604,8 +605,49 @@ class MP60Receiver(Receiver):
         super().__init__(host, LyngdorfModel.MP_60)
         
     
+def create_receiver(host: str) -> Receiver: 
+    model: LyngdorfModel = None
+    try:
+        model = find_receiver_model(host)
+    except:
+        return None
+    if (model==None):
+        raise NotImplementedError("Unknown Receiver")
+    return create_receiver(model, host)
     
-def create_device(model: LyngdorfModel, host: str) -> Receiver: 
+def create_receiver(model: LyngdorfModel, host: str) -> Receiver: 
     if (model == LyngdorfModel.MP_60):
         return MP60Receiver(host)
-    raise NotImplementedError()
+    raise NotImplementedError("Unknown Receiver")
+
+def find_receiver_model(host: str) -> LyngdorfModel: 
+    sock: socket=None
+    try:
+        modelName:str=None
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.connect((host, DEFAULT_LYNGDORF_PORT))
+        sock.sendall("!DEVICE?\r".encode("utf-8"))
+        buf=sock.recv(20)
+        message=buf.decode("utf-8")
+        try:
+            sock.close()
+        except:
+            pass
+        message = message[1:]
+        if 1 < message.find("(") < message.find(")"):
+            cmd = message[: message.find("(")]
+            modelName = message[1 + message.find("(") : message.find(")")]
+            
+            for model in LyngdorfModel:
+                if (model.model.casefold() == modelName.casefold()):
+                    return model
+            _LOGGER.warn(f'model {modelName} receiver found at {host}, but we cannot use it as it is not implemented')
+    except socket.error as exc:
+        _LOGGER.warn(f'Attempting to connect with {host}, but we we failed {exc}')
+        if (sock):
+            try:
+                sock.close()
+            except:
+                pass
+        return None
+    return None
