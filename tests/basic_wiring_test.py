@@ -94,7 +94,7 @@ class TestMainFunctions:
         _LOGGER.debug("Hello from debug logging")
 
     def test_instantiate(self):
-        client0= create_receiver(LyngdorfModel.MP_60, FAKE_IP)
+        client0= create_receiver(FAKE_IP, LyngdorfModel.MP_60)
         assert client0.model.model=="mp-60"
         assert client0.model.manufacturer=="Lyngdorf"
         assert client0.model.name=="MP_60"
@@ -334,7 +334,7 @@ class TestMainFunctions:
             protocol._on_message = proto._on_message
             return [transport, proto]
 
-        client = create_receiver(LyngdorfModel.MP_60, FAKE_IP)
+        client = create_receiver(FAKE_IP, LyngdorfModel.MP_60)
         if before_connect_function is not None:
             before_connect_function(client)
 
@@ -374,7 +374,7 @@ class TestMainFunctions:
             # pylint: disable=protected-access
             return [transport, proto]
 
-        client = create_receiver(LyngdorfModel.MP_60, FAKE_IP)
+        client = create_receiver(FAKE_IP, LyngdorfModel.MP_60)
         if before_connect_function is not None:
             before_connect_function(client)
 

@@ -603,19 +603,15 @@ class MP60Receiver(Receiver):
         self._video_inputs=MP60_VIDEO_INPUTS
         self._stream_types=MP60_STREAM_TYPES
         super().__init__(host, LyngdorfModel.MP_60)
-        
     
-def create_receiver(host: str) -> Receiver: 
-    model: LyngdorfModel = None
-    try:
-        model = find_receiver_model(host)
-    except:
-        return None
-    if (model==None):
-        raise NotImplementedError("Unknown Receiver")
-    return create_receiver(model, host)
-    
-def create_receiver(model: LyngdorfModel, host: str) -> Receiver: 
+def create_receiver(host: str, model: LyngdorfModel=None, ) -> Receiver: 
+    if not (model):
+        try:
+            model = find_receiver_model(host)
+        except:
+            return None
+        if not (model):
+            raise NotImplementedError("Unknown Receiver")    
     if (model == LyngdorfModel.MP_60):
         return MP60Receiver(host)
     raise NotImplementedError("Unknown Receiver")
