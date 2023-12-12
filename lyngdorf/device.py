@@ -637,10 +637,9 @@ def find_receiver_model(host: str) -> LyngdorfModel:
         if 1 < message.find("(") < message.find(")"):
             cmd = message[: message.find("(")]
             modelName = message[1 + message.find("(") : message.find(")")]
-            
-            for model in LyngdorfModel:
-                if (model.model.casefold() == modelName.casefold()):
-                    return model
+            model: LyngdorfModel=lookup_receiver_model(modelName)
+            if (model):
+                return model
             _LOGGER.warn(f'model {modelName} receiver found at {host}, but we cannot use it as it is not implemented')
     except socket.error as exc:
         _LOGGER.warn(f'Attempting to connect with {host}, but we we failed {exc}')
@@ -650,4 +649,10 @@ def find_receiver_model(host: str) -> LyngdorfModel:
             except:
                 pass
         return None
+    return None
+
+def lookup_receiver_model(modelName: str) -> LyngdorfModel:  
+    for model in LyngdorfModel:
+        if (model.model.casefold() == modelName.casefold()):
+            return model
     return None
