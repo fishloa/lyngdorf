@@ -7,7 +7,7 @@
             "request": "launch",
             "program": "${file}",
             "console": "integratedTerminal",
-            "justMyCode": True
+            "justMyCode": true
         },
         {
             "name": "Python: Debug Tests",
@@ -15,7 +15,7 @@
             "request": "launch",
             "program": "${file}",
             "purpose": ["debug-test"],
-            "justMyCode": Talse
+            "justMyCode": false
         }
     ]
 }

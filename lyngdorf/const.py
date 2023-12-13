@@ -56,6 +56,14 @@ MP60_AUDIO_INPUTS = {
     22: "16-Channel 5.1 (optional AES module)",
     23: "16-Channel 7.1 (optional AES module)",
     24: "Audio Return Channel",
+    35: "vTuner",
+    36: "TIDAL",
+    37: "Spotify",
+    38: "Airplay",
+    39: "Roon",
+    40: "DLNA",
+    41: "Storage",
+    42: "airable"
 }
 
 MP60_ROOM_PERFECT_POSITIONS = {

@@ -326,7 +326,7 @@ class Receiver:
             self._video_input = self._video_inputs[int(param1)]
         else:
             self._video_input =f'video-{param1}'
-            _LOGGER.warning(f'zone_b_audio_input({param1}) is not known, so ignoring')
+            _LOGGER.warning(f'zone_b_video_input({param1}) is not known, so ignoring')
         self._notify_notification_callbacks()
     
 
