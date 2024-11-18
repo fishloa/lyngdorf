@@ -60,7 +60,9 @@ class LyngdorfProtocol(asyncio.Protocol):
             self.transport.close()
 
     def eof_received(self):
-        print("eof")
+        _LOGGER.info("Pipe closed")
+        self.close()
+        self._on_connection_lost()
         return True
 
     def data_received(self, data: bytes) -> None:
@@ -78,7 +80,7 @@ class LyngdorfProtocol(asyncio.Protocol):
 
     def connection_lost(self, exc: Optional[Exception]) -> None:
         """Handle connection lost."""
-        self.transport = None
+        self.close()
         self._on_connection_lost()
         return super().connection_lost(exc)
 
