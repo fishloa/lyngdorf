@@ -85,6 +85,33 @@ MP60_STREAM_TYPES = {
     6: "Roon ready",
     7: "Unknown",
 }
+
+# TDAI-1120 Constants
+TDAI1120_STREAM_TYPES = {
+    0: "None",
+    1: "vTuner",
+    2: "Spotify",
+    3: "AirPlay",
+    4: "uPnP",
+    5: "USB File",
+    6: "Roon Ready",
+    7: "Bluetooth",
+    8: "GoogleCast",
+    9: "Unknown",
+}
+
+TDAI1120_ROOM_PERFECT_POSITIONS = {
+    0: "Bypass",
+    1: "Focus 1",
+    2: "Focus 2",
+    3: "Focus 3",
+    4: "Focus 4",
+    5: "Focus 5",
+    6: "Focus 6",
+    7: "Focus 7",
+    8: "Focus 8",
+    9: "Global"
+}
     
 Msg = Enum('Msg',
     ['DEVICE','VERBOSE', 'PING','PONG',
@@ -145,6 +172,29 @@ MP60_MESSAGES: Dict[Msg, str] = {
     Msg.TRIM_TREBLE: "TRIMTREBLE",
     Msg.TRIM_TREBLE_SET: "TRIMTREB"
 }
+
+TDAI1120_MESSAGES: Dict[Msg, str] = {
+    Msg.DEVICE: "DEVICE",
+    Msg.VERBOSE: "VERB",
+    Msg.PING: "PING",
+    Msg.PONG: "PONG",
+    Msg.POWER: "PWR",
+    Msg.POWER_ON: "ON",
+    Msg.POWER_OFF: "OFF",
+    Msg.VOLUME: "VOL",
+    Msg.MUTE: "MUTE",
+    Msg.MUTE_ON: "MUTEON",
+    Msg.MUTE_OFF: "MUTEOFF",
+    Msg.SOURCES_COUNT: "SRCCOUNT",
+    Msg.SOURCE: "SRC",
+    Msg.STREAM_TYPE: "STREAMTYPE",
+    Msg.ROOM_PERFECT_POSITIONS_COUNT: "RPCOUNT",
+    Msg.ROOM_PERFECT_POSITION: "RP",
+    Msg.ROOM_PERFECT_VOICINGS_COUNT: "VOICOUNT",
+    Msg.ROOM_PERFECT_VOICING: "VOI",
+    Msg.TRIM_BASS: "BASS",
+    Msg.TRIM_TREBLE: "TREBLE",
+}
  
 
 MP60_SETUP_MESSAGES = [
@@ -157,7 +207,7 @@ MP60_SETUP_MESSAGES = [
     "ZSRCS?",
     "RPFOCS?",
     "RPVOIS?",
-    
+
     "AUDMODE?",
     "SRC?",
     "ZSRC?",
@@ -167,7 +217,7 @@ MP60_SETUP_MESSAGES = [
     "STREAMTYPE?",
     "LIPSYNC?"
     "ZSTREAMTYPE?",
-    
+
     "AUDIN?",
     "VIDIN?",
     "AUDTYPE?",
@@ -175,13 +225,34 @@ MP60_SETUP_MESSAGES = [
     "ZVOL?",
     "MUTE?",
     "ZMUTE?",
-    
+
     "TRIMBASS?",
     "TRIMCENTER?",
     "TRIMHEIGHT?",
     "TRIMLFE?",
     "TRIMSURRS?",
     "TRIMTREB?"
+]
+
+TDAI1120_SETUP_MESSAGES = [
+    "VERB(1)",
+    "DEVICE?",
+    "PWR?",
+    "SRCLIST?",
+    "RPLIST?",
+    "VOILIST?",
+
+    "SRC?",
+    "RP?",
+    "VOI?",
+    "STREAMTYPE?",
+
+    "VOL?",
+    "MUTE?",
+
+    "BASS?",
+    "TREBLE?",
+    "BAL?"
 ]
 
 
@@ -235,6 +306,7 @@ class LyngdorfModelMixin:
 
 class LyngdorfModel(LyngdorfModelMixin, Enum):
     MP_60 = "mp-60", "Lyngdorf", MP60_MESSAGES, MP60_SETUP_MESSAGES
+    TDAI_1120 = "tdai-1120", "Lyngdorf", TDAI1120_MESSAGES, TDAI1120_SETUP_MESSAGES
 
 
 # RESPONSES = {

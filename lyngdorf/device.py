@@ -594,7 +594,11 @@ class Receiver:
         
         
         
-from .const import MP60_AUDIO_INPUTS, MP60_VIDEO_INPUTS, MP60_STREAM_TYPES       
+from .const import (
+    MP60_AUDIO_INPUTS, MP60_VIDEO_INPUTS, MP60_STREAM_TYPES,
+    TDAI1120_STREAM_TYPES
+)
+
 class MP60Receiver(Receiver):
 
     def __init__(self, host: str):
@@ -603,17 +607,28 @@ class MP60Receiver(Receiver):
         self._video_inputs=MP60_VIDEO_INPUTS
         self._stream_types=MP60_STREAM_TYPES
         super().__init__(host, LyngdorfModel.MP_60)
+
+class TDAI1120Receiver(Receiver):
+
+    def __init__(self, host: str):
+        """Initialize the client."""
+        self._audio_inputs={}  # TDAI-1120 uses dynamic source list
+        self._video_inputs={}  # TDAI-1120 has no video inputs
+        self._stream_types=TDAI1120_STREAM_TYPES
+        super().__init__(host, LyngdorfModel.TDAI_1120)
     
-def create_receiver(host: str, model: LyngdorfModel=None, ) -> Receiver: 
+def create_receiver(host: str, model: LyngdorfModel=None, ) -> Receiver:
     if not (model):
         try:
             model = find_receiver_model(host)
         except:
             return None
         if not (model):
-            raise NotImplementedError("Unknown Receiver")    
+            raise NotImplementedError("Unknown Receiver")
     if (model == LyngdorfModel.MP_60):
         return MP60Receiver(host)
+    if (model == LyngdorfModel.TDAI_1120):
+        return TDAI1120Receiver(host)
     raise NotImplementedError("Unknown Receiver")
 
 def find_receiver_model(host: str) -> LyngdorfModel: 
