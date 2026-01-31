@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "lyngdorf"
-version = "0.4.1"
+version = "0.4.2"
 description = "Library to control a Lyngdorf A/V processor"
 authors = ["Alex Fishlock <alex.fishlock@racingjag.com>"]
 license = "MIT"
@@ -19,12 +19,12 @@ Issues = "https://github.com/fishloa/lyngdorf/issues"
 
 [tool.poetry.dependencies]
 python = "^3.11"
-attrs = "^23.0.0"
+attrs = ">=21.0.0"
 
 [tool.poetry.group.dev.dependencies]
-pytest = "^7.4.3"
-black = "^23.11.0"
-pytest-asyncio = "^0.21.1"
+pytest = "^9.0.0"
+black = "^26.0.0"
+pytest-asyncio = "^1.0.0"
 
 [build-system]
 requires = ["poetry-core"]
