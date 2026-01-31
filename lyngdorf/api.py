@@ -16,7 +16,7 @@ import traceback
 from asyncio import timeout as asyncio_timeout
 from typing import Callable, Dict, Optional, cast, List
 
-from lyngdorf.const import (
+from .const import (
     DEFAULT_LYNGDORF_PORT,
     RECONNECT_BACKOFF, RECONNECT_MAX_WAIT, RECONNECT_SCALE, MONITOR_INTERVAL,
     Msg, LyngdorfModel
@@ -102,7 +102,7 @@ class LyngdorfApi:
         )
         self._last_message_time: float = -1.0
         self._connect_lock: asyncio.Lock  # = attr.ib(default=attr.Factory(asyncio.Lock))
-        self._reconnect_task: asyncio.Task = None
+        self._reconnect_task: Optional[asyncio.Task[None]] = None
         self._monitor_handle: asyncio.TimerHandle
         self._protocol: LyngdorfProtocol
         self._callbacks: Dict[str, Callable] = {}

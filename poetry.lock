@@ -198,4 +198,4 @@ testing = ["coverage (>=6.2)", "flaky (>=3.5.0)", "hypothesis (>=5.7.1)", "mypy 
 [metadata]
 lock-version = "2.0"
 python-versions = "^3.11"
-content-hash = "317756490d889831f5daa020d4109083f61be93bedf3110feec3c42bc8b56a19"
+content-hash = "779c70af1896ce38078455b158fbe9cdcbbd91c16c7077fdbf117dbf0f20374e"
