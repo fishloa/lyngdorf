@@ -3,7 +3,7 @@ import logging
 import pytest
 
 from lyngdorf.base import CountingNumberDict
-from lyngdorf.device import find_receiver_model
+from lyngdorf.device import async_find_receiver_model
 
 _LOGGER = logging.getLogger(__package__)
 

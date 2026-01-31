@@ -1,9 +1,8 @@
 import logging
 import traceback
 import asyncio
-import socket
 from attr import field, validators
-from typing import Union, Callable, List
+from typing import Optional, Union, Callable, List
 from .api import LyngdorfApi
 from .base import CountingNumberDict
 from .const import POWER_ON, LyngdorfModel, Msg, DEFAULT_LYNGDORF_PORT
@@ -617,49 +616,49 @@ class TDAI1120Receiver(Receiver):
         self._stream_types=TDAI1120_STREAM_TYPES
         super().__init__(host, LyngdorfModel.TDAI_1120)
     
-def create_receiver(host: str, model: LyngdorfModel=None, ) -> Receiver:
-    if not (model):
+async def async_create_receiver(host: str, model: LyngdorfModel=None) -> Receiver:
+    if not model:
         try:
-            model = find_receiver_model(host)
-        except:
+            model = await async_find_receiver_model(host)
+        except Exception:
             return None
-        if not (model):
+        if not model:
             raise NotImplementedError("Unknown Receiver")
-    if (model == LyngdorfModel.MP_60):
+    if model == LyngdorfModel.MP_60:
         return MP60Receiver(host)
-    if (model == LyngdorfModel.TDAI_1120):
+    if model == LyngdorfModel.TDAI_1120:
         return TDAI1120Receiver(host)
     raise NotImplementedError("Unknown Receiver")
 
-def find_receiver_model(host: str) -> LyngdorfModel: 
-    sock: socket=None
+async def async_find_receiver_model(host: str, timeout: float = 5.0) -> LyngdorfModel:
+    writer = None
     try:
-        modelName:str=None
-        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        sock.connect((host, DEFAULT_LYNGDORF_PORT))
-        sock.sendall("!DEVICE?\r".encode("utf-8"))
-        buf=sock.recv(20)
-        message=buf.decode("utf-8")
-        try:
-            sock.close()
-        except:
-            pass
+        reader, writer = await asyncio.wait_for(
+            asyncio.open_connection(host, DEFAULT_LYNGDORF_PORT),
+            timeout=timeout
+        )
+        writer.write("!DEVICE?\r".encode("utf-8"))
+        await writer.drain()
+        buf = await asyncio.wait_for(reader.read(20), timeout=timeout)
+        message = buf.decode("utf-8")
         message = message[1:]
         if 1 < message.find("(") < message.find(")"):
-            cmd = message[: message.find("(")]
             modelName = message[1 + message.find("(") : message.find(")")]
-            model: LyngdorfModel=lookup_receiver_model(modelName)
-            if (model):
+            model = lookup_receiver_model(modelName)
+            if model:
                 return model
-            _LOGGER.warn(f'model {modelName} receiver found at {host}, but we cannot use it as it is not implemented')
-    except socket.error as exc:
-        _LOGGER.warn(f'Attempting to connect with {host}, but we we failed {exc}')
-        if (sock):
+            _LOGGER.warning(f'model {modelName} receiver found at {host}, but we cannot use it as it is not implemented')
+    except asyncio.TimeoutError:
+        _LOGGER.warning(f'Connection to {host} timed out')
+    except OSError as exc:
+        _LOGGER.warning(f'Attempting to connect with {host}, but we failed: {exc}')
+    finally:
+        if writer:
+            writer.close()
             try:
-                sock.close()
-            except:
+                await writer.wait_closed()
+            except Exception:
                 pass
-        return None
     return None
 
 def lookup_receiver_model(modelName: str) -> LyngdorfModel:  

@@ -6,7 +6,7 @@ from unittest.mock import create_autospec
 
 from lyngdorf.const import LyngdorfModel, Msg
 from lyngdorf.api import LyngdorfProtocol
-from lyngdorf.device import Receiver, create_receiver
+from lyngdorf.device import Receiver, async_create_receiver
 
 _LOGGER = logging.getLogger(__package__)
 
@@ -93,8 +93,9 @@ class TestMainFunctions:
     def test_logging(self):
         _LOGGER.debug("Hello from debug logging")
 
-    def test_instantiate(self):
-        client0= create_receiver(FAKE_IP, LyngdorfModel.MP_60)
+    @pytest.mark.asyncio
+    async def test_instantiate(self):
+        client0 = await async_create_receiver(FAKE_IP, LyngdorfModel.MP_60)
         assert client0.model.model=="mp-60"
         assert client0.model.manufacturer=="Lyngdorf"
         assert client0.model.name=="MP_60"
@@ -334,7 +335,7 @@ class TestMainFunctions:
             protocol._on_message = proto._on_message
             return [transport, proto]
 
-        client = create_receiver(FAKE_IP, LyngdorfModel.MP_60)
+        client = await async_create_receiver(FAKE_IP, LyngdorfModel.MP_60)
         if before_connect_function is not None:
             before_connect_function(client)
 
@@ -374,7 +375,7 @@ class TestMainFunctions:
             # pylint: disable=protected-access
             return [transport, proto]
 
-        client = create_receiver(FAKE_IP, LyngdorfModel.MP_60)
+        client = await async_create_receiver(FAKE_IP, LyngdorfModel.MP_60)
         if before_connect_function is not None:
             before_connect_function(client)
 
