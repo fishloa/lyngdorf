@@ -1,8 +1,10 @@
 name: Publish
 
 on:
-  release:
-    types: [published]
+  push:
+    branches: [main]
+    paths:
+      - 'pyproject.toml'
 
 permissions:
   contents: read
@@ -10,28 +12,46 @@ permissions:
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        python-version: ["3.11"]
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
     - name: Install poetry
       uses: abatilo/actions-poetry@v2
-    - name: Setup a local virtual environment (if no poetry.toml file)
+    - name: Get version from pyproject.toml
+      id: get_version
+      run: |
+        VERSION=$(poetry version -s)
+        echo "version=$VERSION" >> $GITHUB_OUTPUT
+    - name: Check if version exists on PyPI
+      id: check_pypi
+      run: |
+        if pip index versions lyngdorf 2>/dev/null | grep -q "${{ steps.get_version.outputs.version }}"; then
+          echo "exists=true" >> $GITHUB_OUTPUT
+        else
+          echo "exists=false" >> $GITHUB_OUTPUT
+        fi
+      continue-on-error: true
+    - name: Setup a local virtual environment
+      if: steps.check_pypi.outputs.exists != 'true'
       run: |
         poetry config virtualenvs.create true --local
         poetry config virtualenvs.in-project true --local
-    - uses: actions/cache@v3
-      name: Define a cache for the virtual environment based on the dependencies lock file
+    - uses: actions/cache@v4
+      if: steps.check_pypi.outputs.exists != 'true'
+      name: Cache virtual environment
       with:
         path: ./.venv
         key: venv-${{ hashFiles('poetry.lock') }}
     - name: Install the project dependencies
+      if: steps.check_pypi.outputs.exists != 'true'
       run: poetry install
+    - name: Run tests
+      if: steps.check_pypi.outputs.exists != 'true'
+      run: poetry run pytest
     - name: Build package
+      if: steps.check_pypi.outputs.exists != 'true'
       run: poetry build
-    - name: Setup poetry API key
-      run: poetry config pypi-token.pypi ${{ secrets.PYPI_API_TOKEN }}
-    - name: Publish
-      run: poetry publish -u __token__
+    - name: Publish to PyPI
+      if: steps.check_pypi.outputs.exists != 'true'
+      run: |
+        poetry config pypi-token.pypi ${{ secrets.PYPI_API_TOKEN }}
+        poetry publish
