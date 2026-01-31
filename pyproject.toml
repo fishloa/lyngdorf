@@ -13,7 +13,7 @@ classifiers = [
     "Operating System :: OS Independent",
 ]
 
-[project.urls]
+[tool.poetry.urls]
 Homepage = "https://github.com/fishloa/lyngdorf"
 Issues = "https://github.com/fishloa/lyngdorf/issues"
 
