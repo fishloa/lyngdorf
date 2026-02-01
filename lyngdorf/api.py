@@ -102,7 +102,7 @@ class LyngdorfApi:
         )
         self._last_message_time: float = -1.0
         self._connect_lock: asyncio.Lock  # = attr.ib(default=attr.Factory(asyncio.Lock))
-        self._reconnect_task: Optional[asyncio.Task[None]] = None
+        self._reconnect_task: asyncio.Task = None
         self._monitor_handle: asyncio.TimerHandle
         self._protocol: LyngdorfProtocol
         self._callbacks: Dict[str, Callable] = {}

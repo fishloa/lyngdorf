@@ -305,8 +305,15 @@ class LyngdorfModelMixin:
     
 
 class LyngdorfModel(LyngdorfModelMixin, Enum):
+    """Enum of supported Lyngdorf receiver models."""
+
     MP_60 = "mp-60", "Lyngdorf", MP60_MESSAGES, MP60_SETUP_MESSAGES
     TDAI_1120 = "tdai-1120", "Lyngdorf", TDAI1120_MESSAGES, TDAI1120_SETUP_MESSAGES
+
+
+def supported_models() -> list[LyngdorfModel]:
+    """Return a list of all supported Lyngdorf receiver models."""
+    return list(LyngdorfModel)
 
 
 # RESPONSES = {

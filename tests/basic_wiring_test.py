@@ -4,7 +4,8 @@ import pytest
 from unittest import mock
 from unittest.mock import create_autospec
 
-from lyngdorf.const import LyngdorfModel, Msg
+from lyngdorf.const import LyngdorfModel, Msg, supported_models
+from lyngdorf.device import lookup_receiver_model
 from lyngdorf.api import LyngdorfProtocol
 from lyngdorf.device import Receiver, async_create_receiver
 
@@ -82,9 +83,51 @@ FAKE_IP = "0.0.0.0"
 CALL_COUNT = 0
 
 
+class TestSupportedModels:
+    """Tests for the supported_models helper and lookup functions."""
+
+    def test_supported_models_returns_all_enum_values(self):
+        """Verify supported_models() returns all LyngdorfModel enum members."""
+        models = supported_models()
+        assert isinstance(models, list)
+        assert len(models) == len(LyngdorfModel)
+        for model in LyngdorfModel:
+            assert model in models
+
+    def test_supported_models_contains_mp60(self):
+        """Verify MP-60 is in supported models."""
+        models = supported_models()
+        assert LyngdorfModel.MP_60 in models
+
+    def test_supported_models_contains_tdai1120(self):
+        """Verify TDAI-1120 is in supported models."""
+        models = supported_models()
+        assert LyngdorfModel.TDAI_1120 in models
+
+    def test_lookup_receiver_model_mp60(self):
+        """Test lookup_receiver_model finds MP-60."""
+        model = lookup_receiver_model("mp-60")
+        assert model == LyngdorfModel.MP_60
+
+    def test_lookup_receiver_model_tdai1120(self):
+        """Test lookup_receiver_model finds TDAI-1120."""
+        model = lookup_receiver_model("tdai-1120")
+        assert model == LyngdorfModel.TDAI_1120
+
+    def test_lookup_receiver_model_case_insensitive(self):
+        """Test lookup_receiver_model is case-insensitive."""
+        assert lookup_receiver_model("MP-60") == LyngdorfModel.MP_60
+        assert lookup_receiver_model("Mp-60") == LyngdorfModel.MP_60
+        assert lookup_receiver_model("TDAI-1120") == LyngdorfModel.TDAI_1120
+
+    def test_lookup_receiver_model_unknown(self):
+        """Test lookup_receiver_model returns None for unknown models."""
+        assert lookup_receiver_model("unknown-model") is None
+
+
 class TestMainFunctions:
     future = None
-    
+
     def test_model(self):
         mp60: LyngdorfModel=LyngdorfModel.MP_60
         l= f'{mp60.lookup_command(Msg.PONG)}'

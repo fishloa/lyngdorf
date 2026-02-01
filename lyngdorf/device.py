@@ -661,8 +661,16 @@ async def async_find_receiver_model(host: str, timeout: float = 5.0) -> Lyngdorf
                 pass
     return None
 
-def lookup_receiver_model(modelName: str) -> LyngdorfModel:  
+def lookup_receiver_model(model_name: str) -> LyngdorfModel | None:
+    """Look up a LyngdorfModel by its model string identifier.
+
+    Args:
+        model_name: The model identifier string (e.g., "mp-60", "tdai-1120").
+
+    Returns:
+        The matching LyngdorfModel, or None if not found.
+    """
     for model in LyngdorfModel:
-        if (model.model.casefold() == modelName.casefold()):
+        if model.model.casefold() == model_name.casefold():
             return model
     return None
