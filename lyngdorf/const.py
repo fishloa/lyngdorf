@@ -46,6 +46,7 @@ Msg = Enum(
         "SOURCES_COUNT",
         "SOURCE",
         "SOURCES",  # Source list query
+        "SOURCE_LIST",  # TDAI source list query
         "ZONE_B_POWER",
         "ZONE_B_POWER_ON",
         "ZONE_B_POWER_OFF",
@@ -69,9 +70,11 @@ Msg = Enum(
         "ROOM_PERFECT_POSITIONS_COUNT",
         "ROOM_PERFECT_POSITION",
         "ROOM_PERFECT_POSITIONS",  # Room Perfect position list query
+        "ROOM_PERFECT_POSITION_LIST",  # TDAI Room Perfect position list query
         "ROOM_PERFECT_VOICINGS_COUNT",
         "ROOM_PERFECT_VOICING",
         "ROOM_PERFECT_VOICINGS",  # Room Perfect voicing list query
+        "ROOM_PERFECT_VOICING_LIST",  # TDAI Room Perfect voicing list query
         "LIP_SYNC",
         "LIP_SYNC_MIN_MAX",
         "TRIM_BASS",
@@ -81,6 +84,7 @@ Msg = Enum(
         "TRIM_SURROUND",
         "TRIM_TREBLE",
         "TRIM_TREBLE_SET",
+        "BALANCE",  # Audio balance control
     ],
 )
 
