@@ -14,7 +14,7 @@ _LOGGER = logging.getLogger(__package__)
 
 
 @s(auto_attribs=True, init=False)
-class CountingNumberDict(dict):
+class CountingNumberDict(dict[int, str]):
     """An integer:String map, that keeps track of how many elements it should have"""
 
     count: int = 0
@@ -26,18 +26,18 @@ class CountingNumberDict(dict):
     def is_full(self) -> bool:
         return len(self.keys()) >= self.count
 
-    def count_callback(self, param1: str, ignored: str):
+    def count_callback(self, param1: str, ignored: str) -> None:
         self.clear()
         self.count = int(param1)
 
-    def add(self, index: int, value: str):
+    def add(self, index: int, value: str) -> None:
         self.__setitem__(index, value)
         
     @property
-    def list_of_values(self): 
+    def list_of_values(self) -> list[str]: 
         return list(self.values()) 
 
-    def lookupIndex(self, value: str):
+    def lookupIndex(self, value: str) -> int:
         for k, v in self.items():
             if value == v:
                 return k

@@ -2,10 +2,14 @@ import logging
 import traceback
 import asyncio
 from attr import field, validators
-from typing import Optional, Union, Callable, List
+from typing import Union, Callable
 from .api import LyngdorfApi
 from .base import CountingNumberDict
-from .const import POWER_ON, LyngdorfModel, Msg, DEFAULT_LYNGDORF_PORT
+from .const import (
+    POWER_ON, LyngdorfModel, Msg, DEFAULT_LYNGDORF_PORT,
+    MP60_AUDIO_INPUTS, MP60_VIDEO_INPUTS, MP60_STREAM_TYPES,
+    TDAI1120_STREAM_TYPES
+)
 from .exceptions import LyngdorfInvalidValueError
 
 _LOGGER = logging.getLogger(__package__)
@@ -20,60 +24,69 @@ class Receiver:
     """Lyngdorf client class."""
 
     _api: LyngdorfApi
-    _model: LyngdorfModel = None
-    _host: str = None
+    _model: LyngdorfModel | None
+    _host: str | None
     
-    _stream_types=dict()
-    _audio_inputs=dict()
-    _video_inputs=dict()
+    _stream_types: dict[int, str]
+    _audio_inputs: dict[int, str]
+    _video_inputs: dict[int, str]
     
-    _notification_callbacks: List = list()
+    _notification_callbacks: list[Callable[[], None]]
 
-    _name: str = None
-    _volume: float = field(validator=[validators.ge(-99.9), validators.lt(10.0)],default=None)
-    _zone_b_volume: float = field(validator=[validators.ge(-99.9), validators.lt(10.0)],default=None)
-    _mute_enabled: bool = None
-    _zone_b_mute_enabled: bool = None
+    _name: str | None
+    _volume: float | None = field(validator=[validators.ge(-99.9), validators.lt(10.0)], default=None)
+    _zone_b_volume: float | None = field(validator=[validators.ge(-99.9), validators.lt(10.0)], default=None)
+    _mute_enabled: bool | None
+    _zone_b_mute_enabled: bool | None
     _sources = CountingNumberDict()
-    _source: str = None
+    _source: str | None
     _zone_b_sources = CountingNumberDict()
-    _zone_b_source: str = None
+    _zone_b_source: str | None
     _sound_modes = CountingNumberDict()
-    _sound_mode: str = None
-    _audio_input: str = None
-    _zone_b_audio_input: str = None
-    _video_input: str = None
-    _audio_info: str = None
-    _video_info: str = None
-    _streaming_source: str = None
-    _zone_b_streaming_source: str = None
-    _zone_b_audio_info: str = None
-    _power_on: bool = None
-    _zone_b_power_on: bool = None
+    _sound_mode: str | None
+    _audio_input: str | None
+    _zone_b_audio_input: str | None
+    _video_input: str | None
+    _audio_info: str | None
+    _video_info: str | None
+    _streaming_source: str | None
+    _zone_b_streaming_source: str | None
+    _zone_b_audio_info: str | None
+    _power_on: bool | None
+    _zone_b_power_on: bool | None
     
     # Trims
-    _trim_bass: float = field(validator=[validators.ge(-12.0), validators.lt(12.0)],default=None)
-    _trim_centre: float = field(validator=[validators.ge(-10.0), validators.lt(10.0)],default=None)
-    _trim_height: float = field(validator=[validators.ge(-10.0), validators.lt(10.0)],default=None)
-    _trim_lfe: float = field(validator=[validators.ge(-10.0), validators.lt(10.0)],default=None)
-    _trim_surround: float = field(validator=[validators.ge(-10.0), validators.lt(10.0)],default=None)
-    _trim_treble: float = field(validator=[validators.ge(-12.0), validators.lt(12.0)],default=None)
+    _trim_bass: float | None = field(validator=[validators.ge(-12.0), validators.lt(12.0)], default=None)
+    _trim_centre: float | None = field(validator=[validators.ge(-10.0), validators.lt(10.0)], default=None)
+    _trim_height: float | None = field(validator=[validators.ge(-10.0), validators.lt(10.0)], default=None)
+    _trim_lfe: float | None = field(validator=[validators.ge(-10.0), validators.lt(10.0)], default=None)
+    _trim_surround: float | None = field(validator=[validators.ge(-10.0), validators.lt(10.0)], default=None)
+    _trim_treble: float | None = field(validator=[validators.ge(-12.0), validators.lt(12.0)], default=None)
     
     
     # Audio Tuning
     _room_perfect_positions = CountingNumberDict()
-    _room_perfect_position: str = None
+    _room_perfect_position: str | None
     _voicings = CountingNumberDict()
-    _voicing: str = None
-    _lipsync: int = None
+    _voicing: str | None
+    _lipsync: int | None
 
     def __init__(self, host: str, model: LyngdorfModel):
         """Initialize the client."""
-        self._host=host
-        self._model=model
+        self._host = host
+        self._model = model
         assert model
         assert host
         self._api: LyngdorfApi = LyngdorfApi(host, model)
+        # Initialize dicts for base class; subclasses can override these before calling super()
+        if not hasattr(self, '_stream_types'):
+            self._stream_types: dict[int, str] = {}
+        if not hasattr(self, '_audio_inputs'):
+            self._audio_inputs: dict[int, str] = {}
+        if not hasattr(self, '_video_inputs'):
+            self._video_inputs: dict[int, str] = {}
+        if not hasattr(self, '_notification_callbacks'):
+            self._notification_callbacks: list[Callable[[], None]] = []
 
     async def async_connect(self):
         # Basics
@@ -129,7 +142,8 @@ class Receiver:
     async def async_disconnect(self):
         await self._api.async_disconnect()
         
-    def lookup_command(self, key: Msg):
+    def lookup_command(self, key: Msg) -> str:
+        assert self._model is not None
         return self._model.lookup_command(key)
 
     # Notifications Support
@@ -146,7 +160,7 @@ class Receiver:
         for callback in self._notification_callbacks:
             try:
                 callback()
-            except Exception as err:
+            except Exception:
                 # TIM. TODO. need to log the stack trace of the error found here, as at the moment v hard to find errors
 
                 _LOGGER.error(
@@ -164,7 +178,7 @@ class Receiver:
         return self._name
     
     @property
-    def host(self) -> str:
+    def host(self) -> str | None:
         return self._host
     
     @property
@@ -202,7 +216,7 @@ class Receiver:
         return self._volume
 
     @volume.setter
-    def volume(self, value):
+    def volume(self, value: float) -> None:
         self._api.volume(value)
 
     @property
@@ -210,7 +224,7 @@ class Receiver:
         return self._zone_b_volume
 
     @zone_b_volume.setter
-    def zone_b_volume(self, value):
+    def zone_b_volume(self, value: float) -> None:
         self._api.zone_b_volume(value)
 
     def volume_up(self):
@@ -589,14 +603,7 @@ class Receiver:
 
     def trim_treble_down(self):
         self._api.trim_treble_down()
-        
-        
-        
-        
-from .const import (
-    MP60_AUDIO_INPUTS, MP60_VIDEO_INPUTS, MP60_STREAM_TYPES,
-    TDAI1120_STREAM_TYPES
-)
+
 
 class MP60Receiver(Receiver):
 
@@ -616,7 +623,7 @@ class TDAI1120Receiver(Receiver):
         self._stream_types=TDAI1120_STREAM_TYPES
         super().__init__(host, LyngdorfModel.TDAI_1120)
     
-async def async_create_receiver(host: str, model: LyngdorfModel=None) -> Receiver:
+async def async_create_receiver(host: str, model: LyngdorfModel | None = None) -> Receiver | None:
     if not model:
         try:
             model = await async_find_receiver_model(host)
@@ -630,7 +637,7 @@ async def async_create_receiver(host: str, model: LyngdorfModel=None) -> Receive
         return TDAI1120Receiver(host)
     raise NotImplementedError("Unknown Receiver")
 
-async def async_find_receiver_model(host: str, timeout: float = 5.0) -> LyngdorfModel:
+async def async_find_receiver_model(host: str, timeout: float = 5.0) -> LyngdorfModel | None:
     writer = None
     try:
         reader, writer = await asyncio.wait_for(
