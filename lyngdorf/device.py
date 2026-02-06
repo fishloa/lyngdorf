@@ -852,6 +852,6 @@ def lookup_receiver_model(model_name: str) -> LyngdorfModel | None:
         The matching LyngdorfModel, or None if not found.
     """
     for model in LyngdorfModel:
-        if model.model.casefold() == model_name.casefold():
+        if model.model_name.casefold() == model_name.casefold():
             return model
     return None

@@ -169,7 +169,7 @@ class TestMainFunctions:
     @pytest.mark.asyncio
     async def test_instantiate(self):
         client0 = await async_create_receiver(FAKE_IP, LyngdorfModel.MP_60)
-        assert client0.model.model == "mp-60"
+        assert client0.model.model_name == "mp-60"
         assert client0.model.manufacturer == "Lyngdorf"
         assert client0.model.name == "MP_60"
 
@@ -1642,7 +1642,7 @@ class TestLyngdorfModel:
     def test_lyngdorf_model_mp60_properties(self):
         """Test MP-60 model has correct properties."""
         model = LyngdorfModel.MP_60
-        assert model.model == "mp-60"
+        assert model.model_name == "mp-60"
         assert model.manufacturer == "Lyngdorf"
         assert model.name == "MP_60"
         assert len(model.setup_commands) > 0
@@ -1650,7 +1650,7 @@ class TestLyngdorfModel:
     def test_lyngdorf_model_tdai1120_properties(self):
         """Test TDAI-1120 model has correct properties."""
         model = LyngdorfModel.TDAI_1120
-        assert model.model == "tdai-1120"
+        assert model.model_name == "tdai-1120"
         assert model.manufacturer == "Lyngdorf"
         assert model.name == "TDAI_1120"
         assert len(model.setup_commands) > 0

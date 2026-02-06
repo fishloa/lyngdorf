@@ -58,29 +58,13 @@ class LyngdorfModel(Enum):
         """
         return self.value
 
-    # Backward compatibility: maintain the dataclass-like interface
     @property
-    def _model(self) -> str:
-        """Backward compatibility: model name."""
-        return self.value.model_name
-
-    @property
-    def _manufacterer(self) -> str:
-        """Backward compatibility: manufacturer (note: typo preserved)."""
-        return self.value.manufacturer
-
-    @property
-    def _commands(self) -> dict:
-        """Backward compatibility: command mapping."""
+    def commands(self) -> dict:
+        """Get the protocol command mapping for this model."""
         return self.value.messages
 
     @property
-    def _setup_commands(self) -> list[str]:
-        """Backward compatibility: setup commands."""
-        return self.value.setup_commands
-
-    @property
-    def model(self) -> str:
+    def model_name(self) -> str:
         """Get model name."""
         return self.value.model_name
 
