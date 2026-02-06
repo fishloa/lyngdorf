@@ -45,14 +45,17 @@ Msg = Enum(
         "MUTE_OFF",
         "SOURCES_COUNT",
         "SOURCE",
+        "SOURCES",  # Source list query
         "ZONE_B_POWER",
         "ZONE_B_POWER_ON",
         "ZONE_B_POWER_OFF",
         "ZONE_B_VOLUME",
+        "ZONE_B_MUTE",  # Zone B mute query
         "ZONE_B_MUTE_ON",
         "ZONE_B_MUTE_OFF",
         "ZONE_B_SOURCES_COUNT",
         "ZONE_B_SOURCE",
+        "ZONE_B_SOURCES",  # Zone B source list query
         "AUDIO_IN",
         "ZONE_B_AUDIO_IN",
         "VIDEO_IN",
@@ -62,10 +65,13 @@ Msg = Enum(
         "AUDIO_TYPE",
         "AUDIO_MODES_COUNT",
         "AUDIO_MODE",
+        "AUDIO_MODEL",  # Audio model query
         "ROOM_PERFECT_POSITIONS_COUNT",
         "ROOM_PERFECT_POSITION",
+        "ROOM_PERFECT_POSITIONS",  # Room Perfect position list query
         "ROOM_PERFECT_VOICINGS_COUNT",
         "ROOM_PERFECT_VOICING",
+        "ROOM_PERFECT_VOICINGS",  # Room Perfect voicing list query
         "LIP_SYNC",
         "LIP_SYNC_MIN_MAX",
         "TRIM_BASS",

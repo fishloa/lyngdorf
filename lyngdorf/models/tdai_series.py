@@ -41,20 +41,20 @@ TDAI_MESSAGES: dict[Msg, str] = {
 
 # TDAI-1120/2170 Shared Setup Sequence
 TDAI_SETUP_MESSAGES: list[str] = [
-    "VERB(1)",
-    "DEVICE?",
-    "PWR?",
+    f"{TDAI_MESSAGES[Msg.VERBOSE]}(1)",
+    f"{TDAI_MESSAGES[Msg.DEVICE]}?",
+    f"{TDAI_MESSAGES[Msg.POWER]}?",
     "SRCLIST?",
     "RPLIST?",
     "VOILIST?",
-    "SRC?",
-    "RP?",
-    "VOI?",
-    "STREAMTYPE?",
-    "VOL?",
-    "MUTE?",
-    "BASS?",
-    "TREBLE?",
+    f"{TDAI_MESSAGES[Msg.SOURCE]}?",
+    f"{TDAI_MESSAGES[Msg.ROOM_PERFECT_POSITION]}?",
+    f"{TDAI_MESSAGES[Msg.ROOM_PERFECT_VOICING]}?",
+    f"{TDAI_MESSAGES[Msg.STREAM_TYPE]}?",
+    f"{TDAI_MESSAGES[Msg.VOLUME]}?",
+    f"{TDAI_MESSAGES[Msg.MUTE]}?",
+    f"{TDAI_MESSAGES[Msg.TRIM_BASS]}?",
+    f"{TDAI_MESSAGES[Msg.TRIM_TREBLE]}?",
     "BAL?",
 ]
 
@@ -160,20 +160,20 @@ TDAI3400_MESSAGES: dict[Msg, str] = {
 }
 
 TDAI3400_SETUP_MESSAGES: list[str] = [
-    "VERB(1)",
-    "IDEVICE?",
-    "IPWR?",
+    f"{TDAI3400_MESSAGES[Msg.VERBOSE]}(1)",
+    f"{TDAI3400_MESSAGES[Msg.DEVICE]}?",
+    f"{TDAI3400_MESSAGES[Msg.POWER]}?",
     "SRCLIST?",
     "RPLIST?",
     "VOILIST?",
-    "ISRC?",
-    "IRP?",
-    "IVOI?",
-    "ISTREAMTYPE?",
-    "IVOL?",
-    "IMUTE?",
-    "IBASS?",
-    "ITREBLE?",
+    f"{TDAI3400_MESSAGES[Msg.SOURCE]}?",
+    f"{TDAI3400_MESSAGES[Msg.ROOM_PERFECT_POSITION]}?",
+    f"{TDAI3400_MESSAGES[Msg.ROOM_PERFECT_VOICING]}?",
+    f"{TDAI3400_MESSAGES[Msg.STREAM_TYPE]}?",
+    f"{TDAI3400_MESSAGES[Msg.VOLUME]}?",
+    f"{TDAI3400_MESSAGES[Msg.MUTE]}?",
+    f"{TDAI3400_MESSAGES[Msg.TRIM_BASS]}?",
+    f"{TDAI3400_MESSAGES[Msg.TRIM_TREBLE]}?",
     "BAL?",
 ]
 
