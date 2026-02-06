@@ -3,3 +3,6 @@ dist/
 dist
 .DS_Store
 venv/
+.coverage
+.pytest_cache/
+htmlcov/
