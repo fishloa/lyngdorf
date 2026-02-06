@@ -1,23 +1,27 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
-This module inherits constants for Lyngdorf receivers.
+Lyngdorf Audio Control Library - Constants Module.
+
+Hardware capabilities, command mappings, and protocol definitions
+for all supported Lyngdorf receiver models.
+
+Protocol Families:
+- MP Family: MP-40, MP-50, MP-60 (shared protocol)
+- TDAI Family: TDAI-1120, TDAI-2170 (shared protocol), TDAI-3400 (I-prefixed)
 
 :license: MIT, see LICENSE for more details.
 """
 
-import attr
-from enum import Enum
-from typing import Dict
 from dataclasses import dataclass
-
-ATTR_SETATTR = [attr.setters.validate, attr.setters.convert]
+from enum import Enum
 
 DEFAULT_LYNGDORF_PORT = 84
-RECONNECT_BACKOFF = 0.5 # half a second to wait for the first reconnect
-RECONNECT_SCALE = 2.5 # each reconnect attempt waits this times longer than the previous one
-RECONNECT_MAX_WAIT = 30.0 # Reconnect tasks will wait this many seconds at a maximum between each attempt
-MONITOR_INTERVAL = 90 # 90 seconds between PING commands
+RECONNECT_BACKOFF = 0.5  # half a second to wait for the first reconnect
+RECONNECT_SCALE = (
+    2.5  # each reconnect attempt waits this times longer than the previous one
+)
+RECONNECT_MAX_WAIT = 30.0  # Reconnect tasks will wait this many seconds at a maximum between each attempt
+MONITOR_INTERVAL = 90  # 90 seconds between PING commands
 
 POWER_ON = "1"
 POWER_OFF = "0"
@@ -63,7 +67,7 @@ MP60_AUDIO_INPUTS = {
     39: "Roon",
     40: "DLNA",
     41: "Storage",
-    42: "airable"
+    42: "airable",
 }
 
 MP60_ROOM_PERFECT_POSITIONS = {
@@ -72,10 +76,106 @@ MP60_ROOM_PERFECT_POSITIONS = {
     2: "Focus 2",
     3: "Focus 3",
     4: "Focus 4",
-    9: "Global"
+    9: "Global",
 }
 
 MP60_STREAM_TYPES = {
+    0: "None",
+    1: "vTuner",
+    2: "Spotify",
+    3: "AirPlay",
+    4: "UPnP",
+    5: "Storage",
+    6: "Roon ready",
+    7: "Unknown",
+}
+
+# MP-40 Constants (based on MP-40 External Control Manual 2020 v2)
+MP40_VIDEO_INPUTS = {
+    0: "None",
+    1: "HDMI 1",
+    2: "HDMI 2",
+    3: "HDMI 3",
+    9: "Internal",
+}
+
+MP40_AUDIO_INPUTS = {
+    0: "None",
+    1: "HDMI",
+    3: "Spdif 1 (Opt.)",
+    4: "Spdif 2 (Opt.)",
+    5: "Spdif 3 (Opt.)",
+    6: "Spdif 4 (Opt.)",
+    7: "Spdif 5 (AES)",
+    8: "Spdif 6 (Coax)",
+    9: "Spdif 7 (Coax)",
+    10: "Spdif 8 (Coax)",
+    11: "Internal Player",
+    12: "USB",
+    24: "Audio Return Channel",
+}
+
+MP40_STREAM_TYPES = {
+    0: "None",
+    1: "vTuner",
+    2: "Spotify",
+    3: "AirPlay",
+    4: "UPnP",
+    5: "Storage",
+    6: "Roon ready",
+    7: "Unknown",
+}
+
+# MP-50 Constants (based on MP-50 External Control Manual 2020)
+MP50_VIDEO_INPUTS = {
+    0: "None",
+    1: "HDMI 1",
+    2: "HDMI 2",
+    3: "HDMI 3",
+    4: "HDMI 4",
+    5: "HDMI 5",
+    6: "HDMI 6",
+    7: "HDMI 7",
+    8: "HDMI 8",
+    9: "Internal",
+}
+
+MP50_VIDEO_OUTPUTS = {
+    0: "None",
+    1: "HDMI Out 1",
+    2: "HDMI Out 2",
+    3: "HDBT Out",
+}
+
+MP50_AUDIO_INPUTS = {
+    0: "None",
+    1: "HDMI",
+    3: "Spdif 1 (Opt.)",
+    4: "Spdif 2 (Opt.)",
+    5: "Spdif 3 (Opt.)",
+    6: "Spdif 4 (Opt.)",
+    7: "Spdif 5 (AES)",
+    8: "Spdif 6 (Coax)",
+    9: "Spdif 7 (Coax)",
+    10: "Spdif 8 (Coax)",
+    11: "Internal Player",
+    12: "USB",
+    20: "16-Channel (optional AES module)",
+    21: "16-Channel 2.0 (optional AES module)",
+    22: "16-Channel 5.1 (optional AES module)",
+    23: "16-Channel 7.1 (optional AES module)",
+    24: "Audio Return Channel",
+    35: "vTuner",
+    36: "TIDAL",
+    37: "Spotify",
+    38: "Airplay",
+    39: "Roon",
+    40: "DLNA",
+    41: "Storage",
+    42: "airable",
+}
+
+MP50_STREAM_TYPES = {
     0: "None",
     1: "vTuner",
     2: "Spotify",
@@ -110,24 +210,112 @@ TDAI1120_ROOM_PERFECT_POSITIONS = {
     6: "Focus 6",
     7: "Focus 7",
     8: "Focus 8",
-    9: "Global"
+    9: "Global",
 }
-    
-Msg = Enum('Msg',
-    ['DEVICE','VERBOSE', 'PING','PONG',
-     'POWER', 'POWER_ON', 'POWER_OFF', 'VOLUME', 'MUTE', 'MUTE_ON', "MUTE_OFF", 'SOURCES_COUNT', 'SOURCE',
-     'ZONE_B_POWER', 'ZONE_B_POWER_ON', 'ZONE_B_POWER_OFF', 'ZONE_B_VOLUME', 'ZONE_B_MUTE_ON', "ZONE_B_MUTE_OFF", 'ZONE_B_SOURCES_COUNT', 'ZONE_B_SOURCE',
-     'AUDIO_IN', 'ZONE_B_AUDIO_IN', 'VIDEO_IN', 'STREAM_TYPE', 'ZONE_B_STREAM_TYPE',
-     'VIDEO_TYPE', 'AUDIO_TYPE', 'AUDIO_MODES_COUNT', 'AUDIO_MODE',
-     'ROOM_PERFECT_POSITIONS_COUNT', 'ROOM_PERFECT_POSITION', 'ROOM_PERFECT_VOICINGS_COUNT', 'ROOM_PERFECT_VOICING',
-     'LIP_SYNC', 'LIP_SYNC_MIN_MAX',
-     'TRIM_BASS', 'TRIM_CENTRE', 'TRIM_HEIGHT', 'TRIM_LFE', 'TRIM_SURROUND', 'TRIM_TREBLE', 'TRIM_TREBLE_SET'
-     ]
-    )
+
+# TDAI-2170 Constants (based on TDAI-2170 External Control Manual 2018)
+TDAI2170_STREAM_TYPES = {
+    0: "None",
+    1: "vTuner",
+    2: "Spotify",
+    3: "AirPlay",
+    4: "uPnP",
+    5: "USB File",
+    6: "Roon Ready",
+    7: "Unknown",
+}
+
+TDAI2170_ROOM_PERFECT_POSITIONS = {
+    0: "Bypass",
+    1: "Focus 1",
+    2: "Focus 2",
+    3: "Focus 3",
+    4: "Focus 4",
+    5: "Focus 5",
+    6: "Focus 6",
+    7: "Focus 7",
+    8: "Focus 8",
+    9: "Global",
+}
+
+# TDAI-3400 Constants (based on TDAI-3400 External Control Manual)
+TDAI3400_STREAM_TYPES = {
+    0: "None",
+    1: "vTuner",
+    2: "Spotify",
+    3: "AirPlay",
+    4: "uPnP",
+    5: "USB File",
+    6: "Roon Ready",
+    7: "Bluetooth",
+    8: "TIDAL",
+    9: "Unknown",
+}
+
+TDAI3400_ROOM_PERFECT_POSITIONS = {
+    0: "Bypass",
+    1: "Focus 1",
+    2: "Focus 2",
+    3: "Focus 3",
+    4: "Focus 4",
+    5: "Focus 5",
+    6: "Focus 6",
+    7: "Focus 7",
+    8: "Focus 8",
+    9: "Global",
+}
+
+Msg = Enum(
+    "Msg",
+    [
+        "DEVICE",
+        "VERBOSE",
+        "PING",
+        "PONG",
+        "POWER",
+        "POWER_ON",
+        "POWER_OFF",
+        "VOLUME",
+        "MUTE",
+        "MUTE_ON",
+        "MUTE_OFF",
+        "SOURCES_COUNT",
+        "SOURCE",
+        "ZONE_B_POWER",
+        "ZONE_B_POWER_ON",
+        "ZONE_B_POWER_OFF",
+        "ZONE_B_VOLUME",
+        "ZONE_B_MUTE_ON",
+        "ZONE_B_MUTE_OFF",
+        "ZONE_B_SOURCES_COUNT",
+        "ZONE_B_SOURCE",
+        "AUDIO_IN",
+        "ZONE_B_AUDIO_IN",
+        "VIDEO_IN",
+        "STREAM_TYPE",
+        "ZONE_B_STREAM_TYPE",
+        "VIDEO_TYPE",
+        "AUDIO_TYPE",
+        "AUDIO_MODES_COUNT",
+        "AUDIO_MODE",
+        "ROOM_PERFECT_POSITIONS_COUNT",
+        "ROOM_PERFECT_POSITION",
+        "ROOM_PERFECT_VOICINGS_COUNT",
+        "ROOM_PERFECT_VOICING",
+        "LIP_SYNC",
+        "LIP_SYNC_MIN_MAX",
+        "TRIM_BASS",
+        "TRIM_CENTRE",
+        "TRIM_HEIGHT",
+        "TRIM_LFE",
+        "TRIM_SURROUND",
+        "TRIM_TREBLE",
+        "TRIM_TREBLE_SET",
+    ],
+)
 
 
-
-MP60_MESSAGES: Dict[Msg, str] = {
+MP60_MESSAGES: dict[Msg, str] = {
     Msg.DEVICE: "DEVICE",
     Msg.VERBOSE: "VERB",
     Msg.PING: "PING",
@@ -170,10 +358,10 @@ MP60_MESSAGES: Dict[Msg, str] = {
     Msg.TRIM_LFE: "TRIMLFE",
     Msg.TRIM_SURROUND: "TRIMSURRS",
     Msg.TRIM_TREBLE: "TRIMTREBLE",
-    Msg.TRIM_TREBLE_SET: "TRIMTREB"
+    Msg.TRIM_TREBLE_SET: "TRIMTREB",
 }
 
-TDAI1120_MESSAGES: Dict[Msg, str] = {
+TDAI1120_MESSAGES: dict[Msg, str] = {
     Msg.DEVICE: "DEVICE",
     Msg.VERBOSE: "VERB",
     Msg.PING: "PING",
@@ -195,7 +383,7 @@ TDAI1120_MESSAGES: Dict[Msg, str] = {
     Msg.TRIM_BASS: "BASS",
     Msg.TRIM_TREBLE: "TREBLE",
 }
- 
+
 
 MP60_SETUP_MESSAGES = [
     "VERB(1)",
@@ -207,7 +395,6 @@ MP60_SETUP_MESSAGES = [
     "ZSRCS?",
     "RPFOCS?",
     "RPVOIS?",
-
     "AUDMODE?",
     "SRC?",
     "ZSRC?",
@@ -215,9 +402,7 @@ MP60_SETUP_MESSAGES = [
     "RPVOI?",
     "VIDTYPE?",
     "STREAMTYPE?",
-    "LIPSYNC?"
-    "ZSTREAMTYPE?",
-
+    "LIPSYNC?" "ZSTREAMTYPE?",
     "AUDIN?",
     "VIDIN?",
     "AUDTYPE?",
@@ -225,13 +410,12 @@ MP60_SETUP_MESSAGES = [
     "ZVOL?",
     "MUTE?",
     "ZMUTE?",
-
     "TRIMBASS?",
     "TRIMCENTER?",
     "TRIMHEIGHT?",
     "TRIMLFE?",
     "TRIMSURRS?",
-    "TRIMTREB?"
+    "TRIMTREB?",
 ]
 
 TDAI1120_SETUP_MESSAGES = [
@@ -241,18 +425,75 @@ TDAI1120_SETUP_MESSAGES = [
     "SRCLIST?",
     "RPLIST?",
     "VOILIST?",
-
     "SRC?",
     "RP?",
     "VOI?",
     "STREAMTYPE?",
-
     "VOL?",
     "MUTE?",
-
     "BASS?",
     "TREBLE?",
-    "BAL?"
+    "BAL?",
+]
+
+# MP-40 uses identical command protocol to MP-60
+MP40_MESSAGES: dict[Msg, str] = MP60_MESSAGES
+
+# MP-40 setup sequence is identical to MP-60
+MP40_SETUP_MESSAGES = MP60_SETUP_MESSAGES
+
+# MP-50 uses identical command protocol to MP-60
+MP50_MESSAGES: dict[Msg, str] = MP60_MESSAGES
+
+# MP-50 setup sequence is identical to MP-60
+MP50_SETUP_MESSAGES = MP60_SETUP_MESSAGES
+
+# TDAI-2170 uses identical command protocol to TDAI-1120
+TDAI2170_MESSAGES: dict[Msg, str] = TDAI1120_MESSAGES
+
+# TDAI-2170 setup sequence is identical to TDAI-1120
+TDAI2170_SETUP_MESSAGES = TDAI1120_SETUP_MESSAGES
+
+# TDAI-3400 uses similar but I-prefixed command protocol
+TDAI3400_MESSAGES: dict[Msg, str] = {
+    Msg.DEVICE: "IDEVICE",
+    Msg.VERBOSE: "VERB",
+    Msg.PING: "IPING",
+    Msg.PONG: "IPONG",
+    Msg.POWER: "IPWR",
+    Msg.POWER_ON: "ION",
+    Msg.POWER_OFF: "IOFF",
+    Msg.VOLUME: "IVOL",
+    Msg.MUTE: "IMUTE",
+    Msg.MUTE_ON: "IMUTEON",
+    Msg.MUTE_OFF: "IMUTEOFF",
+    Msg.SOURCES_COUNT: "ISRCCOUNT",
+    Msg.SOURCE: "ISRC",
+    Msg.STREAM_TYPE: "ISTREAMTYPE",
+    Msg.ROOM_PERFECT_POSITIONS_COUNT: "IRPCOUNT",
+    Msg.ROOM_PERFECT_POSITION: "IRP",
+    Msg.ROOM_PERFECT_VOICINGS_COUNT: "IVOICOUNT",
+    Msg.ROOM_PERFECT_VOICING: "IVOI",
+    Msg.TRIM_BASS: "IBASS",
+    Msg.TRIM_TREBLE: "ITREBLE",
+}
+
+TDAI3400_SETUP_MESSAGES = [
+    "VERB(1)",
+    "IDEVICE?",
+    "IPWR?",
+    "SRCLIST?",
+    "RPLIST?",
+    "VOILIST?",
+    "ISRC?",
+    "IRP?",
+    "IVOI?",
+    "ISTREAMTYPE?",
+    "IVOL?",
+    "IMUTE?",
+    "IBASS?",
+    "ITREBLE?",
+    "BAL?",
 ]
 
 
@@ -262,53 +503,58 @@ TDAI1120_SETUP_MESSAGES = [
 #     _manufacterer: str
 #     _commands: Dict[Msg, str]
 #     _setup_commands: list[str]
-    
+
 #     @property
 #     def model(self) -> str:
 #         return self._model
-    
+
 #     @property
 #     def manufacturer(self) -> str:
 #         return self._manufacterer
-    
+
 #     @property
 #     def setup_commands(self) -> list[str]:
 #         return self._setup_commands
-    
+
 #     @property
 #     def commands(self) -> Dict[Msg, str]:
 #         return self._commands
-    
+
+
 #     def lookup_command(self, key: Msg) -> str:
 #         return self.commands[key]
 @dataclass
 class LyngdorfModelMixin:
     _model: str
     _manufacterer: str
-    _commands: Dict[Msg, str]
+    _commands: dict[Msg, str]
     _setup_commands: list[str]
-    
+
     @property
     def model(self) -> str:
         return self._model
-    
+
     @property
     def manufacturer(self) -> str:
         return self._manufacterer
-    
+
     @property
     def setup_commands(self) -> list[str]:
         return self._setup_commands
-    
+
     def lookup_command(self, key: Msg) -> str:
         return self._commands[key]
-    
+
 
 class LyngdorfModel(LyngdorfModelMixin, Enum):
     """Enum of supported Lyngdorf receiver models."""
 
+    MP_40 = "mp-40", "Lyngdorf", MP40_MESSAGES, MP40_SETUP_MESSAGES
+    MP_50 = "mp-50", "Lyngdorf", MP50_MESSAGES, MP50_SETUP_MESSAGES
     MP_60 = "mp-60", "Lyngdorf", MP60_MESSAGES, MP60_SETUP_MESSAGES
     TDAI_1120 = "tdai-1120", "Lyngdorf", TDAI1120_MESSAGES, TDAI1120_SETUP_MESSAGES
+    TDAI_2170 = "tdai-2170", "Lyngdorf", TDAI2170_MESSAGES, TDAI2170_SETUP_MESSAGES
+    TDAI_3400 = "tdai-3400", "Lyngdorf", TDAI3400_MESSAGES, TDAI3400_SETUP_MESSAGES
 
 
 def supported_models() -> list[LyngdorfModel]:
@@ -326,7 +572,7 @@ def supported_models() -> list[LyngdorfModel]:
 #     "DTSDIALOG": "DTS Dialog Control",
 #     "DTSDIALOGAVAILABLE": "Current availability of DTS Dialog Control",
 #     "HDMIMAINOUT": "Which HDMI output is used for main out",
-#     "LIPSYNC": 
+#     "LIPSYNC":
 #     "LOUDNESS": "Loudness status",
 #     "MAXVOL": "Maximum volume setting",
 #     "POWER": "Power status",

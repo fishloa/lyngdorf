@@ -1,13 +1,13 @@
 [tool.poetry]
 name = "lyngdorf"
-version = "0.7.0"
+version = "1.0.0"
 description = "Library to control a Lyngdorf A/V processor"
 authors = ["Alex Fishlock <alex.fishlock@racingjag.com>"]
 license = "MIT"
 readme = "README.md"
 classifiers = [
-    "Development Status :: 4 - Beta",      # Chose either "3 - Alpha", "4 - Beta" or "5 - Production/Stable" as the current state of your package
-    "Intended Audience :: Developers",      # Define that your audience are developers
+    "Development Status :: 5 - Production/Stable",
+    "Intended Audience :: Developers",
     "Programming Language :: Python :: 3",
     "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
@@ -25,6 +25,34 @@ attrs = ">=21.0.0"
 pytest = "^9.0.0"
 black = "^26.0.0"
 pytest-asyncio = "^1.0.0"
+ruff = "^0.15.0"
+mypy = "^1.19.1"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "I",   # isort
+    "B",   # flake8-bugbear
+    "C4",  # flake8-comprehensions
+    "UP",  # pyupgrade
+]
+ignore = [
+    "E501",  # line too long (handled by formatter)
+]
+
+[tool.mypy]
+python_version = "3.11"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = false
+ignore_missing_imports = true
+check_untyped_defs = true
 
 [build-system]
 requires = ["poetry-core"]

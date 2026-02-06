@@ -1,28 +1,35 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
-Automation Library for Lyngdorf receivers.
+Lyngdorf Audio Control Library - API Module.
+
+Handles TCP/IP communication with Lyngdorf receivers on port 84.
+Implements asyncio protocol for command/response handling.
+
+Supported Models:
+- MP-40, MP-50, MP-60 (Processors)
+- TDAI-1120, TDAI-2170, TDAI-3400 (Integrated Amplifiers)
 
 :license: MIT, see LICENSE for more details.
 """
 
 import asyncio
 import contextlib
-import time
 import logging
-import attr
+import time
 import traceback
-
 from asyncio import timeout as asyncio_timeout
-from typing import Callable, Dict, Optional, cast, List
+from collections.abc import Callable
+from typing import cast
 
 from .const import (
     DEFAULT_LYNGDORF_PORT,
-    RECONNECT_BACKOFF, RECONNECT_MAX_WAIT, RECONNECT_SCALE, MONITOR_INTERVAL,
-    Msg, LyngdorfModel
+    MONITOR_INTERVAL,
+    RECONNECT_BACKOFF,
+    RECONNECT_MAX_WAIT,
+    RECONNECT_SCALE,
+    LyngdorfModel,
+    Msg,
 )
-
-
 
 _LOGGER = logging.getLogger(__package__)
 
@@ -37,7 +44,7 @@ class LyngdorfProtocol(asyncio.Protocol):
     ) -> None:
         """Initialize the protocol."""
         self._buffer = b""
-        self.transport: Optional[asyncio.Transport] = None
+        self.transport: asyncio.Transport | None = None
         self._on_message = on_message
         self._on_connection_lost = on_connection_lost
 
@@ -78,7 +85,7 @@ class LyngdorfProtocol(asyncio.Protocol):
         _LOGGER.debug("connection made")
         self.transport = transport  # type: ignore
 
-    def connection_lost(self, exc: Optional[Exception]) -> None:
+    def connection_lost(self, exc: Exception | None) -> None:
         """Handle connection lost."""
         self.close()
         self._on_connection_lost()
@@ -94,19 +101,13 @@ class LyngdorfApi:
         self.host = host
         self._model: LyngdorfModel = model
         self._connect_lock = asyncio.Lock()
-        self.host: str
-        self.timeout: float
-        self._connection_enabled: bool
-        self._healthy: Optional[bool] = attr.ib(
-            converter=attr.converters.optional(bool), default=None
-        )
+        self._healthy: bool | None = None
         self._last_message_time: float = -1.0
-        self._connect_lock: asyncio.Lock  # = attr.ib(default=attr.Factory(asyncio.Lock))
-        self._reconnect_task: asyncio.Task = None
-        self._monitor_handle: asyncio.TimerHandle
-        self._protocol: LyngdorfProtocol
-        self._callbacks: Dict[str, Callable] = {}
-        self._notification_callbacks: List = list()
+        self._reconnect_task: asyncio.Task | None = None
+        self._monitor_handle: asyncio.TimerHandle | None = None
+        self._protocol: LyngdorfProtocol | None = None
+        self._callbacks: dict[str, list[Callable]] = {}
+        self._notification_callbacks: list[Callable[[], None]] = []
 
     async def async_connect(self) -> None:
         """Connect to the receiver asynchronously."""
@@ -129,9 +130,9 @@ class LyngdorfApi:
                     self.host,
                     DEFAULT_LYNGDORF_PORT,
                 )
-        except asyncio.TimeoutError as err:
+        except TimeoutError as err:
             _LOGGER.debug("%s: Timeout exception on connect", self.host)
-            raise asyncio.TimeoutError(f"TimeoutException: {err}", "connect") from err
+            raise TimeoutError(f"TimeoutException: {err}", "connect") from err
         except ConnectionRefusedError as err:
             _LOGGER.debug("%s: Connection refused on connect", self.host, exc_info=True)
             raise ConnectionRefusedError(
@@ -169,7 +170,7 @@ class LyngdorfApi:
 
         if time_since_response > MONITOR_INTERVAL and self._protocol:
             # Keep the connection alive
-            self._writeCommand(f'{self._model.lookup_command(Msg.PING)}?')
+            self._writeCommand(f"{self._model.lookup_command(Msg.PING)}?")
         self._schedule_monitor()
 
     def _handle_disconnected(self) -> None:
@@ -221,126 +222,151 @@ class LyngdorfApi:
 
     def _writeCommand(self, command):
         """Send a command to the receiver."""
-        self._protocol.write(f"!{command}\r")
-        _LOGGER.debug("%s send: '!%s'", self.host, command)
+        if self._protocol is not None:
+            self._protocol.write(f"!{command}\r")
+            _LOGGER.debug("%s send: '!%s'", self.host, command)
 
     def power_on(self, enabled: bool):
         if enabled:
-            self._writeCommand(f'{self._model.lookup_command(Msg.POWER_ON)}')
+            self._writeCommand(f"{self._model.lookup_command(Msg.POWER_ON)}")
         else:
-            self._writeCommand(f'{self._model.lookup_command(Msg.POWER_OFF)}')
+            self._writeCommand(f"{self._model.lookup_command(Msg.POWER_OFF)}")
 
     def zone_b_power_on(self, enabled: bool):
         if enabled:
-            self._writeCommand(f'{self._model.lookup_command(Msg.ZONE_B_POWER_ON)}')
+            self._writeCommand(f"{self._model.lookup_command(Msg.ZONE_B_POWER_ON)}")
         else:
-            self._writeCommand(f'{self._model.lookup_command(Msg.ZONE_B_POWER_OFF)}')
+            self._writeCommand(f"{self._model.lookup_command(Msg.ZONE_B_POWER_OFF)}")
 
     def mute_enabled(self, mute: bool):
         if mute:
-            self._writeCommand(f'{self._model.lookup_command(Msg.MUTE_ON)}')
+            self._writeCommand(f"{self._model.lookup_command(Msg.MUTE_ON)}")
         else:
-            self._writeCommand(f'{self._model.lookup_command(Msg.MUTE_OFF)}')
+            self._writeCommand(f"{self._model.lookup_command(Msg.MUTE_OFF)}")
 
     def zone_b_mute_enabled(self, mute: bool):
         if mute:
-            self._writeCommand(f'{self._model.lookup_command(Msg.ZONE_B_MUTE_ON)}')
+            self._writeCommand(f"{self._model.lookup_command(Msg.ZONE_B_MUTE_ON)}")
         else:
-            self._writeCommand(f'{self._model.lookup_command(Msg.ZONE_B_MUTE_OFF)}')
+            self._writeCommand(f"{self._model.lookup_command(Msg.ZONE_B_MUTE_OFF)}")
 
     def volume_up(self):
-        self._writeCommand(f'{self._model.lookup_command(Msg.VOLUME)}+')
+        self._writeCommand(f"{self._model.lookup_command(Msg.VOLUME)}+")
 
     def volume_down(self):
-        self._writeCommand(f'{self._model.lookup_command(Msg.VOLUME)}-')
+        self._writeCommand(f"{self._model.lookup_command(Msg.VOLUME)}-")
 
     def zone_b_volume_up(self):
-        self._writeCommand(f'{self._model.lookup_command(Msg.ZONE_B_VOLUME)}+')
+        self._writeCommand(f"{self._model.lookup_command(Msg.ZONE_B_VOLUME)}+")
 
     def zone_b_volume_down(self):
-        self._writeCommand(f'{self._model.lookup_command(Msg.ZONE_B_VOLUME)}-')
+        self._writeCommand(f"{self._model.lookup_command(Msg.ZONE_B_VOLUME)}-")
 
     def volume(self, volume: float):
-        self._writeCommand(f"{self._model.lookup_command(Msg.VOLUME)}({volume*10.0:.0f})")
+        self._writeCommand(
+            f"{self._model.lookup_command(Msg.VOLUME)}({volume*10.0:.0f})"
+        )
 
     def zone_b_volume(self, volume: float):
-        self._writeCommand(f"{self._model.lookup_command(Msg.VOLUME)}({volume*10.0:.0f})")
+        self._writeCommand(
+            f"{self._model.lookup_command(Msg.VOLUME)}({volume*10.0:.0f})"
+        )
 
     def change_source(self, source: int):
         self._writeCommand(f"{self._model.lookup_command(Msg.SOURCE)}({source})")
 
     def change_zone_b_source(self, zone_b_source: int):
-        self._writeCommand(f"{self._model.lookup_command(Msg.ZONE_B_SOURCE)}({zone_b_source})")
+        self._writeCommand(
+            f"{self._model.lookup_command(Msg.ZONE_B_SOURCE)}({zone_b_source})"
+        )
 
     def change_sound_mode(self, sound_mode: int):
-        self._writeCommand(f"{self._model.lookup_command(Msg.AUDIO_MODE)}({sound_mode})")
-        
+        self._writeCommand(
+            f"{self._model.lookup_command(Msg.AUDIO_MODE)}({sound_mode})"
+        )
+
     def change_hdmi_main_out(self, hdmi_index: int):
         self._writeCommand(f"HDMIMAINOUT({hdmi_index})")
-        
+
     def change_room_perfect_position(self, room_perfect_position_index: int):
-        self._writeCommand(f"{self._model.lookup_command(Msg.ROOM_PERFECT_POSITION)}({room_perfect_position_index})")
-    
+        self._writeCommand(
+            f"{self._model.lookup_command(Msg.ROOM_PERFECT_POSITION)}({room_perfect_position_index})"
+        )
+
     def change_lipsync(self, lipsync: int):
         self._writeCommand(f"{self._model.lookup_command(Msg.LIP_SYNC)}({lipsync})")
-    
+
     def change_voicing(self, voicing: int):
-        self._writeCommand(f"{self._model.lookup_command(Msg.ROOM_PERFECT_VOICING)}({voicing})")
-        
+        self._writeCommand(
+            f"{self._model.lookup_command(Msg.ROOM_PERFECT_VOICING)}({voicing})"
+        )
+
     def change_trim_bass(self, trim: float):
-        self._writeCommand(f"{self._model.lookup_command(Msg.TRIM_BASS)}({trim*10.0:.0f})")
-    
+        self._writeCommand(
+            f"{self._model.lookup_command(Msg.TRIM_BASS)}({trim*10.0:.0f})"
+        )
+
     def change_trim_centre(self, trim: float):
-        self._writeCommand(f"{self._model.lookup_command(Msg.TRIM_CENTRE)}({trim*10.0:.0f})")
-        
+        self._writeCommand(
+            f"{self._model.lookup_command(Msg.TRIM_CENTRE)}({trim*10.0:.0f})"
+        )
+
     def change_trim_height(self, trim: float):
-        self._writeCommand(f"{self._model.lookup_command(Msg.TRIM_HEIGHT)}({trim*10.0:.0f})")
-        
+        self._writeCommand(
+            f"{self._model.lookup_command(Msg.TRIM_HEIGHT)}({trim*10.0:.0f})"
+        )
+
     def change_trim_lfe(self, trim: float):
-        self._writeCommand(f"{self._model.lookup_command(Msg.TRIM_LFE)}({trim*10.0:.0f})")
-        
+        self._writeCommand(
+            f"{self._model.lookup_command(Msg.TRIM_LFE)}({trim*10.0:.0f})"
+        )
+
     def change_trim_surround(self, trim: float):
-        self._writeCommand(f"{self._model.lookup_command(Msg.TRIM_SURROUND)}({trim*10.0:.0f})")
-        
+        self._writeCommand(
+            f"{self._model.lookup_command(Msg.TRIM_SURROUND)}({trim*10.0:.0f})"
+        )
+
     def change_trim_treble(self, trim: float):
-        self._writeCommand(f"{self._model.lookup_command(Msg.TRIM_TREBLE_SET)}({trim*10.0:.0f})")
-        
+        self._writeCommand(
+            f"{self._model.lookup_command(Msg.TRIM_TREBLE_SET)}({trim*10.0:.0f})"
+        )
+
     def trim_bass_up(self):
-        self._writeCommand(f'{self._model.lookup_command(Msg.TRIM_BASS)}+')
+        self._writeCommand(f"{self._model.lookup_command(Msg.TRIM_BASS)}+")
 
     def trim_bass_down(self):
-        self._writeCommand(f'{self._model.lookup_command(Msg.TRIM_BASS)}-')
-        
+        self._writeCommand(f"{self._model.lookup_command(Msg.TRIM_BASS)}-")
+
     def trim_centre_up(self):
-        self._writeCommand(f'{self._model.lookup_command(Msg.TRIM_CENTRE)}+')
+        self._writeCommand(f"{self._model.lookup_command(Msg.TRIM_CENTRE)}+")
 
     def trim_centre_down(self):
-        self._writeCommand(f'{self._model.lookup_command(Msg.TRIM_CENTRE)}-')
-    
+        self._writeCommand(f"{self._model.lookup_command(Msg.TRIM_CENTRE)}-")
+
     def trim_height_up(self):
-        self._writeCommand(f'{self._model.lookup_command(Msg.TRIM_HEIGHT)}+')
+        self._writeCommand(f"{self._model.lookup_command(Msg.TRIM_HEIGHT)}+")
 
     def trim_height_down(self):
-        self._writeCommand(f'{self._model.lookup_command(Msg.TRIM_HEIGHT)}-')
+        self._writeCommand(f"{self._model.lookup_command(Msg.TRIM_HEIGHT)}-")
 
     def trim_lfe_up(self):
-        self._writeCommand(f'{self._model.lookup_command(Msg.TRIM_LFE)}+')
+        self._writeCommand(f"{self._model.lookup_command(Msg.TRIM_LFE)}+")
 
     def trim_lfe_down(self):
-        self._writeCommand(f'{self._model.lookup_command(Msg.TRIM_LFE)}-')
-        
+        self._writeCommand(f"{self._model.lookup_command(Msg.TRIM_LFE)}-")
+
     def trim_surround_up(self):
-        self._writeCommand(f'{self._model.lookup_command(Msg.TRIM_SURROUND)}+')
+        self._writeCommand(f"{self._model.lookup_command(Msg.TRIM_SURROUND)}+")
 
     def trim_surround_down(self):
-        self._writeCommand(f'{self._model.lookup_command(Msg.TRIM_SURROUND)}-')
-        
+        self._writeCommand(f"{self._model.lookup_command(Msg.TRIM_SURROUND)}-")
+
     def trim_treble_up(self):
-        self._writeCommand(f'{self._model.lookup_command(Msg.TRIM_TREBLE_SET)}+')
+        self._writeCommand(f"{self._model.lookup_command(Msg.TRIM_TREBLE_SET)}+")
 
     def trim_treble_down(self):
-        self._writeCommand(f'{self._model.lookup_command(Msg.TRIM_TREBLE_SET)}-')
-        
+        self._writeCommand(f"{self._model.lookup_command(Msg.TRIM_TREBLE_SET)}-")
+
     def _process_event(self, message: str) -> None:
         """Process a realtime event."""
 
@@ -377,7 +403,7 @@ class LyngdorfApi:
         for callback in self._notification_callbacks:
             try:
                 callback()
-            except Exception as err:
+            except Exception:
                 # We don't want a single bad callback to trip up the
                 # whole system and prevent further execution
                 # TIM. TODO. need to log the stack trace of the error found here, as at the moment v hard to find errors
@@ -406,7 +432,7 @@ class LyngdorfApi:
                 try:
                     # _LOGGER.debug("Command %s callback (%s, %s) calling %s", command, param1, param2, callback)
                     callback(param1, param2)
-                except Exception as err:  # pylint: disable=broad-except
+                except Exception:  # pylint: disable=broad-except
                     # We don't want a single bad callback to trip up the
                     # whole system and prevent further execution
                     # TIM. TODO. need to log the stack trace of the error found here, as at the moment v hard to find errors

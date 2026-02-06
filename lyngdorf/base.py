@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 This module implements the handler for volume of Lyngdorf receivers.
 
@@ -8,7 +7,7 @@ This module implements the handler for volume of Lyngdorf receivers.
 
 import logging
 
-from attr import s, field
+from attr import s
 
 _LOGGER = logging.getLogger(__package__)
 
@@ -32,10 +31,10 @@ class CountingNumberDict(dict[int, str]):
 
     def add(self, index: int, value: str) -> None:
         self.__setitem__(index, value)
-        
+
     @property
-    def list_of_values(self) -> list[str]: 
-        return list(self.values()) 
+    def list_of_values(self) -> list[str]:
+        return list(self.values())
 
     def lookupIndex(self, value: str) -> int:
         for k, v in self.items():

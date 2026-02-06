@@ -33,5 +33,11 @@ jobs:
           key: venv-${{ hashFiles('poetry.lock') }}
       - name: Install the project dependencies
         run: poetry install
-      - name: Run the automated tests (for example)
+      - name: Check code formatting with Black
+        run: poetry run black --check lyngdorf/ tests/
+      - name: Lint with Ruff
+        run: poetry run ruff check lyngdorf/ tests/
+      - name: Type check with mypy
+        run: poetry run mypy lyngdorf/ --ignore-missing-imports
+      - name: Run the automated tests
         run: poetry run pytest -v
