@@ -21,6 +21,11 @@ from lyngdorf.exceptions import LyngdorfInvalidValueError
 
 _LOGGER = logging.getLogger(__package__)
 
+# =============================================================================
+# Test Setup Data
+# =============================================================================
+
+FAKE_IP = "0.0.0.0"
 SETUP_LAST_RESPONSE = "AUDTYPE"
 SETUP_RESPONSES = [
     "!DEVICE(MP-60)",
@@ -89,8 +94,23 @@ SETUP_RESPONSES = [
 ]
 
 
-FAKE_IP = "0.0.0.0"
-CALL_COUNT = 0
+# =============================================================================
+# Test Helpers
+# =============================================================================
+
+
+class AsyncMock(mock.MagicMock):
+    """Mocking async methods compatible to python 3.7."""
+
+    # pylint: disable=invalid-overridden-method,useless-super-delegation
+    async def __call__(self, *args, **kwargs):
+        """Call."""
+        return super().__call__(*args, **kwargs)
+
+
+# =============================================================================
+# Unit Tests: Model Enums and Lookups
+# =============================================================================
 
 
 class TestSupportedModels:
@@ -155,720 +175,141 @@ class TestSupportedModels:
         assert lookup_receiver_model("unknown-model") is None
 
 
-class TestMainFunctions:
-    future = None
+class TestLyngdorfModel:
+    """Tests for LyngdorfModel enum and configuration."""
 
-    def test_model(self):
+    def test_lyngdorf_model_mp60_properties(self):
+        """Test MP-60 model has correct properties."""
+        model = LyngdorfModel.MP_60
+        assert model.model_name == "mp-60"
+        assert model.manufacturer == "Lyngdorf"
+        assert model.name == "MP_60"
+        assert len(model.setup_commands) > 0
+
+    def test_lyngdorf_model_tdai1120_properties(self):
+        """Test TDAI-1120 model has correct properties."""
+        model = LyngdorfModel.TDAI_1120
+        assert model.model_name == "tdai-1120"
+        assert model.manufacturer == "Lyngdorf"
+        assert model.name == "TDAI_1120"
+        assert len(model.setup_commands) > 0
+
+    def test_mp60_messages_complete(self):
+        """Test MP60 messages mapping is complete."""
+        from lyngdorf.const import MP60_MESSAGES
+
+        assert MP60_MESSAGES[Msg.POWER] == "POWER"
+        assert MP60_MESSAGES[Msg.VOLUME] == "VOL"
+        assert MP60_MESSAGES[Msg.SOURCE] == "SRC"
+        assert MP60_MESSAGES[Msg.AUDIO_MODE] == "AUDMODE"
+
+    def test_tdai1120_messages_mapping(self):
+        """Test TDAI-1120 messages mapping."""
+        from lyngdorf.const import TDAI1120_MESSAGES
+
+        assert TDAI1120_MESSAGES[Msg.POWER] == "PWR"
+        assert TDAI1120_MESSAGES[Msg.VOLUME] == "VOL"
+        assert TDAI1120_MESSAGES[Msg.SOURCE] == "SRC"
+
+    def test_model_lookup_command(self):
+        """Test lookup_command method on model enum."""
         mp60: LyngdorfModel = LyngdorfModel.MP_60
         pong_command = f"{mp60.lookup_command(Msg.PONG)}"
         assert pong_command == "PONG"
 
-    def test_logging(self):
-        _LOGGER.debug("Hello from debug logging")
-
-    @pytest.mark.asyncio
-    async def test_instantiate(self):
-        client0 = await async_create_receiver(FAKE_IP, LyngdorfModel.MP_60)
-        assert client0.model.model_name == "mp-60"
-        assert client0.model.manufacturer == "Lyngdorf"
-        assert client0.model.name == "MP_60"
-
-    @pytest.mark.asyncio
-    async def test_powers(self):
-        # Receive a volume level from the processor, and validate our API has determined the volume correctly
-        def test_function(client: Receiver):
-            assert client.power_on
-            assert not client.zone_b_power_on
-
-        await self._test_receiving_commands(
-            SETUP_RESPONSES, SETUP_LAST_RESPONSE, test_function, None
-        )
-
-        # check that when we set the volume the receiver gets the correct command
-
-        def client_functions(client: Receiver):
-            client.power_on = True
-            client.power_on = False
-            client.zone_b_power_on = True
-            client.zone_b_power_on = False
-
-        def assertion_function(client: Receiver, commandsSent: []):
-            assert [
-                "!POWERONMAIN",
-                "!POWEROFFMAIN",
-                "!POWERONZONE2",
-                "!POWEROFFZONE2",
-            ] == commandsSent
-
-        await self._test_sending_commands(
-            ["!AUDTYPE(PCM zero, 2.0.0)"],
-            "AUDTYPE",
-            client_functions,
-            assertion_function,
-            None,
-        )
-
-    @pytest.mark.asyncio
-    async def testtrims(self):
-
-        # check that when we set the trims the receiver gets the correct commands
-
-        def client_functions(client: Receiver):
-            client.trim_bass = 1.0
-            client.trim_centre = -5.0
-            client.trim_height = -3.0
-            client.trim_lfe = -2.0
-            client.trim_surround = 5.0
-            client.trim_treble = 6.0
-
-            client.trim_bass_up()
-            client.trim_bass_down()
-            client.trim_centre_up()
-            client.trim_centre_down()
-            client.trim_height_up()
-            client.trim_height_down()
-            client.trim_lfe_up()
-            client.trim_lfe_down()
-            client.trim_surround_up()
-            client.trim_surround_down()
-            client.trim_treble_up()
-            client.trim_treble_down()
-
-        def assertion_function(client: Receiver, commandsSent: []):
-            assert [
-                "!TRIMBASS(10)",
-                "!TRIMCENTER(-50)",
-                "!TRIMHEIGHT(-30)",
-                "!TRIMLFE(-20)",
-                "!TRIMSURRS(50)",
-                "!TRIMTREB(60)",
-                "!TRIMBASS+",
-                "!TRIMBASS-",
-                "!TRIMCENTER+",
-                "!TRIMCENTER-",
-                "!TRIMHEIGHT+",
-                "!TRIMHEIGHT-",
-                "!TRIMLFE+",
-                "!TRIMLFE-",
-                "!TRIMSURRS+",
-                "!TRIMSURRS-",
-                "!TRIMTREB+",
-                "!TRIMTREB-",
-            ] == commandsSent
-
-        await self._test_sending_commands(
-            ["!AUDTYPE(PCM zero, 2.0.0)"],
-            "AUDTYPE",
-            client_functions,
-            assertion_function,
-            None,
-        )
-
-    @pytest.mark.asyncio
-    async def test_power_off(self):
-        # make sure POWER(0) turns the API off
-        def test_function(client: Receiver):
-            assert not client.power_on
-
-        await self._test_receiving_commands(["!POWER(0)"], "POWER", test_function, None)
-
-    @pytest.mark.asyncio
-    async def test_power_on(self):
-        def test_function(client: Receiver):
-            assert client.power_on
-
-        await self._test_receiving_commands(["!POWER(1)"], "POWER", test_function, None)
-
-    @pytest.mark.asyncio
-    async def test_basics_volumes_and_mutes(self):
-        # Receive a volume level from the processor, and validate our API has determined the volume correctly
-        def test_function(client: Receiver):
-            assert client.name == "MP-60"
-            assert client.volume == -28.1
-            assert client.zone_b_volume == -55.0
-            assert not client.mute_enabled
-            assert client.zone_b_mute_enabled
-
-        await self._test_receiving_commands(
-            SETUP_RESPONSES, SETUP_LAST_RESPONSE, test_function, None
-        )
-
-        # check that when we set the volume the receiver gets the correct command
-
-        def client_functions(client: Receiver):
-            client.volume = -22
-            client.volume_up()
-            client.volume_down()
-            client.zone_b_volume_up()
-            client.zone_b_volume_down()
-            client.mute_enabled = True
-            client.mute_enabled = False
-            client.zone_b_mute_enabled = True
-            client.zone_b_mute_enabled = False
-            client.lipsync = 10
-            client.room_perfect_position = "Focus 1"
-            client.voicing = "Voice 1"
-
-        def assertion_function(client: Receiver, commandsSent: []):
-            _LOGGER.debug(",".join(commandsSent))
-            assert [
-                "!VOL(-220)",
-                "!VOL+",
-                "!VOL-",
-                "!ZVOL+",
-                "!ZVOL-",
-                "!MUTEON",
-                "!MUTEOFF",
-                "!ZMUTEON",
-                "!ZMUTEOFF",
-                "!LIPSYNC(10)",
-                "!RPFOC(1)",
-                "!RPVOI(1)",
-            ] == commandsSent
-
-        await self._test_sending_commands(
-            ["!AUDTYPE(PCM zero, 2.0.0)"],
-            "AUDTYPE",
-            client_functions,
-            assertion_function,
-        )
-
-    @pytest.mark.asyncio
-    async def test_notifications(self):
-
-        def notify_me():
-            notify_me.counter += 1
-
-        notify_me.counter = 0
-
-        def test_function(client: Receiver):
-            assert notify_me.counter == 17
-
-        def before_connect_function(client: Receiver):
-            client.register_notification_callback(notify_me)
-
-        await self._test_receiving_commands(
-            SETUP_RESPONSES, SETUP_LAST_RESPONSE, test_function, before_connect_function
-        )
-
-    @pytest.mark.asyncio
-    async def test_sound_modes_and_sources(self):
-        # # Check that the sources are set by the mock processor and the current source is playstation as we will shortly change it
-        def test_function(client: Receiver):
-            assert len(client.available_sources) == 24
-            assert "Playstation" in client.available_sources
-            assert len(client.available_sound_modes) == 10
-            assert "Party" in client.available_sound_modes
-            assert client.sound_mode == "Dolby Upmixer"
-            assert client.source == "Apple TV"
-            assert client.audio_input == "HDMI"
-            assert client.video_input == "HDMI 2"
-            assert client.video_information == "2160p50 RGB 4:4:4"
-            assert client.audio_information == "PCM zero, 2.0.0"
-            assert isinstance(client.available_sound_modes, list)
-            assert isinstance(client.available_sources, list)
-            assert isinstance(client.zone_b_available_sources, list)
-            assert client.zone_b_available_sources == ["Apple TV", "Wonk"]
-            assert client.zone_b_source == "Apple TV"
-            assert client.available_room_perfect_positions == ["Global", "Focus 1"]
-
-        await self._test_receiving_commands(
-            SETUP_RESPONSES, SETUP_LAST_RESPONSE, test_function
-        )
-
-        # Now we set the audio source and make sure that the correct command is sent to the processor
-        def test_function(client: Receiver, commandsSent: []):
-            assert "!SRC(1)" in commandsSent
-            assert "!AUDMODE(9)" in commandsSent
-            assert "!ZSRC(1)" in commandsSent
-
-        def client_functions(client: Receiver):
-            client.source = "Playstation"
-            client.sound_mode = "Party"
-            client.zone_b_source = "Wonk"
-
-        await self._test_sending_commands(
-            SETUP_RESPONSES, SETUP_LAST_RESPONSE, client_functions, test_function
-        )
-
-    async def _test_receiving_commands(
-        self,
-        commands_received,
-        wait_for_command,
-        test_function,
-        before_connect_function=None,
-    ):
-        transport = mock.Mock()
-        protocol = LyngdorfProtocol(None, None)
-
-        def create_conn(proto_lambda, host, port):
-            proto = proto_lambda()
-            # pylint: disable=protected-access
-            protocol._on_connection_lost = proto._on_connection_lost
-            # pylint: disable=protected-access
-            protocol._on_message = proto._on_message
-            return [transport, proto]
-
-        client = await async_create_receiver(FAKE_IP, LyngdorfModel.MP_60)
-        if before_connect_function is not None:
-            before_connect_function(client)
-
-        with mock.patch("asyncio.get_event_loop", new_callable=mock.Mock) as debug_mock:
-            debug_mock.return_value.create_connection = AsyncMock(
-                side_effect=create_conn
-            )
-            await client.async_connect()
-            self.future = asyncio.Future()
-            client._api.register_callback(wait_for_command, self._callback)
-            protocol.data_received(bytes("\r".join(commands_received) + "\r", "utf-8"))
-            await self.future
-            test_function(client)
-            await client.async_disconnect()
-
-    def _callback(self, param1, param2):
-        self.future.set_result(True)
-
-    async def _test_sending_commands(
-        self,
-        commands_received,
-        wait_for_command,
-        client_functions,
-        test_function,
-        before_connect_function=None,
-    ):
-        transport = mock.Mock()
-
-        protocol = LyngdorfProtocol(None, None)
-
-        def create_conn(proto_lambda, host, port):
-            proto = proto_lambda()
-            # pylint: disable=protected-access
-            protocol._on_connection_lost = proto._on_connection_lost
-            # pylint: disable=protected-access
-            protocol._on_message = proto._on_message
-            # pylint: disable=protected-access
-            return [transport, proto]
-
-        client = await async_create_receiver(FAKE_IP, LyngdorfModel.MP_60)
-        if before_connect_function is not None:
-            before_connect_function(client)
-
-        # # pylint: disable=protected-access
-        # write_function=create_autospec(client._api._protocol.write, return_value=None)
-
-        with mock.patch("asyncio.get_event_loop", new_callable=mock.Mock) as debug_mock:
-            with mock.patch(
-                "lyngdorf.api.LyngdorfProtocol.write", new_callable=mock.Mock
-            ) as write_mock:
-                debug_mock.return_value.create_connection = AsyncMock(
-                    side_effect=create_conn
-                )
-                await client.async_connect()
-                self.future = asyncio.Future()
-                client._api.register_callback(wait_for_command, self._callback)
-                protocol.data_received(
-                    bytes("\r".join(commands_received) + "\r", "utf-8")
-                )
-                await self.future
-
-                before_length = len(write_mock.call_args_list)
-
-                client_functions(client)
-
-                after_list = [
-                    call.args[0].replace("\r", "")
-                    for call in write_mock.call_args_list[before_length:]
-                ]
-                _LOGGER.debug("functions sent to processor [%s]", ", ".join(after_list))
-                test_function(client, after_list)
-
-                await client.async_disconnect()
-
-    def _callback(self, param1, param2):
-        self.future.set_result(True)
-
-
-class AsyncMock(mock.MagicMock):
-    """Mocking async methods compatible to python 3.7."""
-
-    # pylint: disable=invalid-overridden-method,useless-super-delegation
-    async def __call__(self, *args, **kwargs):
-        """Call."""
-        return super().__call__(*args, **kwargs)
-
-
-class TestZoneBSources:
-    """Tests for Zone B source functionality."""
-
-    future = None
-
-    def _callback(self, param1, param2):
-        self.future.set_result(True)
-
-    @pytest.mark.asyncio
-    async def test_zone_b_source_selection(self):
-        """Test Zone B source selection and commands."""
-
-        def client_functions(client: Receiver):
-            client.zone_b_source = "Wonk"
-
-        def assertion_function(client: Receiver, commandsSent: []):
-            assert "!ZSRC(1)" in commandsSent
-
-        transport = mock.Mock()
-        protocol = LyngdorfProtocol(None, None)
-
-        def create_conn(proto_lambda, host, port):
-            proto = proto_lambda()
-            protocol._on_connection_lost = proto._on_connection_lost
-            protocol._on_message = proto._on_message
-            return [transport, proto]
-
-        client = await async_create_receiver(FAKE_IP, LyngdorfModel.MP_60)
-
-        with mock.patch("asyncio.get_event_loop", new_callable=mock.Mock) as debug_mock:
-            with mock.patch(
-                "lyngdorf.api.LyngdorfProtocol.write", new_callable=mock.Mock
-            ) as write_mock:
-                debug_mock.return_value.create_connection = AsyncMock(
-                    side_effect=create_conn
-                )
-                await client.async_connect()
-                self.future = asyncio.Future()
-                client._api.register_callback("AUDTYPE", self._callback)
-                protocol.data_received(
-                    bytes("\r".join(SETUP_RESPONSES) + "\r", "utf-8")
-                )
-                await self.future
-
-                before_length = len(write_mock.call_args_list)
-                client_functions(client)
-                after_list = [
-                    call.args[0].replace("\r", "")
-                    for call in write_mock.call_args_list[before_length:]
-                ]
-                assertion_function(client, after_list)
-                await client.async_disconnect()
-
-    @pytest.mark.asyncio
-    async def test_zone_b_source_invalid(self):
-        """Test Zone B source with invalid source name raises error."""
-        client = await async_create_receiver(FAKE_IP, LyngdorfModel.MP_60)
-        with pytest.raises(LyngdorfInvalidValueError):
-            client.zone_b_source = "NonExistentSource"
-
-
-class TestAudioVideoInputs:
-    """Tests for audio and video input handling."""
-
-    future = None
-
-    def _callback(self, param1, param2):
-        self.future.set_result(True)
-
-    @pytest.mark.asyncio
-    async def test_audio_input_known_values(self):
-        """Test audio input with known values."""
-
-        def test_function(client: Receiver):
-            assert client.audio_input == "HDMI"
-
-        transport = mock.Mock()
-        protocol = LyngdorfProtocol(None, None)
-
-        def create_conn(proto_lambda, host, port):
-            proto = proto_lambda()
-            protocol._on_connection_lost = proto._on_connection_lost
-            protocol._on_message = proto._on_message
-            return [transport, proto]
-
-        client = await async_create_receiver(FAKE_IP, LyngdorfModel.MP_60)
-
-        with mock.patch("asyncio.get_event_loop", new_callable=mock.Mock) as debug_mock:
-            debug_mock.return_value.create_connection = AsyncMock(
-                side_effect=create_conn
-            )
-            await client.async_connect()
-            self.future = asyncio.Future()
-            client._api.register_callback("AUDTYPE", self._callback)
-            protocol.data_received(bytes("\r".join(SETUP_RESPONSES) + "\r", "utf-8"))
-            await self.future
-            test_function(client)
-            await client.async_disconnect()
-
-    @pytest.mark.asyncio
-    async def test_audio_input_unknown_values(self):
-        """Test audio input with unknown audio input code."""
-
-        def test_function(client: Receiver):
-            assert client.audio_input == "audio-999"
-
-        transport = mock.Mock()
-        protocol = LyngdorfProtocol(None, None)
-
-        def create_conn(proto_lambda, host, port):
-            proto = proto_lambda()
-            protocol._on_connection_lost = proto._on_connection_lost
-            protocol._on_message = proto._on_message
-            return [transport, proto]
-
-        client = await async_create_receiver(FAKE_IP, LyngdorfModel.MP_60)
-
-        with mock.patch("asyncio.get_event_loop", new_callable=mock.Mock) as debug_mock:
-            debug_mock.return_value.create_connection = AsyncMock(
-                side_effect=create_conn
-            )
-            await client.async_connect()
-            self.future = asyncio.Future()
-            client._api.register_callback("AUDTYPE", self._callback)
-            responses = SETUP_RESPONSES.copy()
-            # Replace audio input with unknown code
-            for i, resp in enumerate(responses):
-                if resp.startswith("!AUDIN"):
-                    responses[i] = "!AUDIN(999)"
-            protocol.data_received(bytes("\r".join(responses) + "\r", "utf-8"))
-            await self.future
-            test_function(client)
-            await client.async_disconnect()
-
-    @pytest.mark.asyncio
-    async def test_video_input_known_values(self):
-        """Test video input with known values."""
-
-        def test_function(client: Receiver):
-            assert client.video_input == "HDMI 2"
-
-        transport = mock.Mock()
-        protocol = LyngdorfProtocol(None, None)
-
-        def create_conn(proto_lambda, host, port):
-            proto = proto_lambda()
-            protocol._on_connection_lost = proto._on_connection_lost
-            protocol._on_message = proto._on_message
-            return [transport, proto]
-
-        client = await async_create_receiver(FAKE_IP, LyngdorfModel.MP_60)
-
-        with mock.patch("asyncio.get_event_loop", new_callable=mock.Mock) as debug_mock:
-            debug_mock.return_value.create_connection = AsyncMock(
-                side_effect=create_conn
-            )
-            await client.async_connect()
-            self.future = asyncio.Future()
-            client._api.register_callback("AUDTYPE", self._callback)
-            protocol.data_received(bytes("\r".join(SETUP_RESPONSES) + "\r", "utf-8"))
-            await self.future
-            test_function(client)
-            await client.async_disconnect()
-
-    @pytest.mark.asyncio
-    async def test_video_input_unknown_values(self):
-        """Test video input with unknown video input code."""
-
-        def test_function(client: Receiver):
-            assert client.video_input == "video-99"
-
-        transport = mock.Mock()
-        protocol = LyngdorfProtocol(None, None)
-
-        def create_conn(proto_lambda, host, port):
-            proto = proto_lambda()
-            protocol._on_connection_lost = proto._on_connection_lost
-            protocol._on_message = proto._on_message
-            return [transport, proto]
-
-        client = await async_create_receiver(FAKE_IP, LyngdorfModel.MP_60)
-
-        with mock.patch("asyncio.get_event_loop", new_callable=mock.Mock) as debug_mock:
-            debug_mock.return_value.create_connection = AsyncMock(
-                side_effect=create_conn
-            )
-            await client.async_connect()
-            self.future = asyncio.Future()
-            client._api.register_callback("AUDTYPE", self._callback)
-            responses = SETUP_RESPONSES.copy()
-            for i, resp in enumerate(responses):
-                if resp.startswith("!VIDIN"):
-                    responses[i] = "!VIDIN(99)"
-            protocol.data_received(bytes("\r".join(responses) + "\r", "utf-8"))
-            await self.future
-            test_function(client)
-            await client.async_disconnect()
-
-
-class TestStreamingAndVideoInfo:
-    """Tests for streaming source and video information."""
-
-    future = None
-
-    def _callback(self, param1, param2):
-        self.future.set_result(True)
-
-    @pytest.mark.asyncio
-    async def test_streaming_source(self):
-        """Test streaming source information."""
-
-        def test_function(client: Receiver):
-            assert client.streaming_source == "Spotify"
-            assert client.zone_b_streaming_source == "AirPlay"
-
-        transport = mock.Mock()
-        protocol = LyngdorfProtocol(None, None)
-
-        def create_conn(proto_lambda, host, port):
-            proto = proto_lambda()
-            protocol._on_connection_lost = proto._on_connection_lost
-            protocol._on_message = proto._on_message
-            return [transport, proto]
-
-        client = await async_create_receiver(FAKE_IP, LyngdorfModel.MP_60)
-
-        with mock.patch("asyncio.get_event_loop", new_callable=mock.Mock) as debug_mock:
-            debug_mock.return_value.create_connection = AsyncMock(
-                side_effect=create_conn
-            )
-            await client.async_connect()
-            self.future = asyncio.Future()
-            client._api.register_callback("AUDTYPE", self._callback)
-            protocol.data_received(bytes("\r".join(SETUP_RESPONSES) + "\r", "utf-8"))
-            await self.future
-            test_function(client)
-            await client.async_disconnect()
-
-    @pytest.mark.asyncio
-    async def test_streaming_source_unknown(self):
-        """Test streaming source with unknown stream type code."""
-
-        def test_function(client: Receiver):
-            assert client.streaming_source == "video-99"
-
-        transport = mock.Mock()
-        protocol = LyngdorfProtocol(None, None)
-
-        def create_conn(proto_lambda, host, port):
-            proto = proto_lambda()
-            protocol._on_connection_lost = proto._on_connection_lost
-            protocol._on_message = proto._on_message
-            return [transport, proto]
-
-        client = await async_create_receiver(FAKE_IP, LyngdorfModel.MP_60)
-
-        with mock.patch("asyncio.get_event_loop", new_callable=mock.Mock) as debug_mock:
-            debug_mock.return_value.create_connection = AsyncMock(
-                side_effect=create_conn
-            )
-            await client.async_connect()
-            self.future = asyncio.Future()
-            client._api.register_callback("AUDTYPE", self._callback)
-            responses = SETUP_RESPONSES.copy()
-            for i, resp in enumerate(responses):
-                if resp.startswith("!STREAMTYPE"):
-                    responses[i] = "!STREAMTYPE(99)"
-            protocol.data_received(bytes("\r".join(responses) + "\r", "utf-8"))
-            await self.future
-            test_function(client)
-            await client.async_disconnect()
-
-    @pytest.mark.asyncio
-    async def test_video_information(self):
-        """Test video information property."""
-
-        def test_function(client: Receiver):
-            assert client.video_information == "2160p50 RGB 4:4:4"
-            assert client.audio_information == "PCM zero, 2.0.0"
-
-        transport = mock.Mock()
-        protocol = LyngdorfProtocol(None, None)
-
-        def create_conn(proto_lambda, host, port):
-            proto = proto_lambda()
-            protocol._on_connection_lost = proto._on_connection_lost
-            protocol._on_message = proto._on_message
-            return [transport, proto]
-
-        client = await async_create_receiver(FAKE_IP, LyngdorfModel.MP_60)
-
-        with mock.patch("asyncio.get_event_loop", new_callable=mock.Mock) as debug_mock:
-            debug_mock.return_value.create_connection = AsyncMock(
-                side_effect=create_conn
-            )
-            await client.async_connect()
-            self.future = asyncio.Future()
-            client._api.register_callback("AUDTYPE", self._callback)
-            protocol.data_received(bytes("\r".join(SETUP_RESPONSES) + "\r", "utf-8"))
-            await self.future
-            test_function(client)
-            await client.async_disconnect()
-
-
-class TestRoomPerfectAndVoicing:
-    """Tests for Room Perfect and Voicing features."""
-
-    future = None
-
-    def _callback(self, param1, param2):
-        self.future.set_result(True)
-
-    @pytest.mark.asyncio
-    async def test_room_perfect_positions_and_voicing(self):
-        """Test Room Perfect positions and voicing settings."""
-
-        def test_function(client: Receiver):
-            assert len(client.available_room_perfect_positions) == 2
-            assert "Global" in client.available_room_perfect_positions
-            assert "Focus 1" in client.available_room_perfect_positions
-            assert client.room_perfect_position == "Focus 1"
-            assert len(client.available_voicings) == 2
-            assert "Voice 0" in client.available_voicings
-            assert client.voicing == "Voice 1"
-
-        transport = mock.Mock()
-        protocol = LyngdorfProtocol(None, None)
-
-        def create_conn(proto_lambda, host, port):
-            proto = proto_lambda()
-            protocol._on_connection_lost = proto._on_connection_lost
-            protocol._on_message = proto._on_message
-            return [transport, proto]
-
-        client = await async_create_receiver(FAKE_IP, LyngdorfModel.MP_60)
-
-        with mock.patch("asyncio.get_event_loop", new_callable=mock.Mock) as debug_mock:
-            debug_mock.return_value.create_connection = AsyncMock(
-                side_effect=create_conn
-            )
-            await client.async_connect()
-            self.future = asyncio.Future()
-            client._api.register_callback("AUDTYPE", self._callback)
-            protocol.data_received(bytes("\r".join(SETUP_RESPONSES) + "\r", "utf-8"))
-            await self.future
-            test_function(client)
-            await client.async_disconnect()
-
-    @pytest.mark.asyncio
-    async def test_room_perfect_invalid_position(self):
-        """Test invalid Room Perfect position raises error."""
-        client = await async_create_receiver(FAKE_IP, LyngdorfModel.MP_60)
-        with pytest.raises(LyngdorfInvalidValueError):
-            client.room_perfect_position = "InvalidPosition"
-
-    @pytest.mark.asyncio
-    async def test_voicing_invalid(self):
-        """Test invalid voicing raises error."""
-        client = await async_create_receiver(FAKE_IP, LyngdorfModel.MP_60)
-        with pytest.raises(LyngdorfInvalidValueError):
-            client.voicing = "InvalidVoicing"
-
-
-class TestSourceInvalidError:
-    """Tests for invalid source error handling."""
-
-    @pytest.mark.asyncio
-    async def test_source_invalid_error(self):
-        """Test invalid source selection raises error."""
-        client = await async_create_receiver(FAKE_IP, LyngdorfModel.MP_60)
-        with pytest.raises(LyngdorfInvalidValueError):
-            client.source = "NonExistentSource"
+    def test_mp_series_has_zone_b_feature(self):
+        """Test MP series models have Zone B support."""
+        assert LyngdorfModel.MP_40.has_zone_b_feature() is True
+        assert LyngdorfModel.MP_50.has_zone_b_feature() is True
+        assert LyngdorfModel.MP_60.has_zone_b_feature() is True
+
+    def test_tdai_series_no_zone_b_feature(self):
+        """Test TDAI series models do not have Zone B support."""
+        assert LyngdorfModel.TDAI_1120.has_zone_b_feature() is False
+        assert LyngdorfModel.TDAI_2170.has_zone_b_feature() is False
+        assert LyngdorfModel.TDAI_3400.has_zone_b_feature() is False
+
+    def test_mp_series_has_video_feature(self):
+        """Test MP series models have video capability."""
+        assert LyngdorfModel.MP_40.has_video_feature() is True
+        assert LyngdorfModel.MP_50.has_video_feature() is True
+        assert LyngdorfModel.MP_60.has_video_feature() is True
+
+    def test_tdai_series_no_video_feature(self):
+        """Test TDAI series models do not have video capability."""
+        assert LyngdorfModel.TDAI_1120.has_video_feature() is False
+        assert LyngdorfModel.TDAI_2170.has_video_feature() is False
+        assert LyngdorfModel.TDAI_3400.has_video_feature() is False
+
+
+# =============================================================================
+# Unit Tests: Utilities
+# =============================================================================
+
+
+class TestConvertDecibel:
+    """Tests for the convert_decibel utility function."""
+
+    def test_convert_decibel_positive(self):
+        """Test convert_decibel with positive values."""
+        from lyngdorf.device import convert_decibel
+
+        assert convert_decibel("100") == 10.0
+        assert convert_decibel("50") == 5.0
+        assert convert_decibel("0") == 0.0
+
+    def test_convert_decibel_negative(self):
+        """Test convert_decibel with negative values."""
+        from lyngdorf.device import convert_decibel
+
+        assert convert_decibel("-100") == -10.0
+        assert convert_decibel("-50") == -5.0
+        assert convert_decibel("-281") == -28.1
+
+    def test_convert_decibel_float(self):
+        """Test convert_decibel with float string input."""
+        from lyngdorf.device import convert_decibel
+
+        assert convert_decibel("10.5") == 1.05
+
+
+class TestBaseAndUtilities:
+    """Tests for base utilities and helper functions."""
+
+    def test_counting_dict_add_and_lookup(self):
+        """Test CountingNumberDict add and lookup."""
+        from lyngdorf.base import CountingNumberDict
+
+        cd = CountingNumberDict(2)
+        cd.add(0, "first")
+        cd.add(1, "second")
+        assert cd.lookupIndex("first") == 0
+        assert cd.lookupIndex("second") == 1
+        assert cd.lookupIndex("nonexistent") == -1
+
+    def test_counting_dict_is_full(self):
+        """Test CountingNumberDict is_full method."""
+        from lyngdorf.base import CountingNumberDict
+
+        cd = CountingNumberDict(1)
+        assert not cd.is_full()
+        cd.add(0, "first")
+        assert cd.is_full()
+
+    def test_counting_dict_values(self):
+        """Test CountingNumberDict values method."""
+        from lyngdorf.base import CountingNumberDict
+
+        cd = CountingNumberDict(2)
+        cd.add(0, "first")
+        cd.add(1, "second")
+        values = list(cd.values())
+        assert values == ["first", "second"]
+
+
+# =============================================================================
+# Model-Specific Configuration Tests: MP Series
+# =============================================================================
 
 
 class TestMP40Receiver:
@@ -1088,214 +529,118 @@ class TestMP60Receiver:
         assert MP60_STREAM_TYPES[6] == "Roon ready"
 
 
-class TestConvertDecibel:
-    """Tests for the convert_decibel utility function."""
-
-    def test_convert_decibel_positive(self):
-        """Test convert_decibel with positive values."""
-        from lyngdorf.device import convert_decibel
-
-        assert convert_decibel("100") == 10.0
-        assert convert_decibel("50") == 5.0
-        assert convert_decibel("0") == 0.0
-
-    def test_convert_decibel_negative(self):
-        """Test convert_decibel with negative values."""
-        from lyngdorf.device import convert_decibel
-
-        assert convert_decibel("-100") == -10.0
-        assert convert_decibel("-50") == -5.0
-        assert convert_decibel("-281") == -28.1
-
-    def test_convert_decibel_float(self):
-        """Test convert_decibel with float string input."""
-        from lyngdorf.device import convert_decibel
-
-        assert convert_decibel("10.5") == 1.05
+# =============================================================================
+# Model-Specific Configuration Tests: TDAI Series
+# =============================================================================
 
 
-class TestReceiverProperties:
-    """Tests for Receiver property getters."""
+class TestTDAI1120Receiver:
+    """Tests for TDAI-1120 specific functionality."""
 
-    future = None
+    def test_tdai1120_receiver_initialization(self):
+        """Test TDAI1120Receiver initialization sets correct constants."""
+        from lyngdorf.device import TDAI1120Receiver
 
-    def _callback(self, param1, param2):
-        self.future.set_result(True)
+        receiver = TDAI1120Receiver("192.168.1.1")
 
-    @pytest.mark.asyncio
-    async def test_receiver_host_and_model_properties(self):
-        """Test receiver host and model properties."""
-        client = await async_create_receiver(FAKE_IP, LyngdorfModel.MP_60)
-        assert client.host == FAKE_IP
-        assert client.model == LyngdorfModel.MP_60
+        # TDAI-1120 should have empty audio inputs and video inputs
+        assert receiver._audio_inputs == {}
+        assert receiver._video_inputs == {}
+        assert receiver.model == LyngdorfModel.TDAI_1120
 
-    @pytest.mark.asyncio
-    async def test_receiver_name_property(self):
-        """Test receiver name property."""
+    def test_tdai1120_stream_types(self):
+        """Test TDAI-1120 stream types constants."""
+        from lyngdorf.const import TDAI1120_STREAM_TYPES
 
-        def test_function(client: Receiver):
-            assert client.name == "MP-60"
-
-        transport = mock.Mock()
-        protocol = LyngdorfProtocol(None, None)
-
-        def create_conn(proto_lambda, host, port):
-            proto = proto_lambda()
-            protocol._on_connection_lost = proto._on_connection_lost
-            protocol._on_message = proto._on_message
-            return [transport, proto]
-
-        client = await async_create_receiver(FAKE_IP, LyngdorfModel.MP_60)
-
-        with mock.patch("asyncio.get_event_loop", new_callable=mock.Mock) as debug_mock:
-            debug_mock.return_value.create_connection = AsyncMock(
-                side_effect=create_conn
-            )
-            await client.async_connect()
-            self.future = asyncio.Future()
-            client._api.register_callback("AUDTYPE", self._callback)
-            protocol.data_received(bytes("\r".join(SETUP_RESPONSES) + "\r", "utf-8"))
-            await self.future
-            test_function(client)
-            await client.async_disconnect()
+        assert TDAI1120_STREAM_TYPES[0] == "None"
+        assert TDAI1120_STREAM_TYPES[1] == "vTuner"
+        assert TDAI1120_STREAM_TYPES[7] == "Bluetooth"
 
 
-class TestExceptionHandling:
-    """Tests for exception handling in the device module."""
+class TestTDAI2170Receiver:
+    """Tests for TDAI-2170 specific functionality."""
 
-    def test_lyngdorf_invalid_value_error(self):
-        """Test LyngdorfInvalidValueError exception."""
-        from lyngdorf.exceptions import LyngdorfInvalidValueError
+    def test_tdai2170_receiver_initialization(self):
+        """Test TDAI2170Receiver initialization sets correct constants."""
+        from lyngdorf.device import TDAI2170Receiver
 
-        error = LyngdorfInvalidValueError("test message")
-        assert isinstance(error, Exception)
+        receiver = TDAI2170Receiver("192.168.1.1")
 
+        # TDAI-2170 should have empty audio/video inputs (dynamic)
+        assert receiver._audio_inputs == {}
+        assert receiver._video_inputs == {}
+        assert receiver.model == LyngdorfModel.TDAI_2170
 
-class TestNotificationCallbacks:
-    """Tests for notification callback behavior."""
+    def test_tdai2170_stream_types(self):
+        """Test TDAI-2170 stream types constants."""
+        from lyngdorf.const import TDAI2170_STREAM_TYPES
 
-    future = None
+        assert TDAI2170_STREAM_TYPES[0] == "None"
+        assert TDAI2170_STREAM_TYPES[1] == "vTuner"
+        assert TDAI2170_STREAM_TYPES[2] == "Spotify"
+        assert TDAI2170_STREAM_TYPES[6] == "Roon Ready"
 
-    def _callback(self, param1, param2):
-        self.future.set_result(True)
+    def test_tdai2170_shares_protocol_with_tdai1120(self):
+        """Test that TDAI-2170 shares command protocol with TDAI-1120."""
+        from lyngdorf.device import TDAI1120Receiver, TDAI2170Receiver
 
-    @pytest.mark.asyncio
-    async def test_unregister_notification_callback(self):
-        """Test unregistering a notification callback."""
-        callback_called = []
+        tdai1120 = TDAI1120Receiver("192.168.1.1")
+        tdai2170 = TDAI2170Receiver("192.168.1.1")
 
-        def test_callback():
-            callback_called.append(True)
-
-        transport = mock.Mock()
-        protocol = LyngdorfProtocol(None, None)
-
-        def create_conn(proto_lambda, host, port):
-            proto = proto_lambda()
-            protocol._on_connection_lost = proto._on_connection_lost
-            protocol._on_message = proto._on_message
-            return [transport, proto]
-
-        client = await async_create_receiver(FAKE_IP, LyngdorfModel.MP_60)
-        client.register_notification_callback(test_callback)
-
-        with mock.patch("asyncio.get_event_loop", new_callable=mock.Mock) as debug_mock:
-            debug_mock.return_value.create_connection = AsyncMock(
-                side_effect=create_conn
-            )
-            await client.async_connect()
-            self.future = asyncio.Future()
-            client._api.register_callback("AUDTYPE", self._callback)
-
-            protocol.data_received(
-                bytes("\r".join(["!AUDTYPE(PCM zero, 2.0.0)"]) + "\r", "utf-8")
-            )
-            await self.future
-
-            # Unregister the callback
-            client.un_register_notification_callback(test_callback)
-
-            # Trigger another event - callback should not be called
-            callback_called.clear()
-            self.future = asyncio.Future()
-            protocol.data_received(bytes("!POWER(1)\r", "utf-8"))
-
-            # Wait a bit for any potential callbacks
-            await asyncio.sleep(0.05)
-            assert len(callback_called) == 0
-
-            await client.async_disconnect()
-
-    @pytest.mark.asyncio
-    async def test_notification_callback_exception_handling(self):
-        """Test exception handling in notification callbacks."""
-
-        def bad_callback():
-            raise ValueError("Test error in callback")
-
-        transport = mock.Mock()
-        protocol = LyngdorfProtocol(None, None)
-
-        def create_conn(proto_lambda, host, port):
-            proto = proto_lambda()
-            protocol._on_connection_lost = proto._on_connection_lost
-            protocol._on_message = proto._on_message
-            return [transport, proto]
-
-        client = await async_create_receiver(FAKE_IP, LyngdorfModel.MP_60)
-        client.register_notification_callback(bad_callback)
-
-        with mock.patch("asyncio.get_event_loop", new_callable=mock.Mock) as debug_mock:
-            debug_mock.return_value.create_connection = AsyncMock(
-                side_effect=create_conn
-            )
-            await client.async_connect()
-            self.future = asyncio.Future()
-            client._api.register_callback("AUDTYPE", self._callback)
-
-            # Sending a command that will trigger callbacks with an exception
-            protocol.data_received(bytes("\r".join(SETUP_RESPONSES) + "\r", "utf-8"))
-            await self.future
-
-            await client.async_disconnect()
+        # Both should use identical command mappings
+        assert tdai2170._model.lookup_command(
+            Msg.POWER
+        ) == tdai1120._model.lookup_command(Msg.POWER)
+        assert tdai2170._model.lookup_command(
+            Msg.VOLUME
+        ) == tdai1120._model.lookup_command(Msg.VOLUME)
 
 
-class TestBaseAndUtilities:
-    """Tests for base utilities and helper functions."""
+class TestTDAI3400Receiver:
+    """Tests for TDAI-3400 specific functionality."""
 
-    def test_counting_dict_add_and_lookup(self):
-        """Test CountingNumberDict add and lookup."""
-        from lyngdorf.base import CountingNumberDict
+    def test_tdai3400_receiver_initialization(self):
+        """Test TDAI3400Receiver initialization sets correct constants."""
+        from lyngdorf.device import TDAI3400Receiver
 
-        cd = CountingNumberDict(2)
-        cd.add(0, "first")
-        cd.add(1, "second")
-        assert cd.lookupIndex("first") == 0
-        assert cd.lookupIndex("second") == 1
-        assert cd.lookupIndex("nonexistent") == -1
+        receiver = TDAI3400Receiver("192.168.1.1")
 
-    def test_counting_dict_is_full(self):
-        """Test CountingNumberDict is_full method."""
-        from lyngdorf.base import CountingNumberDict
+        # TDAI-3400 should have empty audio/video inputs (dynamic)
+        assert receiver._audio_inputs == {}
+        assert receiver._video_inputs == {}
+        assert receiver.model == LyngdorfModel.TDAI_3400
 
-        cd = CountingNumberDict(1)
-        assert not cd.is_full()
-        cd.add(0, "first")
-        assert cd.is_full()
+    def test_tdai3400_stream_types(self):
+        """Test TDAI-3400 stream types constants."""
+        from lyngdorf.const import TDAI3400_STREAM_TYPES
 
-    def test_counting_dict_values(self):
-        """Test CountingNumberDict values method."""
-        from lyngdorf.base import CountingNumberDict
+        assert TDAI3400_STREAM_TYPES[0] == "None"
+        assert TDAI3400_STREAM_TYPES[1] == "vTuner"
+        assert TDAI3400_STREAM_TYPES[2] == "Spotify"
+        assert TDAI3400_STREAM_TYPES[7] == "Bluetooth"
+        assert TDAI3400_STREAM_TYPES[8] == "TIDAL"
 
-        cd = CountingNumberDict(2)
-        cd.add(0, "first")
-        cd.add(1, "second")
-        values = list(cd.values())
-        assert values == ["first", "second"]
+    def test_tdai3400_has_different_protocol(self):
+        """Test that TDAI-3400 uses I-prefixed commands."""
+        from lyngdorf.device import TDAI1120Receiver, TDAI3400Receiver
+
+        tdai1120 = TDAI1120Receiver("192.168.1.1")
+        tdai3400 = TDAI3400Receiver("192.168.1.1")
+
+        # Commands should be different (I-prefixed for TDAI-3400)
+        assert tdai3400._model.lookup_command(Msg.POWER) == "IPWR"
+        assert tdai1120._model.lookup_command(Msg.POWER) == "PWR"
+        assert tdai3400._model.lookup_command(Msg.VOLUME) == "IVOL"
+        assert tdai1120._model.lookup_command(Msg.VOLUME) == "VOL"
 
 
-class TestMLP60AndTDAI1120Creation:
-    """Tests for MP60 and TDAI-1120 receiver creation and factory functions."""
+# =============================================================================
+# Factory Functions and Auto-Detection Tests
+# =============================================================================
+
+
+class TestReceiverCreation:
+    """Tests for receiver creation and factory functions."""
 
     @pytest.mark.asyncio
     async def test_async_create_receiver_mp60(self):
@@ -1497,8 +842,1048 @@ class TestMLP60AndTDAI1120Creation:
             )  # Should still succeed despite close error
 
 
-class TestAsyncDisconnect:
-    """Tests for async_disconnect and connection management."""
+# =============================================================================
+# Integration Tests: Receiver Functionality
+# =============================================================================
+
+
+class TestReceiverBasicFunctionality:
+    """Integration tests for basic receiver functionality."""
+
+    future = None
+
+    def _callback(self, param1, param2):
+        self.future.set_result(True)
+
+    @pytest.mark.asyncio
+    async def test_receiver_instantiate(self):
+        """Test basic receiver instantiation."""
+        client = await async_create_receiver(FAKE_IP, LyngdorfModel.MP_60)
+        assert client.model.model_name == "mp-60"
+        assert client.model.manufacturer == "Lyngdorf"
+        assert client.model.name == "MP_60"
+
+    @pytest.mark.asyncio
+    async def test_receiver_host_and_model_properties(self):
+        """Test receiver host and model properties."""
+        client = await async_create_receiver(FAKE_IP, LyngdorfModel.MP_60)
+        assert client.host == FAKE_IP
+        assert client.model == LyngdorfModel.MP_60
+
+    @pytest.mark.asyncio
+    async def test_receiver_name_property(self):
+        """Test receiver name property."""
+
+        def test_function(client: Receiver):
+            assert client.name == "MP-60"
+
+        await self._test_receiving_commands(
+            SETUP_RESPONSES, SETUP_LAST_RESPONSE, test_function
+        )
+
+    @pytest.mark.asyncio
+    async def test_logging(self):
+        """Test logging configuration."""
+        _LOGGER.debug("Hello from debug logging")
+
+    async def _test_receiving_commands(
+        self,
+        commands_received,
+        wait_for_command,
+        test_function,
+        before_connect_function=None,
+    ):
+        """Helper to test receiving commands from receiver."""
+        transport = mock.Mock()
+        protocol = LyngdorfProtocol(None, None)
+
+        def create_conn(proto_lambda, host, port):
+            proto = proto_lambda()
+            protocol._on_connection_lost = proto._on_connection_lost
+            protocol._on_message = proto._on_message
+            return [transport, proto]
+
+        client = await async_create_receiver(FAKE_IP, LyngdorfModel.MP_60)
+        if before_connect_function is not None:
+            before_connect_function(client)
+
+        with mock.patch("asyncio.get_event_loop", new_callable=mock.Mock) as debug_mock:
+            debug_mock.return_value.create_connection = AsyncMock(
+                side_effect=create_conn
+            )
+            await client.async_connect()
+            self.future = asyncio.Future()
+            client._api.register_callback(wait_for_command, self._callback)
+            protocol.data_received(bytes("\r".join(commands_received) + "\r", "utf-8"))
+            await self.future
+            test_function(client)
+            await client.async_disconnect()
+
+
+class TestPowerControl:
+    """Tests for power control functionality."""
+
+    future = None
+
+    def _callback(self, param1, param2):
+        self.future.set_result(True)
+
+    @pytest.mark.asyncio
+    async def test_power_state_reading(self):
+        """Test reading power state from receiver."""
+
+        def test_function(client: Receiver):
+            assert client.power_on
+            assert not client.zone_b_power_on
+
+        await self._test_receiving_commands(
+            SETUP_RESPONSES, SETUP_LAST_RESPONSE, test_function
+        )
+
+    @pytest.mark.asyncio
+    async def test_power_off(self):
+        """Test POWER(0) turns the API off."""
+
+        def test_function(client: Receiver):
+            assert not client.power_on
+
+        await self._test_receiving_commands(["!POWER(0)"], "POWER", test_function)
+
+    @pytest.mark.asyncio
+    async def test_power_on(self):
+        """Test POWER(1) turns the API on."""
+
+        def test_function(client: Receiver):
+            assert client.power_on
+
+        await self._test_receiving_commands(["!POWER(1)"], "POWER", test_function)
+
+    @pytest.mark.asyncio
+    async def test_power_control_commands(self):
+        """Test power control commands are sent correctly."""
+
+        def client_functions(client: Receiver):
+            client.power_on = True
+            client.power_on = False
+            client.zone_b_power_on = True
+            client.zone_b_power_on = False
+
+        def assertion_function(client: Receiver, commandsSent: list):
+            assert [
+                "!POWERONMAIN",
+                "!POWEROFFMAIN",
+                "!POWERONZONE2",
+                "!POWEROFFZONE2",
+            ] == commandsSent
+
+        await self._test_sending_commands(
+            ["!AUDTYPE(PCM zero, 2.0.0)"],
+            "AUDTYPE",
+            client_functions,
+            assertion_function,
+        )
+
+    async def _test_receiving_commands(
+        self,
+        commands_received,
+        wait_for_command,
+        test_function,
+        before_connect_function=None,
+    ):
+        """Helper to test receiving commands from receiver."""
+        transport = mock.Mock()
+        protocol = LyngdorfProtocol(None, None)
+
+        def create_conn(proto_lambda, host, port):
+            proto = proto_lambda()
+            protocol._on_connection_lost = proto._on_connection_lost
+            protocol._on_message = proto._on_message
+            return [transport, proto]
+
+        client = await async_create_receiver(FAKE_IP, LyngdorfModel.MP_60)
+        if before_connect_function is not None:
+            before_connect_function(client)
+
+        with mock.patch("asyncio.get_event_loop", new_callable=mock.Mock) as debug_mock:
+            debug_mock.return_value.create_connection = AsyncMock(
+                side_effect=create_conn
+            )
+            await client.async_connect()
+            self.future = asyncio.Future()
+            client._api.register_callback(wait_for_command, self._callback)
+            protocol.data_received(bytes("\r".join(commands_received) + "\r", "utf-8"))
+            await self.future
+            test_function(client)
+            await client.async_disconnect()
+
+    async def _test_sending_commands(
+        self,
+        commands_received,
+        wait_for_command,
+        client_functions,
+        test_function,
+        before_connect_function=None,
+    ):
+        """Helper to test sending commands to receiver."""
+        transport = mock.Mock()
+        protocol = LyngdorfProtocol(None, None)
+
+        def create_conn(proto_lambda, host, port):
+            proto = proto_lambda()
+            protocol._on_connection_lost = proto._on_connection_lost
+            protocol._on_message = proto._on_message
+            return [transport, proto]
+
+        client = await async_create_receiver(FAKE_IP, LyngdorfModel.MP_60)
+        if before_connect_function is not None:
+            before_connect_function(client)
+
+        with mock.patch("asyncio.get_event_loop", new_callable=mock.Mock) as debug_mock:
+            with mock.patch(
+                "lyngdorf.api.LyngdorfProtocol.write", new_callable=mock.Mock
+            ) as write_mock:
+                debug_mock.return_value.create_connection = AsyncMock(
+                    side_effect=create_conn
+                )
+                await client.async_connect()
+                self.future = asyncio.Future()
+                client._api.register_callback(wait_for_command, self._callback)
+                protocol.data_received(
+                    bytes("\r".join(commands_received) + "\r", "utf-8")
+                )
+                await self.future
+
+                before_length = len(write_mock.call_args_list)
+                client_functions(client)
+                after_list = [
+                    call.args[0].replace("\r", "")
+                    for call in write_mock.call_args_list[before_length:]
+                ]
+                test_function(client, after_list)
+                await client.async_disconnect()
+
+
+class TestVolumeAndMute:
+    """Tests for volume and mute functionality."""
+
+    future = None
+
+    def _callback(self, param1, param2):
+        self.future.set_result(True)
+
+    @pytest.mark.asyncio
+    async def test_volume_and_mute_reading(self):
+        """Test reading volume and mute state from receiver."""
+
+        def test_function(client: Receiver):
+            assert client.name == "MP-60"
+            assert client.volume == -28.1
+            assert client.zone_b_volume == -55.0
+            assert not client.mute_enabled
+            assert client.zone_b_mute_enabled
+
+        await self._test_receiving_commands(
+            SETUP_RESPONSES, SETUP_LAST_RESPONSE, test_function
+        )
+
+    @pytest.mark.asyncio
+    async def test_volume_and_mute_commands(self):
+        """Test volume and mute commands are sent correctly."""
+
+        def client_functions(client: Receiver):
+            client.volume = -22
+            client.volume_up()
+            client.volume_down()
+            client.zone_b_volume_up()
+            client.zone_b_volume_down()
+            client.mute_enabled = True
+            client.mute_enabled = False
+            client.zone_b_mute_enabled = True
+            client.zone_b_mute_enabled = False
+            client.lipsync = 10
+            client.room_perfect_position = "Focus 1"
+            client.voicing = "Voice 1"
+
+        def assertion_function(client: Receiver, commandsSent: list):
+            assert [
+                "!VOL(-220)",
+                "!VOL+",
+                "!VOL-",
+                "!ZVOL+",
+                "!ZVOL-",
+                "!MUTEON",
+                "!MUTEOFF",
+                "!ZMUTEON",
+                "!ZMUTEOFF",
+                "!LIPSYNC(10)",
+                "!RPFOC(1)",
+                "!RPVOI(1)",
+            ] == commandsSent
+
+        await self._test_sending_commands(
+            ["!AUDTYPE(PCM zero, 2.0.0)"],
+            "AUDTYPE",
+            client_functions,
+            assertion_function,
+        )
+
+    async def _test_receiving_commands(
+        self,
+        commands_received,
+        wait_for_command,
+        test_function,
+        before_connect_function=None,
+    ):
+        """Helper to test receiving commands from receiver."""
+        transport = mock.Mock()
+        protocol = LyngdorfProtocol(None, None)
+
+        def create_conn(proto_lambda, host, port):
+            proto = proto_lambda()
+            protocol._on_connection_lost = proto._on_connection_lost
+            protocol._on_message = proto._on_message
+            return [transport, proto]
+
+        client = await async_create_receiver(FAKE_IP, LyngdorfModel.MP_60)
+        if before_connect_function is not None:
+            before_connect_function(client)
+
+        with mock.patch("asyncio.get_event_loop", new_callable=mock.Mock) as debug_mock:
+            debug_mock.return_value.create_connection = AsyncMock(
+                side_effect=create_conn
+            )
+            await client.async_connect()
+            self.future = asyncio.Future()
+            client._api.register_callback(wait_for_command, self._callback)
+            protocol.data_received(bytes("\r".join(commands_received) + "\r", "utf-8"))
+            await self.future
+            test_function(client)
+            await client.async_disconnect()
+
+    async def _test_sending_commands(
+        self,
+        commands_received,
+        wait_for_command,
+        client_functions,
+        test_function,
+        before_connect_function=None,
+    ):
+        """Helper to test sending commands to receiver."""
+        transport = mock.Mock()
+        protocol = LyngdorfProtocol(None, None)
+
+        def create_conn(proto_lambda, host, port):
+            proto = proto_lambda()
+            protocol._on_connection_lost = proto._on_connection_lost
+            protocol._on_message = proto._on_message
+            return [transport, proto]
+
+        client = await async_create_receiver(FAKE_IP, LyngdorfModel.MP_60)
+        if before_connect_function is not None:
+            before_connect_function(client)
+
+        with mock.patch("asyncio.get_event_loop", new_callable=mock.Mock) as debug_mock:
+            with mock.patch(
+                "lyngdorf.api.LyngdorfProtocol.write", new_callable=mock.Mock
+            ) as write_mock:
+                debug_mock.return_value.create_connection = AsyncMock(
+                    side_effect=create_conn
+                )
+                await client.async_connect()
+                self.future = asyncio.Future()
+                client._api.register_callback(wait_for_command, self._callback)
+                protocol.data_received(
+                    bytes("\r".join(commands_received) + "\r", "utf-8")
+                )
+                await self.future
+
+                before_length = len(write_mock.call_args_list)
+                client_functions(client)
+                after_list = [
+                    call.args[0].replace("\r", "")
+                    for call in write_mock.call_args_list[before_length:]
+                ]
+                test_function(client, after_list)
+                await client.async_disconnect()
+
+
+class TestTrimControls:
+    """Tests for trim control functionality."""
+
+    future = None
+
+    def _callback(self, param1, param2):
+        self.future.set_result(True)
+
+    @pytest.mark.asyncio
+    async def test_trim_commands(self):
+        """Test trim commands are sent correctly."""
+
+        def client_functions(client: Receiver):
+            client.trim_bass = 1.0
+            client.trim_centre = -5.0
+            client.trim_height = -3.0
+            client.trim_lfe = -2.0
+            client.trim_surround = 5.0
+            client.trim_treble = 6.0
+
+            client.trim_bass_up()
+            client.trim_bass_down()
+            client.trim_centre_up()
+            client.trim_centre_down()
+            client.trim_height_up()
+            client.trim_height_down()
+            client.trim_lfe_up()
+            client.trim_lfe_down()
+            client.trim_surround_up()
+            client.trim_surround_down()
+            client.trim_treble_up()
+            client.trim_treble_down()
+
+        def assertion_function(client: Receiver, commandsSent: list):
+            assert [
+                "!TRIMBASS(10)",
+                "!TRIMCENTER(-50)",
+                "!TRIMHEIGHT(-30)",
+                "!TRIMLFE(-20)",
+                "!TRIMSURRS(50)",
+                "!TRIMTREB(60)",
+                "!TRIMBASS+",
+                "!TRIMBASS-",
+                "!TRIMCENTER+",
+                "!TRIMCENTER-",
+                "!TRIMHEIGHT+",
+                "!TRIMHEIGHT-",
+                "!TRIMLFE+",
+                "!TRIMLFE-",
+                "!TRIMSURRS+",
+                "!TRIMSURRS-",
+                "!TRIMTREB+",
+                "!TRIMTREB-",
+            ] == commandsSent
+
+        await self._test_sending_commands(
+            ["!AUDTYPE(PCM zero, 2.0.0)"],
+            "AUDTYPE",
+            client_functions,
+            assertion_function,
+        )
+
+    async def _test_sending_commands(
+        self,
+        commands_received,
+        wait_for_command,
+        client_functions,
+        test_function,
+        before_connect_function=None,
+    ):
+        """Helper to test sending commands to receiver."""
+        transport = mock.Mock()
+        protocol = LyngdorfProtocol(None, None)
+
+        def create_conn(proto_lambda, host, port):
+            proto = proto_lambda()
+            protocol._on_connection_lost = proto._on_connection_lost
+            protocol._on_message = proto._on_message
+            return [transport, proto]
+
+        client = await async_create_receiver(FAKE_IP, LyngdorfModel.MP_60)
+        if before_connect_function is not None:
+            before_connect_function(client)
+
+        with mock.patch("asyncio.get_event_loop", new_callable=mock.Mock) as debug_mock:
+            with mock.patch(
+                "lyngdorf.api.LyngdorfProtocol.write", new_callable=mock.Mock
+            ) as write_mock:
+                debug_mock.return_value.create_connection = AsyncMock(
+                    side_effect=create_conn
+                )
+                await client.async_connect()
+                self.future = asyncio.Future()
+                client._api.register_callback(wait_for_command, self._callback)
+                protocol.data_received(
+                    bytes("\r".join(commands_received) + "\r", "utf-8")
+                )
+                await self.future
+
+                before_length = len(write_mock.call_args_list)
+                client_functions(client)
+                after_list = [
+                    call.args[0].replace("\r", "")
+                    for call in write_mock.call_args_list[before_length:]
+                ]
+                test_function(client, after_list)
+                await client.async_disconnect()
+
+
+class TestSourcesAndSoundModes:
+    """Tests for source selection and sound mode functionality."""
+
+    future = None
+
+    def _callback(self, param1, param2):
+        self.future.set_result(True)
+
+    @pytest.mark.asyncio
+    async def test_sources_and_sound_modes_reading(self):
+        """Test reading sources and sound modes from receiver."""
+
+        def test_function(client: Receiver):
+            assert len(client.available_sources) == 24
+            assert "Playstation" in client.available_sources
+            assert len(client.available_sound_modes) == 10
+            assert "Party" in client.available_sound_modes
+            assert client.sound_mode == "Dolby Upmixer"
+            assert client.source == "Apple TV"
+            assert client.audio_input == "HDMI"
+            assert client.video_input == "HDMI 2"
+            assert client.video_information == "2160p50 RGB 4:4:4"
+            assert client.audio_information == "PCM zero, 2.0.0"
+            assert isinstance(client.available_sound_modes, list)
+            assert isinstance(client.available_sources, list)
+            assert isinstance(client.zone_b_available_sources, list)
+            assert client.zone_b_available_sources == ["Apple TV", "Wonk"]
+            assert client.zone_b_source == "Apple TV"
+            assert client.available_room_perfect_positions == ["Global", "Focus 1"]
+
+        await self._test_receiving_commands(
+            SETUP_RESPONSES, SETUP_LAST_RESPONSE, test_function
+        )
+
+    @pytest.mark.asyncio
+    async def test_source_and_sound_mode_commands(self):
+        """Test source and sound mode selection commands."""
+
+        def test_function(client: Receiver, commandsSent: list):
+            assert "!SRC(1)" in commandsSent
+            assert "!AUDMODE(9)" in commandsSent
+            assert "!ZSRC(1)" in commandsSent
+
+        def client_functions(client: Receiver):
+            client.source = "Playstation"
+            client.sound_mode = "Party"
+            client.zone_b_source = "Wonk"
+
+        await self._test_sending_commands(
+            SETUP_RESPONSES, SETUP_LAST_RESPONSE, client_functions, test_function
+        )
+
+    async def _test_receiving_commands(
+        self,
+        commands_received,
+        wait_for_command,
+        test_function,
+        before_connect_function=None,
+    ):
+        """Helper to test receiving commands from receiver."""
+        transport = mock.Mock()
+        protocol = LyngdorfProtocol(None, None)
+
+        def create_conn(proto_lambda, host, port):
+            proto = proto_lambda()
+            protocol._on_connection_lost = proto._on_connection_lost
+            protocol._on_message = proto._on_message
+            return [transport, proto]
+
+        client = await async_create_receiver(FAKE_IP, LyngdorfModel.MP_60)
+        if before_connect_function is not None:
+            before_connect_function(client)
+
+        with mock.patch("asyncio.get_event_loop", new_callable=mock.Mock) as debug_mock:
+            debug_mock.return_value.create_connection = AsyncMock(
+                side_effect=create_conn
+            )
+            await client.async_connect()
+            self.future = asyncio.Future()
+            client._api.register_callback(wait_for_command, self._callback)
+            protocol.data_received(bytes("\r".join(commands_received) + "\r", "utf-8"))
+            await self.future
+            test_function(client)
+            await client.async_disconnect()
+
+    async def _test_sending_commands(
+        self,
+        commands_received,
+        wait_for_command,
+        client_functions,
+        test_function,
+        before_connect_function=None,
+    ):
+        """Helper to test sending commands to receiver."""
+        transport = mock.Mock()
+        protocol = LyngdorfProtocol(None, None)
+
+        def create_conn(proto_lambda, host, port):
+            proto = proto_lambda()
+            protocol._on_connection_lost = proto._on_connection_lost
+            protocol._on_message = proto._on_message
+            return [transport, proto]
+
+        client = await async_create_receiver(FAKE_IP, LyngdorfModel.MP_60)
+        if before_connect_function is not None:
+            before_connect_function(client)
+
+        with mock.patch("asyncio.get_event_loop", new_callable=mock.Mock) as debug_mock:
+            with mock.patch(
+                "lyngdorf.api.LyngdorfProtocol.write", new_callable=mock.Mock
+            ) as write_mock:
+                debug_mock.return_value.create_connection = AsyncMock(
+                    side_effect=create_conn
+                )
+                await client.async_connect()
+                self.future = asyncio.Future()
+                client._api.register_callback(wait_for_command, self._callback)
+                protocol.data_received(
+                    bytes("\r".join(commands_received) + "\r", "utf-8")
+                )
+                await self.future
+
+                before_length = len(write_mock.call_args_list)
+                client_functions(client)
+                after_list = [
+                    call.args[0].replace("\r", "")
+                    for call in write_mock.call_args_list[before_length:]
+                ]
+                test_function(client, after_list)
+                await client.async_disconnect()
+
+
+class TestZoneBFunctionality:
+    """Tests for Zone B functionality."""
+
+    future = None
+
+    def _callback(self, param1, param2):
+        self.future.set_result(True)
+
+    @pytest.mark.asyncio
+    async def test_zone_b_source_selection(self):
+        """Test Zone B source selection and commands."""
+
+        def client_functions(client: Receiver):
+            client.zone_b_source = "Wonk"
+
+        def assertion_function(client: Receiver, commandsSent: list):
+            assert "!ZSRC(1)" in commandsSent
+
+        transport = mock.Mock()
+        protocol = LyngdorfProtocol(None, None)
+
+        def create_conn(proto_lambda, host, port):
+            proto = proto_lambda()
+            protocol._on_connection_lost = proto._on_connection_lost
+            protocol._on_message = proto._on_message
+            return [transport, proto]
+
+        client = await async_create_receiver(FAKE_IP, LyngdorfModel.MP_60)
+
+        with mock.patch("asyncio.get_event_loop", new_callable=mock.Mock) as debug_mock:
+            with mock.patch(
+                "lyngdorf.api.LyngdorfProtocol.write", new_callable=mock.Mock
+            ) as write_mock:
+                debug_mock.return_value.create_connection = AsyncMock(
+                    side_effect=create_conn
+                )
+                await client.async_connect()
+                self.future = asyncio.Future()
+                client._api.register_callback("AUDTYPE", self._callback)
+                protocol.data_received(
+                    bytes("\r".join(SETUP_RESPONSES) + "\r", "utf-8")
+                )
+                await self.future
+
+                before_length = len(write_mock.call_args_list)
+                client_functions(client)
+                after_list = [
+                    call.args[0].replace("\r", "")
+                    for call in write_mock.call_args_list[before_length:]
+                ]
+                assertion_function(client, after_list)
+                await client.async_disconnect()
+
+    @pytest.mark.asyncio
+    async def test_zone_b_source_invalid(self):
+        """Test Zone B source with invalid source name raises error."""
+        client = await async_create_receiver(FAKE_IP, LyngdorfModel.MP_60)
+        with pytest.raises(LyngdorfInvalidValueError):
+            client.zone_b_source = "NonExistentSource"
+
+
+class TestAudioVideoInputs:
+    """Tests for audio and video input handling."""
+
+    future = None
+
+    def _callback(self, param1, param2):
+        self.future.set_result(True)
+
+    @pytest.mark.asyncio
+    async def test_audio_input_known_values(self):
+        """Test audio input with known values."""
+
+        def test_function(client: Receiver):
+            assert client.audio_input == "HDMI"
+
+        await self._test_receiving_commands(
+            SETUP_RESPONSES, SETUP_LAST_RESPONSE, test_function
+        )
+
+    @pytest.mark.asyncio
+    async def test_audio_input_unknown_values(self):
+        """Test audio input with unknown audio input code."""
+
+        def test_function(client: Receiver):
+            assert client.audio_input == "audio-999"
+
+        responses = SETUP_RESPONSES.copy()
+        for i, resp in enumerate(responses):
+            if resp.startswith("!AUDIN"):
+                responses[i] = "!AUDIN(999)"
+
+        await self._test_receiving_commands(responses, SETUP_LAST_RESPONSE, test_function)
+
+    @pytest.mark.asyncio
+    async def test_video_input_known_values(self):
+        """Test video input with known values."""
+
+        def test_function(client: Receiver):
+            assert client.video_input == "HDMI 2"
+
+        await self._test_receiving_commands(
+            SETUP_RESPONSES, SETUP_LAST_RESPONSE, test_function
+        )
+
+    @pytest.mark.asyncio
+    async def test_video_input_unknown_values(self):
+        """Test video input with unknown video input code."""
+
+        def test_function(client: Receiver):
+            assert client.video_input == "video-99"
+
+        responses = SETUP_RESPONSES.copy()
+        for i, resp in enumerate(responses):
+            if resp.startswith("!VIDIN"):
+                responses[i] = "!VIDIN(99)"
+
+        await self._test_receiving_commands(responses, SETUP_LAST_RESPONSE, test_function)
+
+    async def _test_receiving_commands(
+        self,
+        commands_received,
+        wait_for_command,
+        test_function,
+        before_connect_function=None,
+    ):
+        """Helper to test receiving commands from receiver."""
+        transport = mock.Mock()
+        protocol = LyngdorfProtocol(None, None)
+
+        def create_conn(proto_lambda, host, port):
+            proto = proto_lambda()
+            protocol._on_connection_lost = proto._on_connection_lost
+            protocol._on_message = proto._on_message
+            return [transport, proto]
+
+        client = await async_create_receiver(FAKE_IP, LyngdorfModel.MP_60)
+        if before_connect_function is not None:
+            before_connect_function(client)
+
+        with mock.patch("asyncio.get_event_loop", new_callable=mock.Mock) as debug_mock:
+            debug_mock.return_value.create_connection = AsyncMock(
+                side_effect=create_conn
+            )
+            await client.async_connect()
+            self.future = asyncio.Future()
+            client._api.register_callback(wait_for_command, self._callback)
+            protocol.data_received(bytes("\r".join(commands_received) + "\r", "utf-8"))
+            await self.future
+            test_function(client)
+            await client.async_disconnect()
+
+
+class TestStreamingAndVideoInfo:
+    """Tests for streaming source and video information."""
+
+    future = None
+
+    def _callback(self, param1, param2):
+        self.future.set_result(True)
+
+    @pytest.mark.asyncio
+    async def test_streaming_source(self):
+        """Test streaming source information."""
+
+        def test_function(client: Receiver):
+            assert client.streaming_source == "Spotify"
+            assert client.zone_b_streaming_source == "AirPlay"
+
+        await self._test_receiving_commands(
+            SETUP_RESPONSES, SETUP_LAST_RESPONSE, test_function
+        )
+
+    @pytest.mark.asyncio
+    async def test_streaming_source_unknown(self):
+        """Test streaming source with unknown stream type code."""
+
+        def test_function(client: Receiver):
+            assert client.streaming_source == "video-99"
+
+        responses = SETUP_RESPONSES.copy()
+        for i, resp in enumerate(responses):
+            if resp.startswith("!STREAMTYPE"):
+                responses[i] = "!STREAMTYPE(99)"
+
+        await self._test_receiving_commands(responses, SETUP_LAST_RESPONSE, test_function)
+
+    @pytest.mark.asyncio
+    async def test_video_information(self):
+        """Test video information property."""
+
+        def test_function(client: Receiver):
+            assert client.video_information == "2160p50 RGB 4:4:4"
+            assert client.audio_information == "PCM zero, 2.0.0"
+
+        await self._test_receiving_commands(
+            SETUP_RESPONSES, SETUP_LAST_RESPONSE, test_function
+        )
+
+    async def _test_receiving_commands(
+        self,
+        commands_received,
+        wait_for_command,
+        test_function,
+        before_connect_function=None,
+    ):
+        """Helper to test receiving commands from receiver."""
+        transport = mock.Mock()
+        protocol = LyngdorfProtocol(None, None)
+
+        def create_conn(proto_lambda, host, port):
+            proto = proto_lambda()
+            protocol._on_connection_lost = proto._on_connection_lost
+            protocol._on_message = proto._on_message
+            return [transport, proto]
+
+        client = await async_create_receiver(FAKE_IP, LyngdorfModel.MP_60)
+        if before_connect_function is not None:
+            before_connect_function(client)
+
+        with mock.patch("asyncio.get_event_loop", new_callable=mock.Mock) as debug_mock:
+            debug_mock.return_value.create_connection = AsyncMock(
+                side_effect=create_conn
+            )
+            await client.async_connect()
+            self.future = asyncio.Future()
+            client._api.register_callback(wait_for_command, self._callback)
+            protocol.data_received(bytes("\r".join(commands_received) + "\r", "utf-8"))
+            await self.future
+            test_function(client)
+            await client.async_disconnect()
+
+
+class TestRoomPerfectAndVoicing:
+    """Tests for Room Perfect and Voicing features."""
+
+    future = None
+
+    def _callback(self, param1, param2):
+        self.future.set_result(True)
+
+    @pytest.mark.asyncio
+    async def test_room_perfect_positions_and_voicing(self):
+        """Test Room Perfect positions and voicing settings."""
+
+        def test_function(client: Receiver):
+            assert len(client.available_room_perfect_positions) == 2
+            assert "Global" in client.available_room_perfect_positions
+            assert "Focus 1" in client.available_room_perfect_positions
+            assert client.room_perfect_position == "Focus 1"
+            assert len(client.available_voicings) == 2
+            assert "Voice 0" in client.available_voicings
+            assert client.voicing == "Voice 1"
+
+        await self._test_receiving_commands(
+            SETUP_RESPONSES, SETUP_LAST_RESPONSE, test_function
+        )
+
+    @pytest.mark.asyncio
+    async def test_room_perfect_invalid_position(self):
+        """Test invalid Room Perfect position raises error."""
+        client = await async_create_receiver(FAKE_IP, LyngdorfModel.MP_60)
+        with pytest.raises(LyngdorfInvalidValueError):
+            client.room_perfect_position = "InvalidPosition"
+
+    @pytest.mark.asyncio
+    async def test_voicing_invalid(self):
+        """Test invalid voicing raises error."""
+        client = await async_create_receiver(FAKE_IP, LyngdorfModel.MP_60)
+        with pytest.raises(LyngdorfInvalidValueError):
+            client.voicing = "InvalidVoicing"
+
+    async def _test_receiving_commands(
+        self,
+        commands_received,
+        wait_for_command,
+        test_function,
+        before_connect_function=None,
+    ):
+        """Helper to test receiving commands from receiver."""
+        transport = mock.Mock()
+        protocol = LyngdorfProtocol(None, None)
+
+        def create_conn(proto_lambda, host, port):
+            proto = proto_lambda()
+            protocol._on_connection_lost = proto._on_connection_lost
+            protocol._on_message = proto._on_message
+            return [transport, proto]
+
+        client = await async_create_receiver(FAKE_IP, LyngdorfModel.MP_60)
+        if before_connect_function is not None:
+            before_connect_function(client)
+
+        with mock.patch("asyncio.get_event_loop", new_callable=mock.Mock) as debug_mock:
+            debug_mock.return_value.create_connection = AsyncMock(
+                side_effect=create_conn
+            )
+            await client.async_connect()
+            self.future = asyncio.Future()
+            client._api.register_callback(wait_for_command, self._callback)
+            protocol.data_received(bytes("\r".join(commands_received) + "\r", "utf-8"))
+            await self.future
+            test_function(client)
+            await client.async_disconnect()
+
+
+class TestNotificationCallbacks:
+    """Tests for notification callback behavior."""
+
+    future = None
+
+    def _callback(self, param1, param2):
+        self.future.set_result(True)
+
+    @pytest.mark.asyncio
+    async def test_notification_callbacks(self):
+        """Test notification callbacks are triggered."""
+
+        def notify_me():
+            notify_me.counter += 1
+
+        notify_me.counter = 0
+
+        def test_function(client: Receiver):
+            assert notify_me.counter == 17
+
+        def before_connect_function(client: Receiver):
+            client.register_notification_callback(notify_me)
+
+        transport = mock.Mock()
+        protocol = LyngdorfProtocol(None, None)
+
+        def create_conn(proto_lambda, host, port):
+            proto = proto_lambda()
+            protocol._on_connection_lost = proto._on_connection_lost
+            protocol._on_message = proto._on_message
+            return [transport, proto]
+
+        client = await async_create_receiver(FAKE_IP, LyngdorfModel.MP_60)
+        before_connect_function(client)
+
+        with mock.patch("asyncio.get_event_loop", new_callable=mock.Mock) as debug_mock:
+            debug_mock.return_value.create_connection = AsyncMock(
+                side_effect=create_conn
+            )
+            await client.async_connect()
+            self.future = asyncio.Future()
+            client._api.register_callback(SETUP_LAST_RESPONSE, self._callback)
+            protocol.data_received(bytes("\r".join(SETUP_RESPONSES) + "\r", "utf-8"))
+            await self.future
+            test_function(client)
+            await client.async_disconnect()
+
+    @pytest.mark.asyncio
+    async def test_unregister_notification_callback(self):
+        """Test unregistering a notification callback."""
+        callback_called = []
+
+        def test_callback():
+            callback_called.append(True)
+
+        transport = mock.Mock()
+        protocol = LyngdorfProtocol(None, None)
+
+        def create_conn(proto_lambda, host, port):
+            proto = proto_lambda()
+            protocol._on_connection_lost = proto._on_connection_lost
+            protocol._on_message = proto._on_message
+            return [transport, proto]
+
+        client = await async_create_receiver(FAKE_IP, LyngdorfModel.MP_60)
+        client.register_notification_callback(test_callback)
+
+        with mock.patch("asyncio.get_event_loop", new_callable=mock.Mock) as debug_mock:
+            debug_mock.return_value.create_connection = AsyncMock(
+                side_effect=create_conn
+            )
+            await client.async_connect()
+            self.future = asyncio.Future()
+            client._api.register_callback("AUDTYPE", self._callback)
+
+            protocol.data_received(
+                bytes("\r".join(["!AUDTYPE(PCM zero, 2.0.0)"]) + "\r", "utf-8")
+            )
+            await self.future
+
+            # Unregister the callback
+            client.un_register_notification_callback(test_callback)
+
+            # Trigger another event - callback should not be called
+            callback_called.clear()
+            self.future = asyncio.Future()
+            protocol.data_received(bytes("!POWER(1)\r", "utf-8"))
+
+            # Wait a bit for any potential callbacks
+            await asyncio.sleep(0.05)
+            assert len(callback_called) == 0
+
+            await client.async_disconnect()
+
+    @pytest.mark.asyncio
+    async def test_notification_callback_exception_handling(self):
+        """Test exception handling in notification callbacks."""
+
+        def bad_callback():
+            raise ValueError("Test error in callback")
+
+        transport = mock.Mock()
+        protocol = LyngdorfProtocol(None, None)
+
+        def create_conn(proto_lambda, host, port):
+            proto = proto_lambda()
+            protocol._on_connection_lost = proto._on_connection_lost
+            protocol._on_message = proto._on_message
+            return [transport, proto]
+
+        client = await async_create_receiver(FAKE_IP, LyngdorfModel.MP_60)
+        client.register_notification_callback(bad_callback)
+
+        with mock.patch("asyncio.get_event_loop", new_callable=mock.Mock) as debug_mock:
+            debug_mock.return_value.create_connection = AsyncMock(
+                side_effect=create_conn
+            )
+            await client.async_connect()
+            self.future = asyncio.Future()
+            client._api.register_callback("AUDTYPE", self._callback)
+
+            # Sending a command that will trigger callbacks with an exception
+            protocol.data_received(bytes("\r".join(SETUP_RESPONSES) + "\r", "utf-8"))
+            await self.future
+
+            await client.async_disconnect()
+
+
+class TestConnectionManagement:
+    """Tests for connection and disconnection."""
 
     future = None
 
@@ -1536,162 +1921,24 @@ class TestAsyncDisconnect:
             assert not client._api.connected
 
 
-class TestTDAI1120Receiver:
-    """Tests for TDAI-1120 specific functionality."""
-
-    def test_tdai1120_receiver_initialization(self):
-        """Test TDAI1120Receiver initialization sets correct constants."""
-        from lyngdorf.device import TDAI1120Receiver
-
-        receiver = TDAI1120Receiver("192.168.1.1")
-
-        # TDAI-1120 should have empty audio inputs and video inputs
-        assert receiver._audio_inputs == {}
-        assert receiver._video_inputs == {}
-        assert receiver.model == LyngdorfModel.TDAI_1120
-
-    def test_tdai1120_stream_types(self):
-        """Test TDAI-1120 stream types constants."""
-        from lyngdorf.const import TDAI1120_STREAM_TYPES
-
-        assert TDAI1120_STREAM_TYPES[0] == "None"
-        assert TDAI1120_STREAM_TYPES[1] == "vTuner"
-        assert TDAI1120_STREAM_TYPES[7] == "Bluetooth"
+# =============================================================================
+# Error Handling Tests
+# =============================================================================
 
 
-class TestTDAI2170Receiver:
-    """Tests for TDAI-2170 specific functionality."""
+class TestExceptionHandling:
+    """Tests for exception handling in the device module."""
 
-    def test_tdai2170_receiver_initialization(self):
-        """Test TDAI2170Receiver initialization sets correct constants."""
-        from lyngdorf.device import TDAI2170Receiver
+    def test_lyngdorf_invalid_value_error(self):
+        """Test LyngdorfInvalidValueError exception."""
+        from lyngdorf.exceptions import LyngdorfInvalidValueError
 
-        receiver = TDAI2170Receiver("192.168.1.1")
+        error = LyngdorfInvalidValueError("test message")
+        assert isinstance(error, Exception)
 
-        # TDAI-2170 should have empty audio/video inputs (dynamic)
-        assert receiver._audio_inputs == {}
-        assert receiver._video_inputs == {}
-        assert receiver.model == LyngdorfModel.TDAI_2170
-
-    def test_tdai2170_stream_types(self):
-        """Test TDAI-2170 stream types constants."""
-        from lyngdorf.const import TDAI2170_STREAM_TYPES
-
-        assert TDAI2170_STREAM_TYPES[0] == "None"
-        assert TDAI2170_STREAM_TYPES[1] == "vTuner"
-        assert TDAI2170_STREAM_TYPES[2] == "Spotify"
-        assert TDAI2170_STREAM_TYPES[6] == "Roon Ready"
-
-    def test_tdai2170_shares_protocol_with_tdai1120(self):
-        """Test that TDAI-2170 shares command protocol with TDAI-1120."""
-        from lyngdorf.device import TDAI1120Receiver, TDAI2170Receiver
-
-        tdai1120 = TDAI1120Receiver("192.168.1.1")
-        tdai2170 = TDAI2170Receiver("192.168.1.1")
-
-        # Both should use identical command mappings
-        assert tdai2170._model.lookup_command(
-            Msg.POWER
-        ) == tdai1120._model.lookup_command(Msg.POWER)
-        assert tdai2170._model.lookup_command(
-            Msg.VOLUME
-        ) == tdai1120._model.lookup_command(Msg.VOLUME)
-
-
-class TestTDAI3400Receiver:
-    """Tests for TDAI-3400 specific functionality."""
-
-    def test_tdai3400_receiver_initialization(self):
-        """Test TDAI3400Receiver initialization sets correct constants."""
-        from lyngdorf.device import TDAI3400Receiver
-
-        receiver = TDAI3400Receiver("192.168.1.1")
-
-        # TDAI-3400 should have empty audio/video inputs (dynamic)
-        assert receiver._audio_inputs == {}
-        assert receiver._video_inputs == {}
-        assert receiver.model == LyngdorfModel.TDAI_3400
-
-    def test_tdai3400_stream_types(self):
-        """Test TDAI-3400 stream types constants."""
-        from lyngdorf.const import TDAI3400_STREAM_TYPES
-
-        assert TDAI3400_STREAM_TYPES[0] == "None"
-        assert TDAI3400_STREAM_TYPES[1] == "vTuner"
-        assert TDAI3400_STREAM_TYPES[2] == "Spotify"
-        assert TDAI3400_STREAM_TYPES[7] == "Bluetooth"
-        assert TDAI3400_STREAM_TYPES[8] == "TIDAL"
-
-    def test_tdai3400_has_different_protocol(self):
-        """Test that TDAI-3400 uses I-prefixed commands."""
-        from lyngdorf.device import TDAI1120Receiver, TDAI3400Receiver
-
-        tdai1120 = TDAI1120Receiver("192.168.1.1")
-        tdai3400 = TDAI3400Receiver("192.168.1.1")
-
-        # Commands should be different (I-prefixed for TDAI-3400)
-        assert tdai3400._model.lookup_command(Msg.POWER) == "IPWR"
-        assert tdai1120._model.lookup_command(Msg.POWER) == "PWR"
-        assert tdai3400._model.lookup_command(Msg.VOLUME) == "IVOL"
-        assert tdai1120._model.lookup_command(Msg.VOLUME) == "VOL"
-
-
-class TestLyngdorfModel:
-    """Tests for LyngdorfModel enum and configuration."""
-
-    def test_lyngdorf_model_mp60_properties(self):
-        """Test MP-60 model has correct properties."""
-        model = LyngdorfModel.MP_60
-        assert model.model_name == "mp-60"
-        assert model.manufacturer == "Lyngdorf"
-        assert model.name == "MP_60"
-        assert len(model.setup_commands) > 0
-
-    def test_lyngdorf_model_tdai1120_properties(self):
-        """Test TDAI-1120 model has correct properties."""
-        model = LyngdorfModel.TDAI_1120
-        assert model.model_name == "tdai-1120"
-        assert model.manufacturer == "Lyngdorf"
-        assert model.name == "TDAI_1120"
-        assert len(model.setup_commands) > 0
-
-    def test_mp60_messages_complete(self):
-        """Test MP60 messages mapping is complete."""
-        from lyngdorf.const import MP60_MESSAGES
-
-        assert MP60_MESSAGES[Msg.POWER] == "POWER"
-        assert MP60_MESSAGES[Msg.VOLUME] == "VOL"
-        assert MP60_MESSAGES[Msg.SOURCE] == "SRC"
-        assert MP60_MESSAGES[Msg.AUDIO_MODE] == "AUDMODE"
-
-    def test_tdai1120_messages_mapping(self):
-        """Test TDAI-1120 messages mapping."""
-        from lyngdorf.const import TDAI1120_MESSAGES
-
-        assert TDAI1120_MESSAGES[Msg.POWER] == "PWR"
-        assert TDAI1120_MESSAGES[Msg.VOLUME] == "VOL"
-        assert TDAI1120_MESSAGES[Msg.SOURCE] == "SRC"
-
-    def test_mp_series_has_zone_b_feature(self):
-        """Test MP series models have Zone B support."""
-        assert LyngdorfModel.MP_40.has_zone_b_feature() is True
-        assert LyngdorfModel.MP_50.has_zone_b_feature() is True
-        assert LyngdorfModel.MP_60.has_zone_b_feature() is True
-
-    def test_tdai_series_no_zone_b_feature(self):
-        """Test TDAI series models do not have Zone B support."""
-        assert LyngdorfModel.TDAI_1120.has_zone_b_feature() is False
-        assert LyngdorfModel.TDAI_2170.has_zone_b_feature() is False
-        assert LyngdorfModel.TDAI_3400.has_zone_b_feature() is False
-
-    def test_mp_series_has_video_feature(self):
-        """Test MP series models have video capability."""
-        assert LyngdorfModel.MP_40.has_video_feature() is True
-        assert LyngdorfModel.MP_50.has_video_feature() is True
-        assert LyngdorfModel.MP_60.has_video_feature() is True
-
-    def test_tdai_series_no_video_feature(self):
-        """Test TDAI series models do not have video capability."""
-        assert LyngdorfModel.TDAI_1120.has_video_feature() is False
-        assert LyngdorfModel.TDAI_2170.has_video_feature() is False
-        assert LyngdorfModel.TDAI_3400.has_video_feature() is False
+    @pytest.mark.asyncio
+    async def test_source_invalid_error(self):
+        """Test invalid source selection raises error."""
+        client = await async_create_receiver(FAKE_IP, LyngdorfModel.MP_60)
+        with pytest.raises(LyngdorfInvalidValueError):
+            client.source = "NonExistentSource"
