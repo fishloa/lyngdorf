@@ -57,6 +57,8 @@ class ModelConfig:
         stream_types: Stream type mapping (index -> name)
         video_outputs: Optional video output mapping
         room_perfect_positions: Optional Room Perfect position mapping
+        has_zone_b: Whether this model supports Zone B (Zone 2) functionality
+        has_video: Whether this model supports video inputs/outputs
     """
 
     model_name: str
@@ -68,6 +70,8 @@ class ModelConfig:
     stream_types: dict[int, str]
     video_outputs: dict[int, str] | None = None
     room_perfect_positions: dict[int, str] | None = None
+    has_zone_b: bool = False
+    has_video: bool = False
 
     def lookup_command(self, key: Msg) -> str:
         """Lookup protocol command for a given message type.

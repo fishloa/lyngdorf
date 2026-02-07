@@ -150,6 +150,8 @@ MP40_CONFIG = ModelConfig(
     video_inputs=MP40_VIDEO_INPUTS,
     audio_inputs=MP40_AUDIO_INPUTS,
     stream_types=MP40_STREAM_TYPES,
+    has_zone_b=True,
+    has_video=True,
 )
 
 # MP-50 Hardware Configuration
@@ -222,6 +224,8 @@ MP50_CONFIG = ModelConfig(
     audio_inputs=MP50_AUDIO_INPUTS,
     stream_types=MP50_STREAM_TYPES,
     video_outputs=MP50_VIDEO_OUTPUTS,
+    has_zone_b=True,
+    has_video=True,
 )
 
 # MP-60 Hardware Configuration
@@ -299,4 +303,6 @@ MP60_CONFIG = ModelConfig(
     stream_types=MP60_STREAM_TYPES,
     video_outputs=MP60_VIDEO_OUTPUTS,
     room_perfect_positions=MP60_ROOM_PERFECT_POSITIONS,
+    has_zone_b=True,
+    has_video=True,
 )

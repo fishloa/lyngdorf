@@ -92,6 +92,22 @@ class LyngdorfModel(Enum):
         """
         return self.value.messages[key]
 
+    def has_zone_b_feature(self) -> bool:
+        """Check if this model supports Zone B (Zone 2) functionality.
+
+        Returns:
+            True if the model has Zone B support, False otherwise
+        """
+        return self.value.has_zone_b
+
+    def has_video_feature(self) -> bool:
+        """Check if this model supports video inputs and outputs.
+
+        Returns:
+            True if the model has video capability, False otherwise
+        """
+        return self.value.has_video
+
 
 def supported_models() -> list[LyngdorfModel]:
     """Return a list of all supported Lyngdorf receiver models.
