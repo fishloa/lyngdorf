@@ -1671,3 +1671,27 @@ class TestLyngdorfModel:
         assert TDAI1120_MESSAGES[Msg.POWER] == "PWR"
         assert TDAI1120_MESSAGES[Msg.VOLUME] == "VOL"
         assert TDAI1120_MESSAGES[Msg.SOURCE] == "SRC"
+
+    def test_mp_series_has_zone_b_feature(self):
+        """Test MP series models have Zone B support."""
+        assert LyngdorfModel.MP_40.has_zone_b_feature() is True
+        assert LyngdorfModel.MP_50.has_zone_b_feature() is True
+        assert LyngdorfModel.MP_60.has_zone_b_feature() is True
+
+    def test_tdai_series_no_zone_b_feature(self):
+        """Test TDAI series models do not have Zone B support."""
+        assert LyngdorfModel.TDAI_1120.has_zone_b_feature() is False
+        assert LyngdorfModel.TDAI_2170.has_zone_b_feature() is False
+        assert LyngdorfModel.TDAI_3400.has_zone_b_feature() is False
+
+    def test_mp_series_has_video_feature(self):
+        """Test MP series models have video capability."""
+        assert LyngdorfModel.MP_40.has_video_feature() is True
+        assert LyngdorfModel.MP_50.has_video_feature() is True
+        assert LyngdorfModel.MP_60.has_video_feature() is True
+
+    def test_tdai_series_no_video_feature(self):
+        """Test TDAI series models do not have video capability."""
+        assert LyngdorfModel.TDAI_1120.has_video_feature() is False
+        assert LyngdorfModel.TDAI_2170.has_video_feature() is False
+        assert LyngdorfModel.TDAI_3400.has_video_feature() is False
