@@ -1548,7 +1548,9 @@ class TestAudioVideoInputs:
             if resp.startswith("!AUDIN"):
                 responses[i] = "!AUDIN(999)"
 
-        await self._test_receiving_commands(responses, SETUP_LAST_RESPONSE, test_function)
+        await self._test_receiving_commands(
+            responses, SETUP_LAST_RESPONSE, test_function
+        )
 
     @pytest.mark.asyncio
     async def test_video_input_known_values(self):
@@ -1573,7 +1575,9 @@ class TestAudioVideoInputs:
             if resp.startswith("!VIDIN"):
                 responses[i] = "!VIDIN(99)"
 
-        await self._test_receiving_commands(responses, SETUP_LAST_RESPONSE, test_function)
+        await self._test_receiving_commands(
+            responses, SETUP_LAST_RESPONSE, test_function
+        )
 
     async def _test_receiving_commands(
         self,
@@ -1641,7 +1645,9 @@ class TestStreamingAndVideoInfo:
             if resp.startswith("!STREAMTYPE"):
                 responses[i] = "!STREAMTYPE(99)"
 
-        await self._test_receiving_commands(responses, SETUP_LAST_RESPONSE, test_function)
+        await self._test_receiving_commands(
+            responses, SETUP_LAST_RESPONSE, test_function
+        )
 
     @pytest.mark.asyncio
     async def test_video_information(self):
