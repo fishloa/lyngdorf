@@ -1121,7 +1121,15 @@ class TestVolumeAndMute:
             ] == commandsSent
 
         await self._test_sending_commands(
-            ["!AUDTYPE(PCM zero, 2.0.0)"],
+            [
+                "!RPFOCCOUNT(2)",
+                '!RPFOC(0)"Global"',
+                '!RPFOC(1)"Focus 1"',
+                "!RPVOICOUNT(2)",
+                '!RPVOI(0)"Voice 0"',
+                '!RPVOI(1)"Voice 1"',
+                "!AUDTYPE(PCM zero, 2.0.0)",
+            ],
             "AUDTYPE",
             client_functions,
             assertion_function,
