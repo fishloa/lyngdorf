@@ -15,8 +15,6 @@ import logging
 import traceback
 from collections.abc import Callable
 
-from attr import field, validators
-
 from .api import LyngdorfApi
 from .base import CountingNumberDict
 from .const import (
@@ -51,69 +49,6 @@ def convert_decibel(value: float | str) -> float:
 class Receiver:
     """Lyngdorf client class."""
 
-    _api: LyngdorfApi
-    _model: LyngdorfModel | None
-    _host: str | None
-
-    _stream_types: dict[int, str]
-    _audio_inputs: dict[int, str]
-    _video_inputs: dict[int, str]
-
-    _notification_callbacks: list[Callable[[], None]]
-
-    _name: str | None
-    _volume: float | None = field(
-        validator=[validators.ge(-99.9), validators.lt(10.0)], default=None
-    )
-    _zone_b_volume: float | None = field(
-        validator=[validators.ge(-99.9), validators.lt(10.0)], default=None
-    )
-    _mute_enabled: bool | None
-    _zone_b_mute_enabled: bool | None
-    _sources = CountingNumberDict()
-    _source: str | None
-    _zone_b_sources = CountingNumberDict()
-    _zone_b_source: str | None
-    _sound_modes = CountingNumberDict()
-    _sound_mode: str | None
-    _audio_input: str | None
-    _zone_b_audio_input: str | None
-    _video_input: str | None
-    _audio_info: str | None
-    _video_info: str | None
-    _streaming_source: str | None
-    _zone_b_streaming_source: str | None
-    _zone_b_audio_info: str | None
-    _power_on: bool | None
-    _zone_b_power_on: bool | None
-
-    # Trims
-    _trim_bass: float | None = field(
-        validator=[validators.ge(-12.0), validators.lt(12.0)], default=None
-    )
-    _trim_centre: float | None = field(
-        validator=[validators.ge(-10.0), validators.lt(10.0)], default=None
-    )
-    _trim_height: float | None = field(
-        validator=[validators.ge(-10.0), validators.lt(10.0)], default=None
-    )
-    _trim_lfe: float | None = field(
-        validator=[validators.ge(-10.0), validators.lt(10.0)], default=None
-    )
-    _trim_surround: float | None = field(
-        validator=[validators.ge(-10.0), validators.lt(10.0)], default=None
-    )
-    _trim_treble: float | None = field(
-        validator=[validators.ge(-12.0), validators.lt(12.0)], default=None
-    )
-
-    # Audio Tuning
-    _room_perfect_positions = CountingNumberDict()
-    _room_perfect_position: str | None
-    _voicings = CountingNumberDict()
-    _voicing: str | None
-    _lipsync: int | None
-
     def __init__(self, host: str, model: LyngdorfModel):
         """Initialize the client."""
         self._host = host
@@ -121,15 +56,50 @@ class Receiver:
         assert model
         assert host
         self._api: LyngdorfApi = LyngdorfApi(host, model)
-        # Initialize dicts for base class; subclasses can override these before calling super()
+
+        # Initialize mutable containers as instance attributes
+        # (subclasses set these before calling super())
         if not hasattr(self, "_stream_types"):
             self._stream_types: dict[int, str] = {}
         if not hasattr(self, "_audio_inputs"):
             self._audio_inputs: dict[int, str] = {}
         if not hasattr(self, "_video_inputs"):
             self._video_inputs: dict[int, str] = {}
-        if not hasattr(self, "_notification_callbacks"):
-            self._notification_callbacks: list[Callable[[], None]] = []
+        self._notification_callbacks: list[Callable[[], None]] = []
+        self._sources = CountingNumberDict()
+        self._zone_b_sources = CountingNumberDict()
+        self._sound_modes = CountingNumberDict()
+        self._room_perfect_positions = CountingNumberDict()
+        self._voicings = CountingNumberDict()
+
+        # Initialize state attributes
+        self._name: str | None = None
+        self._volume: float | None = None
+        self._zone_b_volume: float | None = None
+        self._mute_enabled: bool | None = None
+        self._zone_b_mute_enabled: bool | None = None
+        self._source: str | None = None
+        self._zone_b_source: str | None = None
+        self._sound_mode: str | None = None
+        self._audio_input: str | None = None
+        self._zone_b_audio_input: str | None = None
+        self._video_input: str | None = None
+        self._audio_info: str | None = None
+        self._video_info: str | None = None
+        self._streaming_source: str | None = None
+        self._zone_b_streaming_source: str | None = None
+        self._zone_b_audio_info: str | None = None
+        self._power_on: bool | None = None
+        self._zone_b_power_on: bool | None = None
+        self._room_perfect_position: str | None = None
+        self._voicing: str | None = None
+        self._lipsync: int | None = None
+        self._trim_bass: float | None = None
+        self._trim_centre: float | None = None
+        self._trim_height: float | None = None
+        self._trim_lfe: float | None = None
+        self._trim_surround: float | None = None
+        self._trim_treble: float | None = None
 
     async def async_connect(self):
         # Basics
