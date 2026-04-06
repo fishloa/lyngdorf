@@ -883,7 +883,9 @@ async def async_get_device_serial(host: str, timeout: float = 5.0) -> str | None
     def _fetch_xml() -> str | None:
         parsed = urlparse(location)
         try:
-            conn = http.client.HTTPConnection(parsed.hostname, parsed.port, timeout=timeout)
+            conn = http.client.HTTPConnection(
+                parsed.hostname, parsed.port, timeout=timeout
+            )
             conn.request("GET", parsed.path)
             resp = conn.getresponse()
             if resp.status == 200:
