@@ -221,6 +221,11 @@ class Receiver:
 
         await self._api.async_connect()
 
+    @property
+    def connected(self) -> bool:
+        """Return True if the receiver connection is active."""
+        return self._api.connected
+
     async def async_disconnect(self):
         await self._api.async_disconnect()
 
