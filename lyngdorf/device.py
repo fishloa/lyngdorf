@@ -812,6 +812,108 @@ async def async_find_receiver_model(
     return None
 
 
+async def async_get_device_serial(host: str, timeout: float = 5.0) -> str | None:
+    """Get the serial number of a Lyngdorf device via unicast SSDP discovery.
+
+    Sends a unicast SSDP M-SEARCH to the device, then fetches the UPnP
+    device description XML to extract the serial number.
+
+    Args:
+        host: The IP address or hostname of the device.
+        timeout: Timeout in seconds for each network operation.
+
+    Returns:
+        The serial number string, or None if it could not be determined.
+    """
+    import socket
+    from xml.etree import ElementTree
+
+    location = None
+
+    # Step 1: Unicast SSDP M-SEARCH to get the Location header
+    msg = (
+        "M-SEARCH * HTTP/1.1\r\n"
+        "HOST: 239.255.255.250:1900\r\n"
+        'MAN: "ssdp:discover"\r\n'
+        "MX: 3\r\n"
+        "ST: urn:schemas-upnp-org:device:MediaRenderer:2\r\n"
+        "\r\n"
+    )
+
+    loop = asyncio.get_running_loop()
+
+    def _ssdp_search() -> str | None:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
+        sock.settimeout(timeout)
+        try:
+            sock.sendto(msg.encode(), (host, 1900))
+            data, _ = sock.recvfrom(4096)
+            response = data.decode(errors="replace")
+            for line in response.splitlines():
+                if line.lower().startswith("location:"):
+                    return line.split(":", 1)[1].strip()
+        except (OSError, TimeoutError):
+            pass
+        finally:
+            sock.close()
+        return None
+
+    try:
+        location = await asyncio.wait_for(
+            loop.run_in_executor(None, _ssdp_search),
+            timeout=timeout + 1,
+        )
+    except (TimeoutError, OSError):
+        _LOGGER.debug("SSDP search to %s failed", host)
+        return None
+
+    if not location:
+        _LOGGER.debug("No SSDP location found for %s", host)
+        return None
+
+    # Step 2: Fetch the UPnP device description XML
+    import http.client
+    from urllib.parse import urlparse
+
+    def _fetch_xml() -> str | None:
+        parsed = urlparse(location)
+        try:
+            conn = http.client.HTTPConnection(parsed.hostname, parsed.port, timeout=timeout)
+            conn.request("GET", parsed.path)
+            resp = conn.getresponse()
+            if resp.status == 200:
+                return resp.read().decode(errors="replace")
+        except (OSError, TimeoutError):
+            pass
+        finally:
+            conn.close()
+        return None
+
+    try:
+        xml_text = await asyncio.wait_for(
+            loop.run_in_executor(None, _fetch_xml),
+            timeout=timeout + 1,
+        )
+    except (TimeoutError, OSError):
+        _LOGGER.debug("Failed to fetch UPnP description from %s", location)
+        return None
+
+    if not xml_text:
+        return None
+
+    # Step 3: Parse serial number from XML
+    try:
+        root = ElementTree.fromstring(xml_text)
+        ns = {"d": "urn:schemas-upnp-org:device-1-0"}
+        serial_el = root.find(".//d:device/d:serialNumber", ns)
+        if serial_el is not None and serial_el.text:
+            return serial_el.text.strip().lower()
+    except ElementTree.ParseError:
+        _LOGGER.debug("Failed to parse UPnP XML from %s", location)
+
+    return None
+
+
 def lookup_receiver_model(model_name: str) -> LyngdorfModel | None:
     """Look up a LyngdorfModel by its model string identifier.
 

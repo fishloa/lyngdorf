@@ -26,6 +26,7 @@ from .device import (
     TDAI3400Receiver,
     async_create_receiver,
     async_find_receiver_model,
+    async_get_device_serial,
 )
 
 __all__ = [
@@ -40,6 +41,7 @@ __all__ = [
     "TDAI3400Receiver",
     "async_create_receiver",
     "async_find_receiver_model",
+    "async_get_device_serial",
 ]
 
 __version__ = "0.7.0"
