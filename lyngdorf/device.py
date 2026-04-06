@@ -882,6 +882,8 @@ async def async_get_device_serial(host: str, timeout: float = 5.0) -> str | None
 
     def _fetch_xml() -> str | None:
         parsed = urlparse(location)
+        if not parsed.hostname:
+            return None
         try:
             conn = http.client.HTTPConnection(
                 parsed.hostname, parsed.port, timeout=timeout
