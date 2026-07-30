@@ -4,7 +4,7 @@ from unittest import mock
 
 import pytest
 
-from lyngdorf.api import LyngdorfProtocol
+from lyngdorf.api import LyngdorfApi, LyngdorfProtocol
 from lyngdorf.const import (
     MP40_AUDIO_INPUTS,
     MP40_STREAM_TYPES,
@@ -12,6 +12,9 @@ from lyngdorf.const import (
     MP60_AUDIO_INPUTS,
     MP60_STREAM_TYPES,
     MP60_VIDEO_INPUTS,
+    P100_VIDEO_INPUTS,
+    P_AUDIO_INPUTS,
+    P_VIDEO_INPUTS,
     LyngdorfModel,
     Msg,
     supported_models,
@@ -241,6 +244,50 @@ class TestLyngdorfModel:
         assert LyngdorfModel.TDAI_2170.has_video_feature() is False
         assert LyngdorfModel.TDAI_3400.has_video_feature() is False
 
+    def test_mp_series_has_surround_feature(self):
+        """Test MP series models have surround/multichannel capability."""
+        assert LyngdorfModel.MP_40.has_surround_feature() is True
+        assert LyngdorfModel.MP_50.has_surround_feature() is True
+        assert LyngdorfModel.MP_60.has_surround_feature() is True
+
+    def test_tdai_series_no_surround_feature(self):
+        """Test TDAI series models do not have surround/multichannel capability."""
+        assert LyngdorfModel.TDAI_1120.has_surround_feature() is False
+        assert LyngdorfModel.TDAI_2170.has_surround_feature() is False
+        assert LyngdorfModel.TDAI_3400.has_surround_feature() is False
+
+    def test_p_series_has_zone_b_feature(self):
+        """Test P series models have Zone B support."""
+        assert LyngdorfModel.P_100.has_zone_b_feature() is True
+        assert LyngdorfModel.P_200.has_zone_b_feature() is True
+        assert LyngdorfModel.P_300.has_zone_b_feature() is True
+
+    def test_p_series_has_video_feature(self):
+        """Test P series models have video capability."""
+        assert LyngdorfModel.P_100.has_video_feature() is True
+        assert LyngdorfModel.P_200.has_video_feature() is True
+        assert LyngdorfModel.P_300.has_video_feature() is True
+
+    def test_p_series_no_surround_feature(self):
+        """P series models have no discrete channel trims (no TRIMCENTER/
+        TRIMHEIGHT/TRIMLFE/TRIMSURRS in the spec)."""
+        assert LyngdorfModel.P_100.has_surround_feature() is False
+        assert LyngdorfModel.P_200.has_surround_feature() is False
+        assert LyngdorfModel.P_300.has_surround_feature() is False
+
+    def test_p_series_has_audio_modes_and_lipsync_despite_no_surround_flag(self):
+        """P series lacks TRIM* commands entirely but still supports audio
+        mode selection and lip sync - these must not be gated by
+        has_surround_feature (see device.py's unconditional registration
+        of Msg.AUDIO_MODE/AUDIO_TYPE/LIP_SYNC)."""
+        for model in (LyngdorfModel.P_100, LyngdorfModel.P_200, LyngdorfModel.P_300):
+            assert model.supports_message(Msg.AUDIO_MODE) is True
+            assert model.supports_message(Msg.AUDIO_TYPE) is True
+            assert model.supports_message(Msg.LIP_SYNC) is True
+            assert model.supports_message(Msg.TRIM_CENTRE) is False
+            assert model.supports_message(Msg.TRIM_BASS) is False
+            assert model.supports_message(Msg.STREAM_TYPE) is False
+
 
 # =============================================================================
 # Unit Tests: Utilities
@@ -305,6 +352,21 @@ class TestBaseAndUtilities:
         cd.add(1, "second")
         values = list(cd.values())
         assert values == ["first", "second"]
+
+    def test_package_version_matches_pyproject(self):
+        """Regression test: lyngdorf.__version__ used to be a separate
+        hardcoded string that drifted out of sync with pyproject.toml
+        (0.7.0 vs 1.3.3). It must now be derived from installed package
+        metadata, which itself comes from pyproject.toml's version field."""
+        import tomllib
+        from pathlib import Path
+
+        import lyngdorf
+
+        pyproject = tomllib.loads(
+            (Path(__file__).parent.parent / "pyproject.toml").read_text()
+        )
+        assert lyngdorf.__version__ == pyproject["tool"]["poetry"]["version"]
 
 
 # =============================================================================
@@ -580,20 +642,45 @@ class TestTDAI2170Receiver:
         assert TDAI2170_STREAM_TYPES[2] == "Spotify"
         assert TDAI2170_STREAM_TYPES[6] == "Roon Ready"
 
-    def test_tdai2170_shares_protocol_with_tdai1120(self):
-        """Test that TDAI-2170 shares command protocol with TDAI-1120."""
+    def test_tdai2170_shares_basic_commands_with_tdai1120(self):
+        """TDAI-2170 shares its basic power/volume commands with TDAI-1120."""
         from lyngdorf.device import TDAI1120Receiver, TDAI2170Receiver
 
         tdai1120 = TDAI1120Receiver("192.168.1.1")
         tdai2170 = TDAI2170Receiver("192.168.1.1")
 
-        # Both should use identical command mappings
         assert tdai2170._model.lookup_command(
             Msg.POWER
         ) == tdai1120._model.lookup_command(Msg.POWER)
         assert tdai2170._model.lookup_command(
             Msg.VOLUME
         ) == tdai1120._model.lookup_command(Msg.VOLUME)
+
+    def test_tdai2170_lacks_commands_tdai1120_has(self):
+        """TDAI-2170 uses an older, more limited protocol than TDAI-1120.
+
+        Regression test: TDAI-2170 was previously modeled by sharing
+        TDAI-1120's full message dict, which claimed commands (VERBOSE,
+        SOURCES_COUNT, STREAM_TYPE, TRIM_BASS, TRIM_TREBLE, BALANCE, ...)
+        that do not exist in the TDAI-2170 vendor spec.
+        """
+        from lyngdorf.device import TDAI2170Receiver
+
+        tdai2170 = TDAI2170Receiver("192.168.1.1")
+
+        for msg in (
+            Msg.VERBOSE,
+            Msg.SOURCES_COUNT,
+            Msg.SOURCE_LIST,
+            Msg.STREAM_TYPE,
+            Msg.ROOM_PERFECT_POSITIONS_COUNT,
+            Msg.ROOM_PERFECT_VOICINGS_COUNT,
+            Msg.TRIM_BASS,
+            Msg.TRIM_TREBLE,
+            Msg.BALANCE,
+        ):
+            with pytest.raises(KeyError):
+                tdai2170._model.lookup_command(msg)
 
 
 class TestTDAI3400Receiver:
@@ -620,18 +707,116 @@ class TestTDAI3400Receiver:
         assert TDAI3400_STREAM_TYPES[7] == "Bluetooth"
         assert TDAI3400_STREAM_TYPES[8] == "TIDAL"
 
-    def test_tdai3400_has_different_protocol(self):
-        """Test that TDAI-3400 uses I-prefixed commands."""
+    def test_tdai3400_shares_tdai1120_protocol(self):
+        """TDAI-3400 uses the same unprefixed protocol as TDAI-1120.
+
+        Regression test: this was previously (incorrectly) modeled with a
+        fabricated "I"-prefixed command set (IPWR, IVOL, etc.) that does not
+        exist in the vendor spec - see issue #16 follow-up.
+        """
         from lyngdorf.device import TDAI1120Receiver, TDAI3400Receiver
 
         tdai1120 = TDAI1120Receiver("192.168.1.1")
         tdai3400 = TDAI3400Receiver("192.168.1.1")
 
-        # Commands should be different (I-prefixed for TDAI-3400)
-        assert tdai3400._model.lookup_command(Msg.POWER) == "IPWR"
+        assert tdai3400._model.lookup_command(Msg.POWER) == "PWR"
         assert tdai1120._model.lookup_command(Msg.POWER) == "PWR"
-        assert tdai3400._model.lookup_command(Msg.VOLUME) == "IVOL"
+        assert tdai3400._model.lookup_command(Msg.VOLUME) == "VOL"
         assert tdai1120._model.lookup_command(Msg.VOLUME) == "VOL"
+        assert tdai3400._model.config.messages == tdai1120._model.config.messages
+
+
+class TestP100Receiver:
+    """Tests for P100Receiver specific functionality."""
+
+    @pytest.mark.asyncio
+    async def test_p100_receiver_initialization(self):
+        """Test P100Receiver initialization sets correct constants."""
+        from lyngdorf.device import P100Receiver
+
+        receiver = P100Receiver("192.168.1.1")
+
+        assert receiver._audio_inputs == P_AUDIO_INPUTS
+        assert receiver._video_inputs == P100_VIDEO_INPUTS
+        assert receiver.model == LyngdorfModel.P_100
+
+    def test_p100_has_four_hdmi_inputs(self):
+        """Test P100 has exactly 4 HDMI video inputs (no Internal input)."""
+        from lyngdorf.device import P100Receiver
+
+        receiver = P100Receiver("192.168.1.1")
+        hdmi_inputs = [k for k, v in receiver._video_inputs.items() if "HDMI" in v]
+        assert len(hdmi_inputs) == 4
+        assert 9 not in receiver._video_inputs
+
+
+class TestP200Receiver:
+    """Tests for P200Receiver specific functionality."""
+
+    @pytest.mark.asyncio
+    async def test_p200_receiver_initialization(self):
+        """Test P200Receiver initialization sets correct constants."""
+        from lyngdorf.device import P200Receiver
+
+        receiver = P200Receiver("192.168.1.1")
+
+        assert receiver._audio_inputs == P_AUDIO_INPUTS
+        assert receiver._video_inputs == P_VIDEO_INPUTS
+        assert receiver.model == LyngdorfModel.P_200
+
+    def test_p200_has_nine_video_inputs(self):
+        """Test P200 has 8 HDMI inputs plus Internal."""
+        from lyngdorf.device import P200Receiver
+
+        receiver = P200Receiver("192.168.1.1")
+        assert len(receiver._video_inputs) == 10  # None + 8 HDMI + Internal
+        assert receiver._video_inputs[9] == "Internal"
+
+
+class TestP300Receiver:
+    """Tests for P300Receiver specific functionality."""
+
+    @pytest.mark.asyncio
+    async def test_p300_receiver_initialization(self):
+        """Test P300Receiver initialization sets correct constants."""
+        from lyngdorf.device import P300Receiver
+
+        receiver = P300Receiver("192.168.1.1")
+
+        assert receiver._audio_inputs == P_AUDIO_INPUTS
+        assert receiver._video_inputs == P_VIDEO_INPUTS
+        assert receiver.model == LyngdorfModel.P_300
+
+    @pytest.mark.asyncio
+    async def test_p300_shares_commands_with_p200(self):
+        """Test that P300 shares command protocol with P200."""
+        from lyngdorf.device import P200Receiver, P300Receiver
+
+        p200 = P200Receiver("192.168.1.1")
+        p300 = P300Receiver("192.168.1.1")
+
+        assert p300._model.config.messages == p200._model.config.messages
+
+    def test_p_series_lacks_trim_and_stream_type_commands(self):
+        """Regression test: P series has no channel trims, no bass/treble
+        trim, and no built-in streaming source at all - unlike MP series."""
+        from lyngdorf.device import P300Receiver
+
+        p300 = P300Receiver("192.168.1.1")
+
+        for msg in (
+            Msg.TRIM_BASS,
+            Msg.TRIM_TREBLE,
+            Msg.TRIM_CENTRE,
+            Msg.TRIM_HEIGHT,
+            Msg.TRIM_LFE,
+            Msg.TRIM_SURROUND,
+            Msg.BALANCE,
+            Msg.STREAM_TYPE,
+            Msg.ZONE_B_STREAM_TYPE,
+        ):
+            with pytest.raises(KeyError):
+                p300._model.lookup_command(msg)
 
 
 # =============================================================================
@@ -669,6 +854,9 @@ class TestReceiverCreation:
             reader = mock.AsyncMock()
             writer = mock.AsyncMock()
             reader.read = mock.AsyncMock(return_value=b"!DEVICE(MP-60)")
+            writer.write = mock.Mock()
+            writer.close = mock.Mock()
+            writer.wait_closed = mock.AsyncMock()
             return reader, writer
 
         with mock.patch(
@@ -705,6 +893,9 @@ class TestReceiverCreation:
             reader = mock.AsyncMock()
             writer = mock.AsyncMock()
             reader.read = mock.AsyncMock(return_value=b"!DEVICE(unknown-model)")
+            writer.write = mock.Mock()
+            writer.close = mock.Mock()
+            writer.wait_closed = mock.AsyncMock()
             return reader, writer
 
         with mock.patch(
@@ -725,6 +916,7 @@ class TestReceiverCreation:
             reader = mock.AsyncMock()
             writer = mock.AsyncMock()
             reader.read = mock.AsyncMock(return_value=b"!DEVICE(MP-60)")
+            writer.write = mock.Mock()
             writer.drain = mock.AsyncMock()
             writer.close = mock.Mock()
             writer.wait_closed = mock.AsyncMock()
@@ -748,6 +940,7 @@ class TestReceiverCreation:
             reader = mock.AsyncMock()
             writer = mock.AsyncMock()
             reader.read = mock.AsyncMock(return_value=b"!DEVICE(unknown-model)")
+            writer.write = mock.Mock()
             writer.drain = mock.AsyncMock()
             writer.close = mock.Mock()
             writer.wait_closed = mock.AsyncMock()
@@ -802,6 +995,7 @@ class TestReceiverCreation:
             reader = mock.AsyncMock()
             writer = mock.AsyncMock()
             reader.read = mock.AsyncMock(return_value=b"!DEVICE_MALFORMED")
+            writer.write = mock.Mock()
             writer.drain = mock.AsyncMock()
             writer.close = mock.Mock()
             writer.wait_closed = mock.AsyncMock()
@@ -824,6 +1018,7 @@ class TestReceiverCreation:
             reader = mock.AsyncMock()
             writer = mock.AsyncMock()
             reader.read = mock.AsyncMock(return_value=b"!DEVICE(MP-60)")
+            writer.write = mock.Mock()
             writer.drain = mock.AsyncMock()
             writer.close = mock.Mock()
             writer.wait_closed = mock.AsyncMock(
@@ -1933,6 +2128,245 @@ class TestConnectionManagement:
 
             # Verify disconnect was called
             assert not client._api.connected
+
+
+class TestZoneBGating:
+    """Regression tests for issue #16: async_connect must not crash on
+    models missing a capability (Zone B, video, or surround), and must not
+    register callbacks for messages the connected model doesn't support.
+    """
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("model", supported_models(), ids=lambda m: m.name)
+    async def test_async_connect_does_not_crash_for_any_supported_model(self, model):
+        """Every supported model must connect without raising KeyError."""
+        transport = mock.Mock()
+        protocol = LyngdorfProtocol(None, None)
+
+        def create_conn(proto_lambda, host, port):
+            proto = proto_lambda()
+            protocol._on_connection_lost = proto._on_connection_lost
+            protocol._on_message = proto._on_message
+            return [transport, proto]
+
+        client = await async_create_receiver(FAKE_IP, model)
+
+        with mock.patch("asyncio.get_event_loop", new_callable=mock.Mock) as debug_mock:
+            debug_mock.return_value.create_connection = AsyncMock(
+                side_effect=create_conn
+            )
+            await client.async_connect()
+            await client.async_disconnect()
+
+    @pytest.mark.asyncio
+    async def test_async_connect_skips_zone_b_callbacks_for_tdai(self):
+        """TDAI models have no Zone B - their command set has no Zone B
+        commands, so no Zone B callbacks should be registered."""
+        transport = mock.Mock()
+        protocol = LyngdorfProtocol(None, None)
+
+        def create_conn(proto_lambda, host, port):
+            proto = proto_lambda()
+            protocol._on_connection_lost = proto._on_connection_lost
+            protocol._on_message = proto._on_message
+            return [transport, proto]
+
+        client = await async_create_receiver(FAKE_IP, LyngdorfModel.TDAI_3400)
+        assert client.model.has_zone_b_feature() is False
+
+        with mock.patch("asyncio.get_event_loop", new_callable=mock.Mock) as debug_mock:
+            debug_mock.return_value.create_connection = AsyncMock(
+                side_effect=create_conn
+            )
+            await client.async_connect()
+            registered = client._api._callbacks.keys()
+            assert not any(cmd.startswith("Z") or "ZONE" in cmd for cmd in registered)
+            await client.async_disconnect()
+
+    @pytest.mark.asyncio
+    async def test_async_connect_registers_zone_b_callbacks_for_mp(self):
+        """MP series models have Zone B - their Zone B callbacks must still
+        be registered."""
+        transport = mock.Mock()
+        protocol = LyngdorfProtocol(None, None)
+
+        def create_conn(proto_lambda, host, port):
+            proto = proto_lambda()
+            protocol._on_connection_lost = proto._on_connection_lost
+            protocol._on_message = proto._on_message
+            return [transport, proto]
+
+        client = await async_create_receiver(FAKE_IP, LyngdorfModel.MP_60)
+        assert client.model.has_zone_b_feature() is True
+
+        with mock.patch("asyncio.get_event_loop", new_callable=mock.Mock) as debug_mock:
+            debug_mock.return_value.create_connection = AsyncMock(
+                side_effect=create_conn
+            )
+            await client.async_connect()
+            registered = client._api._callbacks.keys()
+            assert client.lookup_command(Msg.ZONE_B_VOLUME) in registered
+            assert client.lookup_command(Msg.ZONE_B_POWER) in registered
+            await client.async_disconnect()
+
+    @pytest.mark.asyncio
+    async def test_async_connect_skips_video_callbacks_for_tdai(self):
+        """TDAI models have no video I/O - VIDIN/VIDTYPE/AUDIN are not in
+        their command set, so those callbacks should not be registered."""
+        transport = mock.Mock()
+        protocol = LyngdorfProtocol(None, None)
+
+        def create_conn(proto_lambda, host, port):
+            proto = proto_lambda()
+            protocol._on_connection_lost = proto._on_connection_lost
+            protocol._on_message = proto._on_message
+            return [transport, proto]
+
+        client = await async_create_receiver(FAKE_IP, LyngdorfModel.TDAI_3400)
+        assert client.model.has_video_feature() is False
+
+        with mock.patch("asyncio.get_event_loop", new_callable=mock.Mock) as debug_mock:
+            debug_mock.return_value.create_connection = AsyncMock(
+                side_effect=create_conn
+            )
+            await client.async_connect()
+            registered = client._api._callbacks.keys()
+            assert "IVIDIN" not in registered and "VIDIN" not in registered
+            assert "IVIDTYPE" not in registered and "VIDTYPE" not in registered
+            await client.async_disconnect()
+
+    @pytest.mark.asyncio
+    async def test_async_connect_registers_video_callbacks_for_mp(self):
+        """MP series models have video I/O - their video callbacks must
+        still be registered."""
+        transport = mock.Mock()
+        protocol = LyngdorfProtocol(None, None)
+
+        def create_conn(proto_lambda, host, port):
+            proto = proto_lambda()
+            protocol._on_connection_lost = proto._on_connection_lost
+            protocol._on_message = proto._on_message
+            return [transport, proto]
+
+        client = await async_create_receiver(FAKE_IP, LyngdorfModel.MP_60)
+        assert client.model.has_video_feature() is True
+
+        with mock.patch("asyncio.get_event_loop", new_callable=mock.Mock) as debug_mock:
+            debug_mock.return_value.create_connection = AsyncMock(
+                side_effect=create_conn
+            )
+            await client.async_connect()
+            registered = client._api._callbacks.keys()
+            assert client.lookup_command(Msg.VIDEO_IN) in registered
+            assert client.lookup_command(Msg.VIDEO_TYPE) in registered
+            assert client.lookup_command(Msg.AUDIO_IN) in registered
+            await client.async_disconnect()
+
+    @pytest.mark.asyncio
+    async def test_async_connect_skips_surround_callbacks_for_tdai(self):
+        """TDAI models are stereo-only - AUDMODE/LIPSYNC/TRIMCENTER etc are
+        not in their command set, so those callbacks should not be
+        registered (via the defensive catch in _register_callback, since
+        these are attempted unconditionally for every model)."""
+        transport = mock.Mock()
+        protocol = LyngdorfProtocol(None, None)
+
+        def create_conn(proto_lambda, host, port):
+            proto = proto_lambda()
+            protocol._on_connection_lost = proto._on_connection_lost
+            protocol._on_message = proto._on_message
+            return [transport, proto]
+
+        client = await async_create_receiver(FAKE_IP, LyngdorfModel.TDAI_3400)
+        assert client.model.has_surround_feature() is False
+
+        with mock.patch("asyncio.get_event_loop", new_callable=mock.Mock) as debug_mock:
+            debug_mock.return_value.create_connection = AsyncMock(
+                side_effect=create_conn
+            )
+            await client.async_connect()
+            registered = client._api._callbacks.keys()
+            for token in ("AUDMODE", "AUDMODECOUNT", "LIPSYNC", "TRIMCENTER"):
+                assert token not in registered and f"I{token}" not in registered
+            await client.async_disconnect()
+
+    @pytest.mark.asyncio
+    async def test_async_connect_registers_surround_callbacks_for_mp(self):
+        """MP series models support surround decoding - their surround
+        callbacks must still be registered."""
+        transport = mock.Mock()
+        protocol = LyngdorfProtocol(None, None)
+
+        def create_conn(proto_lambda, host, port):
+            proto = proto_lambda()
+            protocol._on_connection_lost = proto._on_connection_lost
+            protocol._on_message = proto._on_message
+            return [transport, proto]
+
+        client = await async_create_receiver(FAKE_IP, LyngdorfModel.MP_60)
+        assert client.model.has_surround_feature() is True
+
+        with mock.patch("asyncio.get_event_loop", new_callable=mock.Mock) as debug_mock:
+            debug_mock.return_value.create_connection = AsyncMock(
+                side_effect=create_conn
+            )
+            await client.async_connect()
+            registered = client._api._callbacks.keys()
+            assert client.lookup_command(Msg.AUDIO_MODE) in registered
+            assert client.lookup_command(Msg.LIP_SYNC) in registered
+            assert client.lookup_command(Msg.TRIM_CENTRE) in registered
+            await client.async_disconnect()
+
+
+class TestSetupCommandPacing:
+    """Regression tests: writing all setup commands back-to-back with no
+    pacing caused a real MP-60 to silently stop replying partway through
+    the burst (verified on real hardware - volume/mute/trim never
+    populated). _writeSetup must pace writes with setup_command_delay.
+    """
+
+    @pytest.mark.asyncio
+    async def test_writesetup_sleeps_between_each_command(self):
+        api = LyngdorfApi(FAKE_IP, LyngdorfModel.MP_60)
+        api.setup_command_delay = 0.05
+        api._protocol = mock.Mock()
+
+        with mock.patch("asyncio.sleep", new_callable=AsyncMock) as sleep_mock:
+            await api._writeSetup()
+
+        # One sleep between each pair of commands, none before the first
+        # or after the last.
+        assert sleep_mock.call_count == len(api._model.setup_commands) - 1
+        for call in sleep_mock.call_args_list:
+            assert call.args[0] == 0.05
+
+    @pytest.mark.asyncio
+    async def test_writesetup_sends_every_command(self):
+        api = LyngdorfApi(FAKE_IP, LyngdorfModel.MP_60)
+        api.setup_command_delay = 0
+        api._protocol = mock.Mock()
+
+        await api._writeSetup()
+
+        sent = [call.args[0] for call in api._protocol.write.call_args_list]
+        assert len(sent) == len(api._model.setup_commands)
+
+
+class TestPongDetectionDefensive:
+    """Regression test: _process_event used to unconditionally look up
+    Msg.PONG on every incoming message. TDAI models have no PONG command
+    (see models/tdai_series.py), so every message received from a TDAI
+    device would raise KeyError. Must degrade to "not a pong" instead of
+    crashing message processing.
+    """
+
+    @pytest.mark.asyncio
+    async def test_process_event_does_not_crash_for_model_without_pong(self):
+        api = LyngdorfApi(FAKE_IP, LyngdorfModel.TDAI_3400)
+        assert Msg.PONG not in api._model.config.messages
+
+        api._process_event("!DEVICE(TDAI-3400)")  # must not raise
+        await asyncio.sleep(0)  # let the created task run
 
 
 # =============================================================================

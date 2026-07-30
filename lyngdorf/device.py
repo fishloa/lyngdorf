@@ -6,13 +6,13 @@ Main receiver classes and factory functions for all supported models.
 Supported Models:
 - MP-40, MP-50, MP-60 (Multichannel Processors)
 - TDAI-1120, TDAI-2170, TDAI-3400 (Integrated Amplifiers)
+- P100, P200, P300 (Multichannel Processors)
 
 All communication via TCP/IP on port 84 (no serial port support).
 """
 
 import asyncio
 import logging
-import traceback
 from collections.abc import Callable
 
 from .api import LyngdorfApi
@@ -29,6 +29,9 @@ from .const import (
     MP60_AUDIO_INPUTS,
     MP60_STREAM_TYPES,
     MP60_VIDEO_INPUTS,
+    P100_VIDEO_INPUTS,
+    P_AUDIO_INPUTS,
+    P_VIDEO_INPUTS,
     POWER_ON,
     TDAI1120_STREAM_TYPES,
     TDAI2170_STREAM_TYPES,
@@ -101,123 +104,96 @@ class Receiver:
         self._trim_surround: float | None = None
         self._trim_treble: float | None = None
 
+    def _register_callback(self, msg: Msg, callback: Callable) -> None:
+        """Register a callback for a message, skipping cleanly if the
+        connected model's protocol doesn't define that message.
+
+        Model capability flags (has_zone_b_feature, has_video_feature,
+        has_surround_feature) are the primary gate for the messages we know
+        are model-specific. This catch is a safety net for any message a
+        model doesn't support that isn't covered by those flags - so an
+        unexpected protocol gap degrades a single feature instead of
+        breaking connection setup entirely.
+        """
+        try:
+            command = self.lookup_command(msg)
+        except KeyError:
+            _LOGGER.warning(
+                "Model %s does not support message %s; skipping callback registration",
+                self._model,
+                msg,
+            )
+            return
+        self._api.register_callback(command, callback)
+
     async def async_connect(self):
         # Basics
-        self._api.register_callback(
-            self.lookup_command(Msg.DEVICE), self._name_callback
-        )
+        self._register_callback(Msg.DEVICE, self._name_callback)
 
         # Volumes and Mutes
-        self._api.register_callback(
-            self.lookup_command(Msg.VOLUME), self._volume_callback
-        )
-        self._api.register_callback(
-            self.lookup_command(Msg.ZONE_B_VOLUME), self._zone_b_volume_callback
-        )
-        self._api.register_callback(
-            self.lookup_command(Msg.MUTE_ON), self._mute_on_callback
-        )
-        self._api.register_callback(
-            self.lookup_command(Msg.MUTE_OFF), self._mute_off_callback
-        )
-        self._api.register_callback(
-            self.lookup_command(Msg.ZONE_B_MUTE_ON), self._zone_b_mute_on_callback
-        )
-        self._api.register_callback(
-            self.lookup_command(Msg.ZONE_B_MUTE_OFF), self._zone_b_mute_off_callback
-        )
+        self._register_callback(Msg.VOLUME, self._volume_callback)
+        self._register_callback(Msg.MUTE_ON, self._mute_on_callback)
+        self._register_callback(Msg.MUTE_OFF, self._mute_off_callback)
 
         # Sources
-        self._api.register_callback(
-            self.lookup_command(Msg.SOURCES_COUNT), self._sources.count_callback
-        )
-        self._api.register_callback(
-            self.lookup_command(Msg.SOURCE), self._source_callback
-        )
-        self._api.register_callback(
-            self.lookup_command(Msg.ZONE_B_SOURCES_COUNT),
-            self._zone_b_sources.count_callback,
-        )
-        self._api.register_callback(
-            self.lookup_command(Msg.ZONE_B_SOURCE), self._zone_b_source_callback
-        )
-        self._api.register_callback(
-            self.lookup_command(Msg.AUDIO_IN), self._audio_input_callback
-        )
-        self._api.register_callback(
-            self.lookup_command(Msg.ZONE_B_AUDIO_IN), self._zone_b_audio_input_callback
-        )
-        self._api.register_callback(
-            self.lookup_command(Msg.VIDEO_IN), self._video_input_callback
-        )
-        self._api.register_callback(
-            self.lookup_command(Msg.STREAM_TYPE), self._stream_type_callback
-        )
-        self._api.register_callback(
-            self.lookup_command(Msg.ZONE_B_STREAM_TYPE),
-            self._zone_b_stream_type_callback,
-        )
-        self._api.register_callback(
-            self.lookup_command(Msg.VIDEO_TYPE), self._video_info_callback
-        )
-        self._api.register_callback(
-            self.lookup_command(Msg.AUDIO_TYPE), self._audio_info_callback
-        )
-
-        self._api.register_callback(
-            self.lookup_command(Msg.AUDIO_MODES_COUNT), self._sound_modes.count_callback
-        )
-        self._api.register_callback(
-            self.lookup_command(Msg.AUDIO_MODE), self._sound_mode_callback
-        )
+        self._register_callback(Msg.SOURCES_COUNT, self._sources.count_callback)
+        self._register_callback(Msg.SOURCE, self._source_callback)
+        self._register_callback(Msg.STREAM_TYPE, self._stream_type_callback)
 
         # Power
-        self._api.register_callback(
-            self.lookup_command(Msg.POWER), self._power_callback
-        )
-        self._api.register_callback(
-            self.lookup_command(Msg.ZONE_B_POWER), self._zone_b_power_callback
-        )
+        self._register_callback(Msg.POWER, self._power_callback)
+
+        # Video routing - only models with video inputs/outputs
+        if self._model.has_video_feature():
+            self._register_callback(Msg.AUDIO_IN, self._audio_input_callback)
+            self._register_callback(Msg.VIDEO_IN, self._video_input_callback)
+            self._register_callback(Msg.VIDEO_TYPE, self._video_info_callback)
+
+        # Zone B (Zone 2) - only models with Zone B support these messages
+        if self._model.has_zone_b_feature():
+            self._register_callback(Msg.ZONE_B_VOLUME, self._zone_b_volume_callback)
+            self._register_callback(Msg.ZONE_B_MUTE_ON, self._zone_b_mute_on_callback)
+            self._register_callback(Msg.ZONE_B_MUTE_OFF, self._zone_b_mute_off_callback)
+            self._register_callback(
+                Msg.ZONE_B_SOURCES_COUNT, self._zone_b_sources.count_callback
+            )
+            self._register_callback(Msg.ZONE_B_SOURCE, self._zone_b_source_callback)
+            self._register_callback(
+                Msg.ZONE_B_AUDIO_IN, self._zone_b_audio_input_callback
+            )
+            self._register_callback(
+                Msg.ZONE_B_STREAM_TYPE, self._zone_b_stream_type_callback
+            )
+            self._register_callback(Msg.ZONE_B_POWER, self._zone_b_power_callback)
 
         # Audio Tuning
-        self._api.register_callback(
-            self.lookup_command(Msg.ROOM_PERFECT_POSITIONS_COUNT),
+        self._register_callback(
+            Msg.ROOM_PERFECT_POSITIONS_COUNT,
             self._room_perfect_positions.count_callback,
         )
-        self._api.register_callback(
-            self.lookup_command(Msg.ROOM_PERFECT_POSITION),
-            self._room_perfect_position_callback,
+        self._register_callback(
+            Msg.ROOM_PERFECT_POSITION, self._room_perfect_position_callback
         )
-        self._api.register_callback(
-            self.lookup_command(Msg.ROOM_PERFECT_VOICINGS_COUNT),
-            self._voicings.count_callback,
+        self._register_callback(
+            Msg.ROOM_PERFECT_VOICINGS_COUNT, self._voicings.count_callback
         )
-        self._api.register_callback(
-            self.lookup_command(Msg.ROOM_PERFECT_VOICING), self._voicing_callback
-        )
-        self._api.register_callback(
-            self.lookup_command(Msg.LIP_SYNC), self._lipsync_callback
-        )
+        self._register_callback(Msg.ROOM_PERFECT_VOICING, self._voicing_callback)
 
-        # Trim
-        self._api.register_callback(
-            self.lookup_command(Msg.TRIM_BASS), self._trim_bass_callback
-        )
-        self._api.register_callback(
-            self.lookup_command(Msg.TRIM_CENTRE), self._trim_centre_callback
-        )
-        self._api.register_callback(
-            self.lookup_command(Msg.TRIM_HEIGHT), self._trim_height_callback
-        )
-        self._api.register_callback(
-            self.lookup_command(Msg.TRIM_LFE), self._trim_lfe_callback
-        )
-        self._api.register_callback(
-            self.lookup_command(Msg.TRIM_SURROUND), self._trim_surround_callback
-        )
-        self._api.register_callback(
-            self.lookup_command(Msg.TRIM_TREBLE), self._trim_treble_callback
-        )
+        # Trim and audio modes - not every model has these (the defensive
+        # catch in _register_callback logs and skips whichever don't apply)
+        self._register_callback(Msg.TRIM_BASS, self._trim_bass_callback)
+        self._register_callback(Msg.TRIM_TREBLE, self._trim_treble_callback)
+        self._register_callback(Msg.AUDIO_TYPE, self._audio_info_callback)
+        self._register_callback(Msg.AUDIO_MODES_COUNT, self._sound_modes.count_callback)
+        self._register_callback(Msg.AUDIO_MODE, self._sound_mode_callback)
+        self._register_callback(Msg.LIP_SYNC, self._lipsync_callback)
+
+        # Discrete channel trims - only models with multichannel speaker trims
+        if self._model.has_surround_feature():
+            self._register_callback(Msg.TRIM_CENTRE, self._trim_centre_callback)
+            self._register_callback(Msg.TRIM_HEIGHT, self._trim_height_callback)
+            self._register_callback(Msg.TRIM_LFE, self._trim_lfe_callback)
+            self._register_callback(Msg.TRIM_SURROUND, self._trim_surround_callback)
 
         await self._api.async_connect()
 
@@ -248,12 +224,7 @@ class Receiver:
             try:
                 callback()
             except Exception:
-                # TIM. TODO. need to log the stack trace of the error found here, as at the moment v hard to find errors
-
-                _LOGGER.error(
-                    "Event callback caused an unhandled exception  (%s)",
-                    traceback.format_exc(),
-                )
+                _LOGGER.exception("Event callback caused an unhandled exception")
 
     # Basics
 
@@ -757,6 +728,36 @@ class TDAI3400Receiver(Receiver):
         super().__init__(host, LyngdorfModel.TDAI_3400)
 
 
+class P100Receiver(Receiver):
+    """Steinway Lyngdorf P100 receiver client."""
+
+    def __init__(self, host: str):
+        """Initialize the P100 client."""
+        self._audio_inputs = P_AUDIO_INPUTS
+        self._video_inputs = P100_VIDEO_INPUTS
+        super().__init__(host, LyngdorfModel.P_100)
+
+
+class P200Receiver(Receiver):
+    """Steinway Lyngdorf P200 receiver client."""
+
+    def __init__(self, host: str):
+        """Initialize the P200 client."""
+        self._audio_inputs = P_AUDIO_INPUTS
+        self._video_inputs = P_VIDEO_INPUTS
+        super().__init__(host, LyngdorfModel.P_200)
+
+
+class P300Receiver(Receiver):
+    """Steinway Lyngdorf P300 receiver client."""
+
+    def __init__(self, host: str):
+        """Initialize the P300 client."""
+        self._audio_inputs = P_AUDIO_INPUTS
+        self._video_inputs = P_VIDEO_INPUTS
+        super().__init__(host, LyngdorfModel.P_300)
+
+
 async def async_create_receiver(
     host: str, model: LyngdorfModel | None = None
 ) -> Receiver | None:
@@ -779,6 +780,12 @@ async def async_create_receiver(
         return TDAI2170Receiver(host)
     if model == LyngdorfModel.TDAI_3400:
         return TDAI3400Receiver(host)
+    if model == LyngdorfModel.P_100:
+        return P100Receiver(host)
+    if model == LyngdorfModel.P_200:
+        return P200Receiver(host)
+    if model == LyngdorfModel.P_300:
+        return P300Receiver(host)
     raise NotImplementedError("Unknown Receiver")
 
 

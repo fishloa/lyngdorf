@@ -59,6 +59,12 @@ class ModelConfig:
         room_perfect_positions: Optional Room Perfect position mapping
         has_zone_b: Whether this model supports Zone B (Zone 2) functionality
         has_video: Whether this model supports video inputs/outputs
+        has_surround: Whether this model has discrete per-channel
+            multichannel trims (center/height/LFE/surround speaker trims).
+            Audio mode selection, audio type, and lip sync are handled
+            separately per-model since they don't vary along the same axis
+            (e.g. the P-series has audio modes and lip sync but no channel
+            trims at all).
     """
 
     model_name: str
@@ -72,6 +78,7 @@ class ModelConfig:
     room_perfect_positions: dict[int, str] | None = None
     has_zone_b: bool = False
     has_video: bool = False
+    has_surround: bool = False
 
     def lookup_command(self, key: Msg) -> str:
         """Lookup protocol command for a given message type.

@@ -1,15 +1,17 @@
-import pytest
 import asyncio
-from lyngdorf.device import Receiver, create_receiver
 import logging
+
+from lyngdorf.device import Receiver, async_create_receiver
 
 _LOGGER = logging.getLogger(__package__)
 
+
 async def main():
-    client: Receiver = create_receiver("192.168.16.16")
+    client: Receiver = await async_create_receiver("192.168.16.16")
     await client.async_connect()
     await asyncio.sleep(2)
-    _LOGGER.warning(f'{client.volume}')
+    _LOGGER.warning(f"{client.volume}")
 
-loop = asyncio.get_event_loop()
-loop.run_until_complete(main())
+
+if __name__ == "__main__":
+    asyncio.run(main())

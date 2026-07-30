@@ -24,6 +24,7 @@ from enum import Enum
 
 from .base import ModelCapability, ModelConfig
 from .mp_series import MP40_CONFIG, MP50_CONFIG, MP60_CONFIG
+from .p_series import P100_CONFIG, P200_CONFIG, P300_CONFIG
 from .tdai_series import TDAI1120_CONFIG, TDAI2170_CONFIG, TDAI3400_CONFIG
 
 
@@ -40,6 +41,9 @@ class LyngdorfModel(Enum):
         TDAI_1120: TDAI-1120 integrated amplifier
         TDAI_2170: TDAI-2170 integrated amplifier
         TDAI_3400: TDAI-3400 integrated amplifier
+        P_100: P100 multichannel processor
+        P_200: P200 multichannel processor
+        P_300: P300 multichannel processor
     """
 
     MP_40 = MP40_CONFIG
@@ -48,6 +52,9 @@ class LyngdorfModel(Enum):
     TDAI_1120 = TDAI1120_CONFIG
     TDAI_2170 = TDAI2170_CONFIG
     TDAI_3400 = TDAI3400_CONFIG
+    P_100 = P100_CONFIG
+    P_200 = P200_CONFIG
+    P_300 = P300_CONFIG
 
     @property
     def config(self) -> ModelConfig:
@@ -108,6 +115,41 @@ class LyngdorfModel(Enum):
         """
         return self.value.has_video
 
+    def has_surround_feature(self) -> bool:
+        """Check if this model has discrete per-channel multichannel trims
+        (center/height/LFE/surround speaker trims).
+
+        Returns:
+            True if the model has channel trim capability, False otherwise
+        """
+        return self.value.has_surround
+
+    def supports_message(self, key) -> bool:
+        """Check whether this model's protocol defines a given message.
+
+        Args:
+            key: Message type (Msg enum value)
+
+        Returns:
+            True if this model's command dictionary has an entry for key
+        """
+        return key in self.value.messages
+
+    @property
+    def capabilities(self) -> dict:
+        """Mapping of every known message type to whether this model's
+        protocol supports it.
+
+        Useful for tests and diagnostics to assert against without
+        hardcoding per-model command strings.
+
+        Returns:
+            dict[Msg, bool] covering every Msg enum member
+        """
+        from ..const import Msg
+
+        return {msg: msg in self.value.messages for msg in Msg}
+
 
 def supported_models() -> list[LyngdorfModel]:
     """Return a list of all supported Lyngdorf receiver models.
@@ -130,4 +172,7 @@ __all__ = [
     "TDAI1120_CONFIG",
     "TDAI2170_CONFIG",
     "TDAI3400_CONFIG",
+    "P100_CONFIG",
+    "P200_CONFIG",
+    "P300_CONFIG",
 ]

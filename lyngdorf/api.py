@@ -27,6 +27,7 @@ from .const import (
     RECONNECT_BACKOFF,
     RECONNECT_MAX_WAIT,
     RECONNECT_SCALE,
+    SETUP_COMMAND_DELAY,
     LyngdorfModel,
     Msg,
 )
@@ -95,6 +96,10 @@ class LyngdorfProtocol(asyncio.Protocol):
 class LyngdorfApi:
     """Handle responses from the Lyngdorf interface."""
 
+    # Class attribute (not a plain module constant) so tests can override it
+    # per-instance/class without affecting real connections' pacing.
+    setup_command_delay: float = SETUP_COMMAND_DELAY
+
     def __init__(self, host: str, model: LyngdorfModel):
         """Initialize the client."""
         self._connection_enabled = False
@@ -142,7 +147,7 @@ class LyngdorfApi:
         self._connection_enabled = True
         self._last_message_time = time.monotonic()
         self._schedule_monitor()
-        self._writeSetup()
+        await self._writeSetup()
         _LOGGER.debug("%s: connection complete", self.host)
 
     def _schedule_monitor(self) -> None:
@@ -170,7 +175,16 @@ class LyngdorfApi:
 
         if time_since_response > MONITOR_INTERVAL and self._protocol:
             # Keep the connection alive
-            self._writeCommand(f"{self._model.lookup_command(Msg.PING)}?")
+            try:
+                ping_command = self._model.lookup_command(Msg.PING)
+            except KeyError:
+                _LOGGER.debug(
+                    "%s: model %s has no PING command; skipping keep-alive",
+                    self.host,
+                    self._model,
+                )
+            else:
+                self._writeCommand(f"{ping_command}?")
         self._schedule_monitor()
 
     def _handle_disconnected(self) -> None:
@@ -216,8 +230,10 @@ class LyngdorfApi:
             await asyncio.sleep(backoff)
             backoff = min(RECONNECT_MAX_WAIT, backoff * RECONNECT_SCALE)
 
-    def _writeSetup(self):
-        for cmd in self._model.setup_commands:
+    async def _writeSetup(self):
+        for i, cmd in enumerate(self._model.setup_commands):
+            if i > 0:
+                await asyncio.sleep(self.setup_command_delay)
             self._writeCommand(cmd)
 
     def _writeCommand(self, command):
@@ -385,7 +401,11 @@ class LyngdorfApi:
             else:
                 cmd = message
 
-            if cmd == self._model.lookup_command(Msg.PONG):
+            try:
+                pong_command = self._model.lookup_command(Msg.PONG)
+            except KeyError:
+                pong_command = None
+            if cmd == pong_command:
                 return
 
             if len(second) > 0 and second.startswith('"') and second.endswith('"'):
