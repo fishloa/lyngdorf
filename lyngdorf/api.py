@@ -35,6 +35,28 @@ from .const import (
 _LOGGER = logging.getLogger(__package__)
 
 
+def _find_closing_paren(message: str, start: int) -> int:
+    """Index of the first ``)`` at or after ``start`` that is not inside a
+    quoted section, or -1 if there is none.
+
+    A plain ``find(")")`` is wrong for any model that puts the name inside
+    the parens. TDAI replies are shaped ``!SRCNAME(0,"Digital 1 (Coax)")``,
+    so the first ``)`` is the one closing "(Coax)" and the name is cut short.
+    Scanning past quoted sections keeps that intact while leaving the MP and
+    P shape - ``!SRC(0)"HDMI"``, name outside the parens - parsed exactly as
+    before. Note this is why ``rfind`` would not do instead: on the MP shape
+    the last ``)`` is the one inside the name.
+    """
+    in_quotes = False
+    for index in range(start, len(message)):
+        character = message[index]
+        if character == '"':
+            in_quotes = not in_quotes
+        elif character == ")" and not in_quotes:
+            return index
+    return -1
+
+
 class LyngdorfProtocol(asyncio.Protocol):
     """Protocol for the Lyngdorf interface."""
 
@@ -404,10 +426,14 @@ class LyngdorfApi:
             first: str = ""
             second: str = ""
             message = message[1:]
-            if 1 < message.find("(") < message.find(")"):
-                cmd = message[: message.find("(")]
-                first = message[1 + message.find("(") : message.find(")")]
-                second = message[1 + message.find(")") :]
+            open_index = message.find("(")
+            close_index = (
+                _find_closing_paren(message, open_index + 1) if open_index > 1 else -1
+            )
+            if close_index > open_index:
+                cmd = message[:open_index]
+                first = message[open_index + 1 : close_index]
+                second = message[close_index + 1 :]
             else:
                 cmd = message
 
