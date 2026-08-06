@@ -203,9 +203,15 @@ class Receiver:
             Msg.ROOM_PERFECT_POSITIONS_COUNT,
             self._room_perfect_positions.count_callback,
         )
-        # TDAI-2170 has a fixed set of RoomPerfect positions gated by an
-        # RPSTATUS bitmask rather than an RPLIST/RPFOCS enumeration burst.
-        if self._model.supports_message(Msg.ROOM_PERFECT_POSITIONS_PRESENT):
+        # TDAI-1120/3400 carry the position name under a differently-shaped
+        # RPNAME message; TDAI-2170 has a fixed set of positions gated by
+        # an RPSTATUS bitmask instead of an RPLIST/RPFOCS enumeration burst.
+        if self._model.supports_message(Msg.ROOM_PERFECT_POSITION_NAME):
+            self._register_callback(
+                Msg.ROOM_PERFECT_POSITION_NAME,
+                self._room_perfect_position_name_callback,
+            )
+        elif self._model.supports_message(Msg.ROOM_PERFECT_POSITIONS_PRESENT):
             self._register_callback(
                 Msg.ROOM_PERFECT_POSITIONS_PRESENT,
                 self._room_perfect_positions_present_callback,
@@ -221,9 +227,14 @@ class Receiver:
         self._register_callback(
             Msg.ROOM_PERFECT_VOICINGS_COUNT, self._voicings.count_callback
         )
-        # Same story for voicings: TDAI-2170 gates a fixed list with
-        # VOIENABLED rather than a VOILIST/RPVOIS burst.
-        if self._model.supports_message(Msg.ROOM_PERFECT_VOICINGS_ENABLED):
+        # Same story for voicings: TDAI-1120/3400 use a differently-shaped
+        # VOINAME message; TDAI-2170 gates a fixed list with VOIENABLED
+        # rather than a VOILIST/RPVOIS burst.
+        if self._model.supports_message(Msg.ROOM_PERFECT_VOICING_NAME):
+            self._register_callback(
+                Msg.ROOM_PERFECT_VOICING_NAME, self._voicing_name_callback
+            )
+        elif self._model.supports_message(Msg.ROOM_PERFECT_VOICINGS_ENABLED):
             self._register_callback(
                 Msg.ROOM_PERFECT_VOICINGS_ENABLED, self._voicings_enabled_callback
             )
@@ -583,6 +594,18 @@ class Receiver:
         else:
             self._room_perfect_positions.add(int(param1), param2)
 
+    def _room_perfect_position_name_callback(self, param1: str, param2: str):
+        """Handle an RPNAME reply (TDAI-1120/3400): index and name arrive
+        comma-separated inside one set of parens, same shape as SRCNAME -
+        see _source_name_callback."""
+        index_str, _, name = param1.partition(",")
+        name = name.strip('"')
+        if self._room_perfect_positions.is_full():
+            self._room_perfect_position = name
+            self._notify_notification_callbacks()
+        else:
+            self._room_perfect_positions.add(int(index_str), name)
+
     def _room_perfect_positions_present_callback(
         self, param1: str, param2: str
     ) -> None:
@@ -627,6 +650,18 @@ class Receiver:
             self._notify_notification_callbacks()
         else:
             self._voicings.add(int(param1), param2)
+
+    def _voicing_name_callback(self, param1: str, param2: str):
+        """Handle a VOINAME reply (TDAI-1120/3400): index and name arrive
+        comma-separated inside one set of parens, same shape as SRCNAME -
+        see _source_name_callback."""
+        index_str, _, name = param1.partition(",")
+        name = name.strip('"')
+        if self._voicings.is_full():
+            self._voicing = name
+            self._notify_notification_callbacks()
+        else:
+            self._voicings.add(int(index_str), name)
 
     def _voicings_enabled_callback(self, param1: str, param2: str) -> None:
         """Handle a VOIENABLED reply (TDAI-2170): populate the fixed

@@ -393,6 +393,41 @@ class LyngdorfApi:
     def trim_treble_down(self):
         self._writeCommand(f"{self._model.lookup_command(Msg.TRIM_TREBLE_SET)}-")
 
+    @staticmethod
+    def _split_command(message: str) -> tuple[str, str, str]:
+        """Split a "CMD(param)trailing" message into (cmd, param, trailing).
+
+        The closing paren is matched quote-aware: a bare `message.find(")")`
+        would stop at the first `)`, which is wrong when a quoted name
+        itself contains one - e.g. `!SRCNAME(0,"Digital 1 (Coax)")` would
+        otherwise be split as if the parameter were `0,"Digital 1 (Coax`,
+        truncating the name and misparsing everything after it as
+        "trailing". A `)` inside a quoted section is never the
+        parameter's own terminator.
+        """
+        open_paren = message.find("(")
+        if not 1 < open_paren:
+            return message, "", ""
+
+        in_quotes = False
+        close_paren = -1
+        for i in range(open_paren + 1, len(message)):
+            char = message[i]
+            if char == '"':
+                in_quotes = not in_quotes
+            elif char == ")" and not in_quotes:
+                close_paren = i
+                break
+
+        if close_paren <= open_paren:
+            return message, "", ""
+
+        return (
+            message[:open_paren],
+            message[open_paren + 1 : close_paren],
+            message[close_paren + 1 :],
+        )
+
     def _process_event(self, message: str) -> None:
         """Process a realtime event."""
 
@@ -400,16 +435,8 @@ class LyngdorfApi:
         # print("\r"+message+"\r")
         self._last_message_time = time.monotonic()
         if message.startswith("!"):
-            cmd: str = ""
-            first: str = ""
-            second: str = ""
             message = message[1:]
-            if 1 < message.find("(") < message.find(")"):
-                cmd = message[: message.find("(")]
-                first = message[1 + message.find("(") : message.find(")")]
-                second = message[1 + message.find(")") :]
-            else:
-                cmd = message
+            cmd, first, second = self._split_command(message)
 
             try:
                 pong_command = self._model.lookup_command(Msg.PONG)

@@ -52,9 +52,15 @@ TDAI_MESSAGES: dict[Msg, str] = {
     Msg.ROOM_PERFECT_POSITIONS_COUNT: "RPCOUNT",
     Msg.ROOM_PERFECT_POSITION: "RP",
     Msg.ROOM_PERFECT_POSITION_LIST: "RPLIST",
+    # Same story as SOURCE_NAME above: !RP? replies with a bare index, no
+    # name. The list-population burst and the current-position query are
+    # both keyed under RPNAME instead.
+    Msg.ROOM_PERFECT_POSITION_NAME: "RPNAME",
     Msg.ROOM_PERFECT_VOICINGS_COUNT: "VOICOUNT",
     Msg.ROOM_PERFECT_VOICING: "VOI",
     Msg.ROOM_PERFECT_VOICING_LIST: "VOILIST",
+    # Same story again: !VOI? replies with a bare index, no name.
+    Msg.ROOM_PERFECT_VOICING_NAME: "VOINAME",
     Msg.TRIM_BASS: "BASS",
     Msg.TRIM_TREBLE: "TREBLE",
     Msg.BALANCE: "BAL",
@@ -68,11 +74,13 @@ TDAI_SETUP_MESSAGES: list[str] = [
     f"{TDAI_MESSAGES[Msg.SOURCE_LIST]}?",
     f"{TDAI_MESSAGES[Msg.ROOM_PERFECT_POSITION_LIST]}?",
     f"{TDAI_MESSAGES[Msg.ROOM_PERFECT_VOICING_LIST]}?",
-    # SRCNAME?, not SRC? - the current-source query needs the name, and
-    # !SRC? doesn't carry one (see Msg.SOURCE_NAME above).
+    # SRCNAME?/RPNAME?/VOINAME?, not SRC?/RP?/VOI? - the current-value
+    # queries need the name, and the bare forms don't carry one (see
+    # Msg.SOURCE_NAME/ROOM_PERFECT_POSITION_NAME/ROOM_PERFECT_VOICING_NAME
+    # above).
     f"{TDAI_MESSAGES[Msg.SOURCE_NAME]}?",
-    f"{TDAI_MESSAGES[Msg.ROOM_PERFECT_POSITION]}?",
-    f"{TDAI_MESSAGES[Msg.ROOM_PERFECT_VOICING]}?",
+    f"{TDAI_MESSAGES[Msg.ROOM_PERFECT_POSITION_NAME]}?",
+    f"{TDAI_MESSAGES[Msg.ROOM_PERFECT_VOICING_NAME]}?",
     f"{TDAI_MESSAGES[Msg.STREAM_TYPE]}?",
     f"{TDAI_MESSAGES[Msg.VOLUME]}?",
     f"{TDAI_MESSAGES[Msg.MUTE]}?",

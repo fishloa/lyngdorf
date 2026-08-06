@@ -2601,6 +2601,134 @@ class TestTdaiSourceName:
 
 
 # =============================================================================
+# TDAI RoomPerfect/Voicing Names
+#
+# Same story as SRCNAME: !RP?/!VOI? on TDAI-1120/3400 reply with a bare
+# index, no name. The name-bearing replies (both the RPLIST?/VOILIST?
+# list-population burst and the current-value query) are keyed under
+# RPNAME/VOINAME instead, comma-packed the same way SRCNAME is - found
+# via real TDAI-1120 hardware testing (PR #18 follow-up).
+# =============================================================================
+
+
+class TestTdaiRoomPerfectAndVoicingName:
+    """TDAI-1120/3400 RP position and voicing names must populate."""
+
+    future = None
+
+    def _callback(self, param1, param2):
+        if self.future is not None and not self.future.done():
+            self.future.set_result(True)
+
+    def test_tdai_1120_and_3400_support_position_and_voicing_name(self):
+        assert (
+            LyngdorfModel.TDAI_1120.supports_message(Msg.ROOM_PERFECT_POSITION_NAME)
+            is True
+        )
+        assert (
+            LyngdorfModel.TDAI_3400.supports_message(Msg.ROOM_PERFECT_POSITION_NAME)
+            is True
+        )
+        assert (
+            LyngdorfModel.TDAI_1120.supports_message(Msg.ROOM_PERFECT_VOICING_NAME)
+            is True
+        )
+        assert (
+            LyngdorfModel.TDAI_3400.supports_message(Msg.ROOM_PERFECT_VOICING_NAME)
+            is True
+        )
+
+    def test_tdai_2170_and_others_have_no_position_or_voicing_name(self):
+        """TDAI-2170 resolves these via its own fixed-list/bitmask
+        mechanism instead (see TestTdai2170FixedLists). MP/P never needed
+        one since their RP/VOI reply already carries a name."""
+        for model in (
+            LyngdorfModel.TDAI_2170,
+            LyngdorfModel.MP_60,
+            LyngdorfModel.P_100,
+        ):
+            assert model.supports_message(Msg.ROOM_PERFECT_POSITION_NAME) is False
+            assert model.supports_message(Msg.ROOM_PERFECT_VOICING_NAME) is False
+
+    @pytest.mark.asyncio
+    async def test_room_perfect_position_list_populates_names(self):
+        def test_function(client: Receiver):
+            assert client.available_room_perfect_positions == ["Bypass", "Focus"]
+
+        await self._receive(
+            ["!RPCOUNT(2)", '!RPNAME(0,"Bypass")', '!RPNAME(1,"Focus")'],
+            test_function,
+        )
+
+    @pytest.mark.asyncio
+    async def test_current_room_perfect_position_resolves_after_list_is_full(self):
+        def test_function(client: Receiver):
+            assert client.room_perfect_position == "Focus"
+
+        await self._receive(
+            [
+                "!RPCOUNT(2)",
+                '!RPNAME(0,"Bypass")',
+                '!RPNAME(1,"Focus")',
+                '!RPNAME(1,"Focus")',
+            ],
+            test_function,
+        )
+
+    @pytest.mark.asyncio
+    async def test_voicing_list_populates_names(self):
+        def test_function(client: Receiver):
+            assert client.available_voicings == ["Neutral", "Music"]
+
+        await self._receive(
+            ["!VOICOUNT(2)", '!VOINAME(0,"Neutral")', '!VOINAME(1,"Music")'],
+            test_function,
+        )
+
+    @pytest.mark.asyncio
+    async def test_current_voicing_resolves_after_list_is_full(self):
+        def test_function(client: Receiver):
+            assert client.voicing == "Music"
+
+        await self._receive(
+            [
+                "!VOICOUNT(2)",
+                '!VOINAME(0,"Neutral")',
+                '!VOINAME(1,"Music")',
+                '!VOINAME(1,"Music")',
+            ],
+            test_function,
+        )
+
+    async def _receive(self, commands_received, test_function):
+        """Feed raw TDAI-shaped messages to a TDAI-1120 receiver."""
+        transport = mock.Mock()
+        protocol = LyngdorfProtocol(None, None)
+
+        def create_conn(proto_lambda, host, port):
+            proto = proto_lambda()
+            protocol._on_connection_lost = proto._on_connection_lost
+            protocol._on_message = proto._on_message
+            return [transport, proto]
+
+        client = await async_create_receiver(FAKE_IP, LyngdorfModel.TDAI_1120)
+
+        with mock.patch("asyncio.get_event_loop", new_callable=mock.Mock) as debug_mock:
+            debug_mock.return_value.create_connection = AsyncMock(
+                side_effect=create_conn
+            )
+            await client.async_connect()
+            self.future = asyncio.Future()
+            client._api.register_callback("BAL", self._callback)
+            protocol.data_received(
+                bytes("\r".join([*commands_received, "!BAL(0)"]) + "\r", "utf-8")
+            )
+            await self.future
+            test_function(client)
+            await client.async_disconnect()
+
+
+# =============================================================================
 # TDAI-2170 Fixed Lists
 #
 # TDAI-2170 has no count+enumeration burst for sources, RoomPerfect
@@ -2775,3 +2903,52 @@ class TestMessageFraming:
         assert self._collect(b'!SRCNAME(6,"A2 HT Bypass Adam")\r\n') == [
             '!SRCNAME(6,"A2 HT Bypass Adam")'
         ]
+
+
+# =============================================================================
+# Command Splitting
+#
+# Found via real TDAI-1120 hardware testing (PR #18 follow-up): a `)`
+# inside a quoted name must not be mistaken for the parameter's own
+# closing paren. !SRCNAME(0,"Digital 1 (Coax)") has one `)` that belongs
+# to the name and one that actually closes the parameter - a naive
+# str.find(")") finds the first (wrong) one, truncating the name and
+# misparsing everything after it as trailing content.
+# =============================================================================
+
+
+class TestSplitCommand:
+    """LyngdorfApi._split_command must be quote-aware."""
+
+    def test_name_containing_close_paren_is_not_truncated(self):
+        assert LyngdorfApi._split_command('SRCNAME(0,"Digital 1 (Coax)")') == (
+            "SRCNAME",
+            '0,"Digital 1 (Coax)"',
+            "",
+        )
+
+    def test_mp_style_trailing_name_with_parens_unaffected(self):
+        """MP's shape (name outside the parens) still splits correctly,
+        even when that name itself contains parens."""
+        assert LyngdorfApi._split_command('SRC(0)"Input (HDMI)"') == (
+            "SRC",
+            "0",
+            '"Input (HDMI)"',
+        )
+
+    def test_ordinary_mp_style_reply(self):
+        assert LyngdorfApi._split_command('SRC(0)"HDMI"') == (
+            "SRC",
+            "0",
+            '"HDMI"',
+        )
+
+    def test_bare_command_has_no_parameter(self):
+        assert LyngdorfApi._split_command("MUTEON") == ("MUTEON", "", "")
+
+    def test_unterminated_paren_falls_back_to_bare_command(self):
+        assert LyngdorfApi._split_command('SRCNAME(0,"Unterminated') == (
+            'SRCNAME(0,"Unterminated',
+            "",
+            "",
+        )
