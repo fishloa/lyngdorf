@@ -89,11 +89,13 @@ Msg = Enum(
         "ROOM_PERFECT_POSITION",
         "ROOM_PERFECT_POSITIONS",  # Room Perfect position list query
         "ROOM_PERFECT_POSITION_LIST",  # TDAI Room Perfect position list query
+        "ROOM_PERFECT_POSITION_NAME",  # TDAI current-position-with-name query / list-population key
         "ROOM_PERFECT_POSITIONS_PRESENT",  # TDAI-2170 bitmask of which fixed positions are present
         "ROOM_PERFECT_VOICINGS_COUNT",
         "ROOM_PERFECT_VOICING",
         "ROOM_PERFECT_VOICINGS",  # Room Perfect voicing list query
         "ROOM_PERFECT_VOICING_LIST",  # TDAI Room Perfect voicing list query
+        "ROOM_PERFECT_VOICING_NAME",  # TDAI current-voicing-with-name query / list-population key
         "ROOM_PERFECT_VOICINGS_ENABLED",  # TDAI-2170 bitmask of which fixed voicings are enabled
         "LIP_SYNC",
         "LIP_SYNC_MIN_MAX",
