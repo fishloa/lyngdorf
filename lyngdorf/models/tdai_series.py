@@ -42,6 +42,12 @@ TDAI_MESSAGES: dict[Msg, str] = {
     Msg.SOURCES_COUNT: "SRCCOUNT",
     Msg.SOURCE: "SRC",
     Msg.SOURCE_LIST: "SRCLIST",
+    # !SRC? replies with a bare index (!SRC(n)), no name. The name-bearing
+    # replies - both the SRCLIST? list-population burst
+    # (!SRCNAME(a,"Name") repeated) and the current-source query
+    # (!SRCNAME(n,"Name")) - are keyed under SRCNAME instead. See
+    # docs/tdai-1120.md.
+    Msg.SOURCE_NAME: "SRCNAME",
     Msg.STREAM_TYPE: "STREAMTYPE",
     Msg.ROOM_PERFECT_POSITIONS_COUNT: "RPCOUNT",
     Msg.ROOM_PERFECT_POSITION: "RP",
@@ -62,7 +68,9 @@ TDAI_SETUP_MESSAGES: list[str] = [
     f"{TDAI_MESSAGES[Msg.SOURCE_LIST]}?",
     f"{TDAI_MESSAGES[Msg.ROOM_PERFECT_POSITION_LIST]}?",
     f"{TDAI_MESSAGES[Msg.ROOM_PERFECT_VOICING_LIST]}?",
-    f"{TDAI_MESSAGES[Msg.SOURCE]}?",
+    # SRCNAME?, not SRC? - the current-source query needs the name, and
+    # !SRC? doesn't carry one (see Msg.SOURCE_NAME above).
+    f"{TDAI_MESSAGES[Msg.SOURCE_NAME]}?",
     f"{TDAI_MESSAGES[Msg.ROOM_PERFECT_POSITION]}?",
     f"{TDAI_MESSAGES[Msg.ROOM_PERFECT_VOICING]}?",
     f"{TDAI_MESSAGES[Msg.STREAM_TYPE]}?",
