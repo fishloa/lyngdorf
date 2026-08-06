@@ -2775,3 +2775,98 @@ class TestMessageFraming:
         assert self._collect(b'!SRCNAME(6,"A2 HT Bypass Adam")\r\n') == [
             '!SRCNAME(6,"A2 HT Bypass Adam")'
         ]
+
+
+# =============================================================================
+# Message Parameter Parsing
+#
+# The parameter parser serves every model, and the two families put the
+# source name on opposite sides of the closing paren:
+#
+#   MP / P            !SRC(0)"HDMI"              name OUTSIDE
+#   TDAI-1120/3400    !SRCNAME(0,"HDMI")         name INSIDE
+#
+# So a name containing ")" breaks a naive scan from whichever end. Taking
+# the first ")" cuts the TDAI shape short; taking the last one cuts the MP
+# shape short. The closing paren is the first one outside quotes.
+#
+# Observed on a real TDAI-1120, whose sources are named "Digital 1 (Coax)"
+# and similar: four of fourteen arrived clipped.
+# =============================================================================
+
+
+class TestMessageParameterParsing:
+    """Parameters must survive names containing parentheses, both shapes."""
+
+    @staticmethod
+    async def _parse(model, raw):
+        """Feed one raw message to the parser, return (cmd, first, second)."""
+        api = LyngdorfApi(FAKE_IP, model)
+        seen: list[tuple[str, str, str]] = []
+        command = raw[1:].split("(")[0].split('"')[0]
+        api.register_callback(command, lambda p1, p2: seen.append((command, p1, p2)))
+        api._process_event(raw)
+        await asyncio.sleep(0.01)
+        return seen[0] if seen else None
+
+    @pytest.mark.asyncio
+    async def test_tdai_source_name_with_parens_is_not_truncated(self):
+        """The reported bug: `Digital 1 (Coax)` lost its closing paren."""
+        result = await self._parse(
+            LyngdorfModel.TDAI_1120, '!SRCNAME(0,"Digital 1 (Coax)")'
+        )
+        assert result == ("SRCNAME", '0,"Digital 1 (Coax)"', "")
+
+    @pytest.mark.asyncio
+    async def test_tdai_source_name_without_parens_unchanged(self):
+        """Names with no parens must parse exactly as before."""
+        result = await self._parse(
+            LyngdorfModel.TDAI_1120, '!SRCNAME(6,"A2 HT Bypass Adam")'
+        )
+        assert result == ("SRCNAME", '6,"A2 HT Bypass Adam"', "")
+
+    @pytest.mark.asyncio
+    async def test_mp_name_outside_parens_unchanged(self):
+        """MP puts the name after the parens; that split must not move."""
+        result = await self._parse(LyngdorfModel.MP_60, '!SRC(0)"HDMI"')
+        assert result == ("SRC", "0", "HDMI")
+
+    @pytest.mark.asyncio
+    async def test_mp_name_outside_parens_containing_parens(self):
+        """The case that rules out rfind: on MP the last ) is in the name."""
+        result = await self._parse(LyngdorfModel.MP_60, '!SRC(0)"Zone (2)"')
+        assert result == ("SRC", "0", "Zone (2)")
+
+    @pytest.mark.asyncio
+    async def test_simple_parameter_unchanged(self):
+        """The common single-value reply."""
+        assert await self._parse(LyngdorfModel.TDAI_1120, "!PWR(ON)") == (
+            "PWR",
+            "ON",
+            "",
+        )
+
+    @pytest.mark.asyncio
+    async def test_negative_numeric_parameter_unchanged(self):
+        """Volume, the other reply this parser handles constantly."""
+        assert await self._parse(LyngdorfModel.TDAI_1120, "!VOL(-350)") == (
+            "VOL",
+            "-350",
+            "",
+        )
+
+    @pytest.mark.asyncio
+    async def test_message_with_no_parens_is_command_only(self):
+        """Bare commands (e.g. MUTEON) carry no parameters."""
+        assert await self._parse(LyngdorfModel.MP_60, "!MUTEON") == (
+            "MUTEON",
+            "",
+            "",
+        )
+
+    @pytest.mark.asyncio
+    async def test_unterminated_quote_is_ignored_not_half_applied(self):
+        """A reply with no closing paren outside quotes has no usable
+        parameter, so it falls to the pre-existing command-only branch and
+        no SRCNAME callback fires. Better ignored than half-parsed."""
+        assert await self._parse(LyngdorfModel.TDAI_1120, '!SRCNAME(0,"oops') is None
