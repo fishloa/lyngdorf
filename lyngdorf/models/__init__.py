@@ -124,6 +124,25 @@ class LyngdorfModel(Enum):
         """
         return self.value.has_surround
 
+    def power_state_on_value(self) -> str:
+        """Return the power-state parameter value that means "powered on".
+
+        Returns:
+            "1" for the MP and P families (`!POWER(1)`), "ON" for the TDAI
+            family (`!PWR(ON)`)
+        """
+        return self.value.power_state_on
+
+    def has_mute_state_in_parameter(self) -> bool:
+        """Check whether mute state arrives as a parameter on MUTE.
+
+        Returns:
+            True if the model reports mute as `!MUTE(ON)` / `!MUTE(OFF)`
+            (TDAI family), False if it uses distinct `!MUTEON` /
+            `!MUTEOFF` messages (MP and P families)
+        """
+        return self.value.mute_state_in_parameter
+
     def supports_message(self, key) -> bool:
         """Check whether this model's protocol defines a given message.
 

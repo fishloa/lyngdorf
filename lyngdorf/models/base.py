@@ -9,7 +9,7 @@ Lyngdorf device models must implement.
 from dataclasses import dataclass
 from typing import Protocol
 
-from ..const import Msg
+from ..const import POWER_ON, Msg
 
 
 class ModelCapability(Protocol):
@@ -65,6 +65,14 @@ class ModelConfig:
             separately per-model since they don't vary along the same axis
             (e.g. the P-series has audio modes and lip sync but no channel
             trims at all).
+        power_state_on: The parameter value in a power-state reply that
+            means "powered on". The MP and P families answer `!POWER(1)`,
+            so this defaults to "1"; the TDAI family answers `!PWR(ON)`
+            and overrides it with "ON".
+        mute_state_in_parameter: Whether mute state arrives as a parameter
+            on the MUTE message (`!MUTE(ON)` / `!MUTE(OFF)`, the TDAI
+            family) rather than as distinct `!MUTEON` / `!MUTEOFF`
+            messages (the MP and P families).
     """
 
     model_name: str
@@ -79,6 +87,8 @@ class ModelConfig:
     has_zone_b: bool = False
     has_video: bool = False
     has_surround: bool = False
+    power_state_on: str = POWER_ON
+    mute_state_in_parameter: bool = False
 
     def lookup_command(self, key: Msg) -> str:
         """Lookup protocol command for a given message type.

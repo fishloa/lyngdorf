@@ -32,8 +32,16 @@ MONITOR_INTERVAL = 90  # 90 seconds between PING commands
 SETUP_COMMAND_DELAY = 0.05
 
 # Power States
+# The MP and P families report power as a numeric parameter: `!POWER(1)`.
 POWER_ON = "1"
 POWER_OFF = "0"
+
+# The TDAI family spells its power and mute states as words instead:
+# `!PWR(ON)` / `!PWR(OFF)` and `!MUTE(ON)` / `!MUTE(OFF)`. See
+# docs/tdai-1120.md, docs/tdai-2170.md and docs/tdai-3400.md; the MP and
+# P equivalents are in docs/mp-60.md and docs/p-series.md.
+STATE_ON = "ON"
+STATE_OFF = "OFF"
 
 # Message Types
 # Shared across all Lyngdorf models (protocol commands may differ per model)
@@ -176,6 +184,8 @@ __all__ = [
     "SETUP_COMMAND_DELAY",
     "POWER_ON",
     "POWER_OFF",
+    "STATE_ON",
+    "STATE_OFF",
     "Msg",
     # Model configurations
     "LyngdorfModel",

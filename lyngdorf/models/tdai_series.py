@@ -25,7 +25,7 @@ vendor PDF spec only and have not been verified against real hardware
 :license: MIT, see LICENSE for more details.
 """
 
-from ..const import Msg
+from ..const import STATE_ON, Msg
 from .base import ModelConfig
 
 # TDAI-1120 / TDAI-3400 Shared Protocol Commands
@@ -110,6 +110,9 @@ TDAI1120_CONFIG = ModelConfig(
     audio_inputs={},  # TDAI uses source list instead of fixed inputs
     stream_types=TDAI1120_STREAM_TYPES,
     room_perfect_positions=TDAI1120_ROOM_PERFECT_POSITIONS,
+    # Power and mute states are words, not digits: !PWR(ON), !MUTE(OFF)
+    power_state_on=STATE_ON,
+    mute_state_in_parameter=True,
 )
 
 # TDAI-2170 Protocol Commands
@@ -180,6 +183,9 @@ TDAI2170_CONFIG = ModelConfig(
     audio_inputs={},
     stream_types=TDAI2170_STREAM_TYPES,
     room_perfect_positions=TDAI2170_ROOM_PERFECT_POSITIONS,
+    # Power and mute states are words, not digits: !PWR(ON), !MUTE(OFF)
+    power_state_on=STATE_ON,
+    mute_state_in_parameter=True,
 )
 
 # TDAI-3400 Hardware Configuration
@@ -221,4 +227,7 @@ TDAI3400_CONFIG = ModelConfig(
     audio_inputs={},
     stream_types=TDAI3400_STREAM_TYPES,
     room_perfect_positions=TDAI3400_ROOM_PERFECT_POSITIONS,
+    # Power and mute states are words, not digits: !PWR(ON), !MUTE(OFF)
+    power_state_on=STATE_ON,
+    mute_state_in_parameter=True,
 )
