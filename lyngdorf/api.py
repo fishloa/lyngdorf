@@ -74,12 +74,22 @@ class LyngdorfProtocol(asyncio.Protocol):
         return True
 
     def data_received(self, data: bytes) -> None:
-        """Handle data received."""
+        """Handle data received.
+
+        Messages are terminated with CR, but the TDAI family follows that
+        CR with an LF. Splitting on CR alone would leave the LF at the head
+        of the next message, where it defeats the leading-"!" check in
+        LyngdorfApi._process_event and the message is dropped in silence -
+        so every reply after the first goes missing. Strip the framing off
+        each line rather than assuming which terminator a model uses.
+        """
         self._buffer += data
         while b"\r" in self._buffer:
             line, _, self._buffer = self._buffer.partition(b"\r")
             with contextlib.suppress(UnicodeDecodeError):
-                self._on_message(line.decode("utf-8"))
+                message = line.decode("utf-8").strip("\r\n")
+                if message:
+                    self._on_message(message)
 
     def connection_made(self, transport: asyncio.Transport) -> None:  # type: ignore
         """Handle connection made."""

@@ -32,7 +32,7 @@ from .const import (
     P100_VIDEO_INPUTS,
     P_AUDIO_INPUTS,
     P_VIDEO_INPUTS,
-    POWER_ON,
+    STATE_ON,
     TDAI1120_STREAM_TYPES,
     TDAI2170_STREAM_TYPES,
     TDAI3400_STREAM_TYPES,
@@ -132,8 +132,13 @@ class Receiver:
 
         # Volumes and Mutes
         self._register_callback(Msg.VOLUME, self._volume_callback)
-        self._register_callback(Msg.MUTE_ON, self._mute_on_callback)
-        self._register_callback(Msg.MUTE_OFF, self._mute_off_callback)
+        if self._model.has_mute_state_in_parameter():
+            # TDAI family: state arrives as `!MUTE(ON)` / `!MUTE(OFF)`
+            self._register_callback(Msg.MUTE, self._mute_callback)
+        else:
+            # MP and P families: distinct `!MUTEON` / `!MUTEOFF` messages
+            self._register_callback(Msg.MUTE_ON, self._mute_on_callback)
+            self._register_callback(Msg.MUTE_OFF, self._mute_off_callback)
 
         # Sources
         self._register_callback(Msg.SOURCES_COUNT, self._sources.count_callback)
@@ -251,6 +256,10 @@ class Receiver:
 
     def _zone_b_volume_callback(self, param1: str, ignored: str) -> None:
         self._zone_b_volume = convert_decibel(param1)
+        self._notify_notification_callbacks()
+
+    def _mute_callback(self, param1: str, param2: str):
+        self._mute_enabled = STATE_ON == param1
         self._notify_notification_callbacks()
 
     def _mute_on_callback(self, param1: str, param2: str):
@@ -466,11 +475,11 @@ class Receiver:
         return list(self._sound_modes.values())
 
     def _power_callback(self, param1: str, param2: str):
-        self._power_on = POWER_ON == param1
+        self._power_on = self._model.power_state_on_value() == param1
         self._notify_notification_callbacks()
 
     def _zone_b_power_callback(self, param1: str, param2: str):
-        self._zone_b_power_on = POWER_ON == param1
+        self._zone_b_power_on = self._model.power_state_on_value() == param1
         self._notify_notification_callbacks()
 
     @property

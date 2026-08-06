@@ -2390,3 +2390,167 @@ class TestExceptionHandling:
         client = await async_create_receiver(FAKE_IP, LyngdorfModel.MP_60)
         with pytest.raises(LyngdorfInvalidValueError):
             client.source = "NonExistentSource"
+
+
+# =============================================================================
+# TDAI State Encoding
+#
+# The TDAI family spells power and mute states as words where the MP and P
+# families use digits or distinct messages:
+#
+#   TDAI-1120/2170/3400   !PWR(ON)      !MUTE(ON)
+#   MP-40/50/60, P-series !POWER(1)     !MUTEON
+#
+# Both encodings are in the vendor manuals under spec/ and transcribed in
+# docs/. Verified against a real TDAI-1120 over TCP 84: `!PWR?` answers
+# `!PWR(OFF)` and `!MUTE?` answers `!MUTE(OFF)` -- at feedback level 0 and
+# at VERB(1) alike.
+# =============================================================================
+
+
+class TestTdaiStateEncoding:
+    """The TDAI power/mute encodings must survive the round trip."""
+
+    future = None
+
+    def _callback(self, param1, param2):
+        if self.future is not None and not self.future.done():
+            self.future.set_result(True)
+
+    def test_tdai_power_state_on_value(self):
+        """TDAI models report power as ON, not 1."""
+        assert LyngdorfModel.TDAI_1120.power_state_on_value() == "ON"
+        assert LyngdorfModel.TDAI_2170.power_state_on_value() == "ON"
+        assert LyngdorfModel.TDAI_3400.power_state_on_value() == "ON"
+
+    def test_mp_and_p_power_state_on_value(self):
+        """MP and P models keep the numeric encoding."""
+        assert LyngdorfModel.MP_40.power_state_on_value() == "1"
+        assert LyngdorfModel.MP_50.power_state_on_value() == "1"
+        assert LyngdorfModel.MP_60.power_state_on_value() == "1"
+        assert LyngdorfModel.P_100.power_state_on_value() == "1"
+
+    def test_tdai_mute_state_in_parameter(self):
+        """TDAI models carry mute state as a MUTE parameter."""
+        assert LyngdorfModel.TDAI_1120.has_mute_state_in_parameter() is True
+        assert LyngdorfModel.TDAI_2170.has_mute_state_in_parameter() is True
+        assert LyngdorfModel.TDAI_3400.has_mute_state_in_parameter() is True
+
+    def test_mp_and_p_mute_state_not_in_parameter(self):
+        """MP and P models use distinct MUTEON/MUTEOFF messages."""
+        assert LyngdorfModel.MP_40.has_mute_state_in_parameter() is False
+        assert LyngdorfModel.MP_50.has_mute_state_in_parameter() is False
+        assert LyngdorfModel.MP_60.has_mute_state_in_parameter() is False
+        assert LyngdorfModel.P_100.has_mute_state_in_parameter() is False
+
+    @pytest.mark.asyncio
+    async def test_tdai_reports_power_on(self):
+        """`!PWR(ON)` must read as powered on, not off."""
+
+        def test_function(client: Receiver):
+            assert client.power_on is True
+
+        await self._receive(["!PWR(ON)", "!BAL(0)"], test_function)
+
+    @pytest.mark.asyncio
+    async def test_tdai_reports_power_off(self):
+        """`!PWR(OFF)` must read as powered off."""
+
+        def test_function(client: Receiver):
+            assert client.power_on is False
+
+        await self._receive(["!PWR(OFF)", "!BAL(0)"], test_function)
+
+    @pytest.mark.asyncio
+    async def test_tdai_reports_mute_on(self):
+        """`!MUTE(ON)` must reach mute_enabled."""
+
+        def test_function(client: Receiver):
+            assert client.mute_enabled is True
+
+        await self._receive(["!MUTE(ON)", "!BAL(0)"], test_function)
+
+    @pytest.mark.asyncio
+    async def test_tdai_reports_mute_off(self):
+        """`!MUTE(OFF)` must reach mute_enabled."""
+
+        def test_function(client: Receiver):
+            assert client.mute_enabled is False
+
+        await self._receive(["!MUTE(ON)", "!MUTE(OFF)", "!BAL(0)"], test_function)
+
+    async def _receive(self, commands_received, test_function):
+        """Feed raw TDAI-shaped messages to a TDAI-1120 receiver."""
+        transport = mock.Mock()
+        protocol = LyngdorfProtocol(None, None)
+
+        def create_conn(proto_lambda, host, port):
+            proto = proto_lambda()
+            protocol._on_connection_lost = proto._on_connection_lost
+            protocol._on_message = proto._on_message
+            return [transport, proto]
+
+        client = await async_create_receiver(FAKE_IP, LyngdorfModel.TDAI_1120)
+
+        with mock.patch("asyncio.get_event_loop", new_callable=mock.Mock) as debug_mock:
+            debug_mock.return_value.create_connection = AsyncMock(
+                side_effect=create_conn
+            )
+            await client.async_connect()
+            self.future = asyncio.Future()
+            client._api.register_callback("BAL", self._callback)
+            protocol.data_received(bytes("\r".join(commands_received) + "\r", "utf-8"))
+            await self.future
+            test_function(client)
+            await client.async_disconnect()
+
+
+# =============================================================================
+# Message Framing
+#
+# Messages end with CR, but the TDAI family sends CR LF. Splitting on CR
+# alone leaves the LF heading the next message, which then fails the
+# leading-"!" test in LyngdorfApi._process_event and is dropped without a
+# trace. Observed against a real TDAI-1120: only the first reply of the
+# setup burst survived, so power, mute, volume and source all stayed None.
+# =============================================================================
+
+
+class TestMessageFraming:
+    """Every message must survive framing, whichever terminator is used."""
+
+    @staticmethod
+    def _collect(data: bytes) -> list[str]:
+        received: list[str] = []
+        protocol = LyngdorfProtocol(received.append, lambda: None)
+        protocol.data_received(data)
+        return received
+
+    def test_crlf_terminated_messages_all_delivered(self):
+        """TDAI family: CR LF must not strand an LF on the next message."""
+        assert self._collect(
+            b"!DEVICE(TDAI-1120)\r\n!PWR(ON)\r\n!MUTE(OFF)\r\n!VOL(-350)\r\n"
+        ) == ["!DEVICE(TDAI-1120)", "!PWR(ON)", "!MUTE(OFF)", "!VOL(-350)"]
+
+    def test_cr_terminated_messages_all_delivered(self):
+        """MP and P families: plain CR keeps working."""
+        assert self._collect(b"!DEVICE(MP-60)\r!POWER(1)\r!MUTEON\r") == [
+            "!DEVICE(MP-60)",
+            "!POWER(1)",
+            "!MUTEON",
+        ]
+
+    def test_message_split_across_packets(self):
+        """A message arriving in pieces is still assembled."""
+        received: list[str] = []
+        protocol = LyngdorfProtocol(received.append, lambda: None)
+        protocol.data_received(b"!PWR(")
+        assert received == []
+        protocol.data_received(b"ON)\r\n!MUTE(ON)\r\n")
+        assert received == ["!PWR(ON)", "!MUTE(ON)"]
+
+    def test_quoted_payload_is_preserved(self):
+        """Stripping framing must not touch the message body."""
+        assert self._collect(b'!SRCNAME(6,"A2 HT Bypass Adam")\r\n') == [
+            '!SRCNAME(6,"A2 HT Bypass Adam")'
+        ]
