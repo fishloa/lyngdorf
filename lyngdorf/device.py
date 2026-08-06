@@ -214,6 +214,12 @@ class Receiver:
                 Msg.ROOM_PERFECT_POSITION,
                 self._fixed_room_perfect_position_callback,
             )
+        elif self._model.supports_message(Msg.ROOM_PERFECT_POSITION_NAME):
+            # TDAI-1120/3400 carry the name under RPNAME, comma-packed
+            self._register_callback(
+                Msg.ROOM_PERFECT_POSITION_NAME,
+                self._room_perfect_position_name_callback,
+            )
         else:
             self._register_callback(
                 Msg.ROOM_PERFECT_POSITION, self._room_perfect_position_callback
@@ -229,6 +235,11 @@ class Receiver:
             )
             self._register_callback(
                 Msg.ROOM_PERFECT_VOICING, self._fixed_voicing_callback
+            )
+        elif self._model.supports_message(Msg.ROOM_PERFECT_VOICING_NAME):
+            # TDAI-1120/3400 carry the name under VOINAME, comma-packed
+            self._register_callback(
+                Msg.ROOM_PERFECT_VOICING_NAME, self._voicing_name_callback
             )
         else:
             self._register_callback(Msg.ROOM_PERFECT_VOICING, self._voicing_callback)
@@ -583,6 +594,21 @@ class Receiver:
         else:
             self._room_perfect_positions.add(int(param1), param2)
 
+    def _room_perfect_position_name_callback(self, param1: str, param2: str):
+        """Handle an RPNAME reply (TDAI-1120/3400): index and name arrive
+        comma-separated inside one set of parens - !RPNAME(0,"Bypass") -
+        rather than split into two fields the way MP's !RPFOC(0)"Bypass"
+        is, so this can't reuse _room_perfect_position_callback's parsing.
+        Mirrors _source_name_callback.
+        """
+        index_str, _, name = param1.partition(",")
+        name = name.strip('"')
+        if self._room_perfect_positions.is_full():
+            self._room_perfect_position = name
+            self._notify_notification_callbacks()
+        else:
+            self._room_perfect_positions.add(int(index_str), name)
+
     def _room_perfect_positions_present_callback(
         self, param1: str, param2: str
     ) -> None:
@@ -627,6 +653,18 @@ class Receiver:
             self._notify_notification_callbacks()
         else:
             self._voicings.add(int(param1), param2)
+
+    def _voicing_name_callback(self, param1: str, param2: str):
+        """Handle a VOINAME reply (TDAI-1120/3400): same comma-packed shape
+        as RPNAME and SRCNAME - !VOINAME(0,"Neutral").
+        """
+        index_str, _, name = param1.partition(",")
+        name = name.strip('"')
+        if self._voicings.is_full():
+            self._voicing = name
+            self._notify_notification_callbacks()
+        else:
+            self._voicings.add(int(index_str), name)
 
     def _voicings_enabled_callback(self, param1: str, param2: str) -> None:
         """Handle a VOIENABLED reply (TDAI-2170): populate the fixed

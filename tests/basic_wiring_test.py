@@ -2778,6 +2778,123 @@ class TestMessageFraming:
 
 
 # =============================================================================
+# TDAI RoomPerfect / Voicing Names
+#
+# Same shape, and same gap, as SRCNAME had before it was mapped:
+#
+#   !RPLIST?   ->  !RPCOUNT(3)    !RPNAME(0,"Bypass")   ...
+#   !VOILIST?  ->  !VOICOUNT(14)  !VOINAME(0,"Neutral") ...
+#
+# !RP? and !VOI? reply with a bare index and no name, so without RPNAME
+# and VOINAME mapped nothing is registered to receive the names and
+# room_perfect_position / voicing stay None on a TDAI-1120/3400.
+#
+# Indices are non-contiguous on real hardware - a TDAI-1120 returns
+# RoomPerfect 0, 1 and 9 - so an index is not a position in the list.
+# =============================================================================
+
+
+class TestTdaiRoomPerfectAndVoicingNames:
+    """RPNAME/VOINAME must populate the lists and the current selection."""
+
+    future = None
+
+    def _callback(self, param1, param2):
+        if self.future is not None and not self.future.done():
+            self.future.set_result(True)
+
+    def test_tdai_maps_rpname_and_voiname(self):
+        """TDAI-1120/3400 speak the name-bearing variants."""
+        for model in (LyngdorfModel.TDAI_1120, LyngdorfModel.TDAI_3400):
+            assert model.lookup_command(Msg.ROOM_PERFECT_POSITION_NAME) == "RPNAME"
+            assert model.lookup_command(Msg.ROOM_PERFECT_VOICING_NAME) == "VOINAME"
+
+    def test_other_models_do_not(self):
+        """MP, P and the TDAI-2170 use their existing mechanisms."""
+        for model in (
+            LyngdorfModel.MP_60,
+            LyngdorfModel.P_100,
+            LyngdorfModel.TDAI_2170,
+        ):
+            assert not model.supports_message(Msg.ROOM_PERFECT_POSITION_NAME)
+            assert not model.supports_message(Msg.ROOM_PERFECT_VOICING_NAME)
+
+    def test_setup_queries_the_name_bearing_form(self):
+        """RPNAME?/VOINAME? replace the nameless RP?/VOI? in setup."""
+        from lyngdorf.const import TDAI1120_SETUP_MESSAGES
+
+        assert "RPNAME?" in TDAI1120_SETUP_MESSAGES
+        assert "VOINAME?" in TDAI1120_SETUP_MESSAGES
+
+    @pytest.mark.asyncio
+    async def test_room_perfect_positions_populate_and_current_is_set(self):
+        """Non-contiguous indices, then a later RPNAME as the selection."""
+
+        def check(client: Receiver):
+            assert client.available_room_perfect_positions == [
+                "Bypass",
+                "Focus",
+                "Global",
+            ]
+            assert client.room_perfect_position == "Focus"
+
+        await self._receive(
+            [
+                "!RPCOUNT(3)",
+                '!RPNAME(0,"Bypass")',
+                '!RPNAME(1,"Focus")',
+                '!RPNAME(9,"Global")',
+                '!RPNAME(1,"Focus")',
+                "!BAL(0)",
+            ],
+            check,
+        )
+
+    @pytest.mark.asyncio
+    async def test_voicings_populate_and_current_is_set(self):
+        """Same for voicings."""
+
+        def check(client: Receiver):
+            assert client.available_voicings == ["Neutral", "Music", "Movie"]
+            assert client.voicing == "Movie"
+
+        await self._receive(
+            [
+                "!VOICOUNT(3)",
+                '!VOINAME(0,"Neutral")',
+                '!VOINAME(1,"Music")',
+                '!VOINAME(9,"Movie")',
+                '!VOINAME(9,"Movie")',
+                "!BAL(0)",
+            ],
+            check,
+        )
+
+    async def _receive(self, commands_received, test_function):
+        transport = mock.Mock()
+        protocol = LyngdorfProtocol(None, None)
+
+        def create_conn(proto_lambda, host, port):
+            proto = proto_lambda()
+            protocol._on_connection_lost = proto._on_connection_lost
+            protocol._on_message = proto._on_message
+            return [transport, proto]
+
+        client = await async_create_receiver(FAKE_IP, LyngdorfModel.TDAI_1120)
+        with mock.patch("asyncio.get_event_loop", new_callable=mock.Mock) as debug_mock:
+            debug_mock.return_value.create_connection = AsyncMock(
+                side_effect=create_conn
+            )
+            await client.async_connect()
+            self.future = asyncio.Future()
+            client._api.register_callback("BAL", self._callback)
+            protocol.data_received(bytes("\r".join(commands_received) + "\r", "utf-8"))
+            await self.future
+            test_function(client)
+            await client.async_disconnect()
+
+
+# =============================================================================
 # Message Parameter Parsing
 #
 # The parameter parser serves every model, and the two families put the
