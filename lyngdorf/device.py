@@ -126,6 +126,22 @@ class Receiver:
             return
         self._api.register_callback(command, callback)
 
+    @staticmethod
+    def _populate_fixed_list(
+        target: CountingNumberDict, fixed_names: dict[int, str], bitmask: str
+    ) -> None:
+        """Populate a dict of fixed, hardware-defined names filtered by a
+        bitmask reply (e.g. TDAI-2170's SRCENABLED/RPSTATUS/VOIENABLED).
+
+        Bit 0 is the least-significant bit, i.e. the rightmost character
+        of the bitmask string, per the vendor manual.
+        """
+        enabled_indices = [i for i, bit in enumerate(reversed(bitmask)) if bit == "1"]
+        target.count_callback(str(len(enabled_indices)), "")
+        for index in enabled_indices:
+            if index in fixed_names:
+                target.add(index, fixed_names[index])
+
     async def async_connect(self):
         # Basics
         self._register_callback(Msg.DEVICE, self._name_callback)
@@ -142,12 +158,16 @@ class Receiver:
 
         # Sources
         self._register_callback(Msg.SOURCES_COUNT, self._sources.count_callback)
-        # TDAI replies to a source query with a bare index (!SRC(n)) and
-        # carries the name under a differently-shaped SRCNAME message
-        # instead - use that one if present, since a bare index alone is
-        # useless for populating names.
+        # Some models can't populate source names the default way:
+        # TDAI-1120/3400 carry the name under a differently-shaped SRCNAME
+        # message instead of the source-query reply; TDAI-2170 has a fixed
+        # hardware source list gated by a SRCENABLED bitmask rather than
+        # any enumeration burst at all.
         if self._model.supports_message(Msg.SOURCE_NAME):
             self._register_callback(Msg.SOURCE_NAME, self._source_name_callback)
+        elif self._model.supports_message(Msg.SOURCES_ENABLED):
+            self._register_callback(Msg.SOURCES_ENABLED, self._sources_enabled_callback)
+            self._register_callback(Msg.SOURCE, self._fixed_source_callback)
         else:
             self._register_callback(Msg.SOURCE, self._source_callback)
         self._register_callback(Msg.STREAM_TYPE, self._stream_type_callback)
@@ -183,13 +203,35 @@ class Receiver:
             Msg.ROOM_PERFECT_POSITIONS_COUNT,
             self._room_perfect_positions.count_callback,
         )
-        self._register_callback(
-            Msg.ROOM_PERFECT_POSITION, self._room_perfect_position_callback
-        )
+        # TDAI-2170 has a fixed set of RoomPerfect positions gated by an
+        # RPSTATUS bitmask rather than an RPLIST/RPFOCS enumeration burst.
+        if self._model.supports_message(Msg.ROOM_PERFECT_POSITIONS_PRESENT):
+            self._register_callback(
+                Msg.ROOM_PERFECT_POSITIONS_PRESENT,
+                self._room_perfect_positions_present_callback,
+            )
+            self._register_callback(
+                Msg.ROOM_PERFECT_POSITION,
+                self._fixed_room_perfect_position_callback,
+            )
+        else:
+            self._register_callback(
+                Msg.ROOM_PERFECT_POSITION, self._room_perfect_position_callback
+            )
         self._register_callback(
             Msg.ROOM_PERFECT_VOICINGS_COUNT, self._voicings.count_callback
         )
-        self._register_callback(Msg.ROOM_PERFECT_VOICING, self._voicing_callback)
+        # Same story for voicings: TDAI-2170 gates a fixed list with
+        # VOIENABLED rather than a VOILIST/RPVOIS burst.
+        if self._model.supports_message(Msg.ROOM_PERFECT_VOICINGS_ENABLED):
+            self._register_callback(
+                Msg.ROOM_PERFECT_VOICINGS_ENABLED, self._voicings_enabled_callback
+            )
+            self._register_callback(
+                Msg.ROOM_PERFECT_VOICING, self._fixed_voicing_callback
+            )
+        else:
+            self._register_callback(Msg.ROOM_PERFECT_VOICING, self._voicing_callback)
 
         # Trim and audio modes - not every model has these (the defensive
         # catch in _register_callback logs and skips whichever don't apply)
@@ -364,6 +406,20 @@ class Receiver:
         else:
             self._sources.add(int(index_str), name)
 
+    def _sources_enabled_callback(self, param1: str, param2: str) -> None:
+        """Handle a SRCENABLED reply (TDAI-2170): populate the fixed source
+        table filtered by which of its entries are enabled."""
+        self._populate_fixed_list(
+            self._sources, self._model.config.fixed_sources or {}, param1
+        )
+
+    def _fixed_source_callback(self, param1: str, param2: str) -> None:
+        """Handle a SRC reply on a model with a fixed source table
+        (TDAI-2170): the reply is a bare index with no name, so resolve it
+        against the table _sources_enabled_callback already populated."""
+        self._source = self._sources.get(int(param1))
+        self._notify_notification_callbacks()
+
     @property
     def available_sources(self) -> list[str]:
         return list(self._sources.values())
@@ -527,6 +583,25 @@ class Receiver:
         else:
             self._room_perfect_positions.add(int(param1), param2)
 
+    def _room_perfect_positions_present_callback(
+        self, param1: str, param2: str
+    ) -> None:
+        """Handle an RPSTATUS reply (TDAI-2170): populate the fixed
+        RoomPerfect position table filtered by which are present."""
+        self._populate_fixed_list(
+            self._room_perfect_positions,
+            self._model.config.room_perfect_positions or {},
+            param1,
+        )
+
+    def _fixed_room_perfect_position_callback(self, param1: str, param2: str) -> None:
+        """Handle an RP reply on a model with a fixed position table
+        (TDAI-2170): the reply is a bare index with no name, so resolve it
+        against the table _room_perfect_positions_present_callback already
+        populated."""
+        self._room_perfect_position = self._room_perfect_positions.get(int(param1))
+        self._notify_notification_callbacks()
+
     @property
     def available_room_perfect_positions(self) -> list[str]:
         return list(self._room_perfect_positions.values())
@@ -552,6 +627,20 @@ class Receiver:
             self._notify_notification_callbacks()
         else:
             self._voicings.add(int(param1), param2)
+
+    def _voicings_enabled_callback(self, param1: str, param2: str) -> None:
+        """Handle a VOIENABLED reply (TDAI-2170): populate the fixed
+        voicing table filtered by which are enabled."""
+        self._populate_fixed_list(
+            self._voicings, self._model.config.fixed_voicings or {}, param1
+        )
+
+    def _fixed_voicing_callback(self, param1: str, param2: str) -> None:
+        """Handle a VOI reply on a model with a fixed voicing table
+        (TDAI-2170): the reply is a bare index with no name, so resolve it
+        against the table _voicings_enabled_callback already populated."""
+        self._voicing = self._voicings.get(int(param1))
+        self._notify_notification_callbacks()
 
     @property
     def available_voicings(self) -> list[str]:

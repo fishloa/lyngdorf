@@ -139,16 +139,29 @@ TDAI2170_MESSAGES: dict[Msg, str] = {
     Msg.SOURCE: "SRC",
     Msg.ROOM_PERFECT_POSITION: "RP",
     Msg.ROOM_PERFECT_VOICING: "VOI",
+    # This device has no count+enumeration burst for sources, RP
+    # positions, or voicings (no SRCLIST/RPLIST/VOILIST) - instead each
+    # has a fixed, hardware-defined set of entries (see the TDAI2170_*
+    # tables below) and a bitmask reply saying which of them are
+    # currently enabled/present. !SRC(n)/!RP(n)/!VOI(n) all reply with a
+    # bare index too, no name.
+    Msg.SOURCES_ENABLED: "SRCENABLED",
+    Msg.ROOM_PERFECT_POSITIONS_PRESENT: "RPSTATUS",
+    Msg.ROOM_PERFECT_VOICINGS_ENABLED: "VOIENABLED",
 }
 
 # TDAI-2170 Setup Sequence
 # SUBSCRIBE/SUBSCRIBEVOL activate push notifications for status/volume
-# changes (this device has no VERB feedback-level command).
+# changes (this device has no VERB feedback-level command). The bitmask
+# queries must come before the current-value queries they resolve against.
 TDAI2170_SETUP_MESSAGES: list[str] = [
     "SUBSCRIBE",
     "SUBSCRIBEVOL",
     f"{TDAI2170_MESSAGES[Msg.DEVICE]}?",
     f"{TDAI2170_MESSAGES[Msg.POWER]}?",
+    f"{TDAI2170_MESSAGES[Msg.SOURCES_ENABLED]}?",
+    f"{TDAI2170_MESSAGES[Msg.ROOM_PERFECT_POSITIONS_PRESENT]}?",
+    f"{TDAI2170_MESSAGES[Msg.ROOM_PERFECT_VOICINGS_ENABLED]}?",
     f"{TDAI2170_MESSAGES[Msg.SOURCE]}?",
     f"{TDAI2170_MESSAGES[Msg.ROOM_PERFECT_POSITION]}?",
     f"{TDAI2170_MESSAGES[Msg.ROOM_PERFECT_VOICING]}?",
@@ -182,6 +195,49 @@ TDAI2170_ROOM_PERFECT_POSITIONS = {
     9: "Global",
 }
 
+# Fixed hardware inputs (see docs/tdai-2170.md, Input Source Numbering).
+# Which of these are actually enabled comes from the SRCENABLED bitmask.
+TDAI2170_SOURCES = {
+    0: "Coax Digital 1",
+    1: "Coax Digital 2",
+    2: "Optical Digital 3",
+    3: "Optical Digital 4",
+    4: "Optical Digital 5",
+    5: "Optical Digital 6",
+    6: "USB Input",
+    7: "HDMI Input 1",
+    8: "HDMI Input 2",
+    9: "HDMI Input 3",
+    10: "HDMI Input 4",
+    11: "HDMI Audio Return Channel (ARC)",
+    12: "Analog 1 (RCA on main board)",
+    13: "Analog 2 (RCA on main board)",
+    14: "Analog 3 (RCA on extension board)",
+    15: "Analog 4 (RCA on extension board)",
+    16: "Analog 5 (RCA on extension board)",
+    17: "Analog 6 (XLR on extension board)",
+}
+
+# Fixed voicings (see docs/tdai-2170.md, Voicing Numbering). Which of these
+# are enabled comes from the VOIENABLED bitmask (Voicing 0/Neutral is
+# always enabled).
+TDAI2170_VOICINGS = {
+    0: "Neutral",
+    1: "Music 1",
+    2: "Music 2",
+    3: "Relaxed",
+    4: "Open",
+    5: "Open Air",
+    6: "Soft",
+    7: "Action 1",
+    8: "Action 2",
+    9: "Movie",
+    10: "Action Movie",
+    11: "News",
+    12: "Bass 1",
+    13: "Bass 2",
+}
+
 TDAI2170_CONFIG = ModelConfig(
     model_name="tdai-2170",
     manufacturer="Lyngdorf",
@@ -191,6 +247,8 @@ TDAI2170_CONFIG = ModelConfig(
     audio_inputs={},
     stream_types=TDAI2170_STREAM_TYPES,
     room_perfect_positions=TDAI2170_ROOM_PERFECT_POSITIONS,
+    fixed_sources=TDAI2170_SOURCES,
+    fixed_voicings=TDAI2170_VOICINGS,
     # Power and mute states are words, not digits: !PWR(ON), !MUTE(OFF)
     power_state_on=STATE_ON,
     mute_state_in_parameter=True,
