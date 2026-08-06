@@ -63,6 +63,7 @@ Msg = Enum(
         "SOURCE",
         "SOURCES",  # Source list query
         "SOURCE_LIST",  # TDAI source list query
+        "SOURCE_NAME",  # TDAI current-source-with-name query / list-population key
         "ZONE_B_POWER",
         "ZONE_B_POWER_ON",
         "ZONE_B_POWER_OFF",

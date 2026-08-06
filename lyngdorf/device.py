@@ -142,7 +142,14 @@ class Receiver:
 
         # Sources
         self._register_callback(Msg.SOURCES_COUNT, self._sources.count_callback)
-        self._register_callback(Msg.SOURCE, self._source_callback)
+        # TDAI replies to a source query with a bare index (!SRC(n)) and
+        # carries the name under a differently-shaped SRCNAME message
+        # instead - use that one if present, since a bare index alone is
+        # useless for populating names.
+        if self._model.supports_message(Msg.SOURCE_NAME):
+            self._register_callback(Msg.SOURCE_NAME, self._source_name_callback)
+        else:
+            self._register_callback(Msg.SOURCE, self._source_callback)
         self._register_callback(Msg.STREAM_TYPE, self._stream_type_callback)
 
         # Power
@@ -342,6 +349,20 @@ class Receiver:
             self._notify_notification_callbacks()
         else:
             self._sources.add(int(param1), param2)
+
+    def _source_name_callback(self, param1: str, param2: str):
+        """Handle a SRCNAME reply (TDAI): index and name arrive comma-
+        separated inside one set of parens - "!SRCNAME(0,\"HDMI\")" - not
+        split into two fields the way MP's "!SRC(0)\"HDMI\"" is, so this
+        can't reuse _source_callback's parsing.
+        """
+        index_str, _, name = param1.partition(",")
+        name = name.strip('"')
+        if self._sources.is_full():
+            self._source = name
+            self._notify_notification_callbacks()
+        else:
+            self._sources.add(int(index_str), name)
 
     @property
     def available_sources(self) -> list[str]:

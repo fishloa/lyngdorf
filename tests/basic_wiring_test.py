@@ -2506,6 +2506,101 @@ class TestTdaiStateEncoding:
 
 
 # =============================================================================
+# TDAI Source Names
+#
+# !SRC? on a TDAI replies with a bare index (!SRC(n)) - no name. The
+# name-bearing replies are keyed under a different message, SRCNAME, and
+# pack index and name comma-separated inside one set of parens -
+# !SRCNAME(a,"Name") - rather than MP's !SRC(a)"Name" (name trailing,
+# outside the parens). Both the SRCLIST? list-population burst and the
+# current-source query use this SRCNAME shape. See docs/tdai-1120.md.
+# =============================================================================
+
+
+class TestTdaiSourceName:
+    """TDAI source names must populate despite the differently-shaped reply."""
+
+    future = None
+
+    def _callback(self, param1, param2):
+        if self.future is not None and not self.future.done():
+            self.future.set_result(True)
+
+    def test_tdai_1120_and_3400_support_source_name(self):
+        """TDAI-1120/3400 have a SOURCE_NAME message mapped."""
+        assert LyngdorfModel.TDAI_1120.supports_message(Msg.SOURCE_NAME) is True
+        assert LyngdorfModel.TDAI_3400.supports_message(Msg.SOURCE_NAME) is True
+
+    def test_tdai_2170_and_others_have_no_source_name(self):
+        """TDAI-2170 has no bulk/no-arg SRCNAME query, only per-index
+        SRCNAME(n)? - out of scope for this fix. MP and P never needed one
+        since their SRC reply already carries a name."""
+        assert LyngdorfModel.TDAI_2170.supports_message(Msg.SOURCE_NAME) is False
+        assert LyngdorfModel.MP_60.supports_message(Msg.SOURCE_NAME) is False
+        assert LyngdorfModel.P_100.supports_message(Msg.SOURCE_NAME) is False
+
+    @pytest.mark.asyncio
+    async def test_tdai_source_list_populates_names(self):
+        """The SRCLIST? burst (SRCCOUNT then repeated SRCNAME(a,"Name"))
+        must populate available_sources with real names, not stay empty."""
+
+        def test_function(client: Receiver):
+            assert client.available_sources == ["HDMI", "Optical"]
+
+        await self._receive(
+            ["!SRCCOUNT(2)", '!SRCNAME(0,"HDMI")', '!SRCNAME(1,"Optical")'],
+            test_function,
+        )
+
+    @pytest.mark.asyncio
+    async def test_tdai_current_source_resolves_after_list_is_full(self):
+        """Once the source list is full, a further SRCNAME reply must be
+        treated as "current source changed", not another list entry -
+        this used to stay None forever because !SRC? carries no name at
+        all to fall back on."""
+
+        def test_function(client: Receiver):
+            assert client.source == "Optical"
+
+        await self._receive(
+            [
+                "!SRCCOUNT(2)",
+                '!SRCNAME(0,"HDMI")',
+                '!SRCNAME(1,"Optical")',
+                '!SRCNAME(1,"Optical")',
+            ],
+            test_function,
+        )
+
+    async def _receive(self, commands_received, test_function):
+        """Feed raw TDAI-shaped messages to a TDAI-1120 receiver."""
+        transport = mock.Mock()
+        protocol = LyngdorfProtocol(None, None)
+
+        def create_conn(proto_lambda, host, port):
+            proto = proto_lambda()
+            protocol._on_connection_lost = proto._on_connection_lost
+            protocol._on_message = proto._on_message
+            return [transport, proto]
+
+        client = await async_create_receiver(FAKE_IP, LyngdorfModel.TDAI_1120)
+
+        with mock.patch("asyncio.get_event_loop", new_callable=mock.Mock) as debug_mock:
+            debug_mock.return_value.create_connection = AsyncMock(
+                side_effect=create_conn
+            )
+            await client.async_connect()
+            self.future = asyncio.Future()
+            client._api.register_callback("BAL", self._callback)
+            protocol.data_received(
+                bytes("\r".join([*commands_received, "!BAL(0)"]) + "\r", "utf-8")
+            )
+            await self.future
+            test_function(client)
+            await client.async_disconnect()
+
+
+# =============================================================================
 # Message Framing
 #
 # Messages end with CR, but the TDAI family sends CR LF. Splitting on CR
