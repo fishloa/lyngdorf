@@ -2601,6 +2601,132 @@ class TestTdaiSourceName:
 
 
 # =============================================================================
+# TDAI-2170 Fixed Lists
+#
+# TDAI-2170 has no count+enumeration burst for sources, RoomPerfect
+# positions, or voicings at all (no SRCLIST/RPLIST/VOILIST). Instead each
+# is a fixed, hardware-defined set of entries (baked into the library as
+# TDAI2170_SOURCES/TDAI2170_ROOM_PERFECT_POSITIONS/TDAI2170_VOICINGS) with
+# a bitmask reply (SRCENABLED/RPSTATUS/VOIENABLED) saying which entries
+# are currently enabled/present. !SRC(n)/!RP(n)/!VOI(n) reply with a bare
+# index and no name, so the current value must be resolved against the
+# table the bitmask already populated. See docs/tdai-2170.md.
+# =============================================================================
+
+
+class TestTdai2170FixedLists:
+    """TDAI-2170's bitmask-gated fixed lists must populate and resolve."""
+
+    future = None
+
+    def _callback(self, param1, param2):
+        if self.future is not None and not self.future.done():
+            self.future.set_result(True)
+
+    def test_tdai_2170_supports_the_bitmask_messages(self):
+        """TDAI-2170 has the three bitmask messages mapped."""
+        assert LyngdorfModel.TDAI_2170.supports_message(Msg.SOURCES_ENABLED) is True
+        assert (
+            LyngdorfModel.TDAI_2170.supports_message(Msg.ROOM_PERFECT_POSITIONS_PRESENT)
+            is True
+        )
+        assert (
+            LyngdorfModel.TDAI_2170.supports_message(Msg.ROOM_PERFECT_VOICINGS_ENABLED)
+            is True
+        )
+
+    def test_other_models_have_no_bitmask_messages(self):
+        """Every other model uses the default dynamic-list mechanism."""
+        for model in (
+            LyngdorfModel.MP_60,
+            LyngdorfModel.TDAI_1120,
+            LyngdorfModel.P_100,
+        ):
+            assert model.supports_message(Msg.SOURCES_ENABLED) is False
+            assert model.supports_message(Msg.ROOM_PERFECT_POSITIONS_PRESENT) is False
+            assert model.supports_message(Msg.ROOM_PERFECT_VOICINGS_ENABLED) is False
+
+    def test_populate_fixed_list_reads_bit0_as_rightmost_character(self):
+        """Bit 0 (source/position/voicing 0) is the rightmost character,
+        per the vendor manual's own bitmask example."""
+        from lyngdorf.base import CountingNumberDict
+
+        target = CountingNumberDict()
+        Receiver._populate_fixed_list(target, {0: "Bypass", 2: "Focus 2"}, "00000101")
+        assert target == {0: "Bypass", 2: "Focus 2"}
+
+    def test_populate_fixed_list_ignores_enabled_bits_outside_the_table(self):
+        """A bit set for an index the fixed table doesn't know about must
+        be skipped, not raise."""
+        from lyngdorf.base import CountingNumberDict
+
+        target = CountingNumberDict()
+        Receiver._populate_fixed_list(target, {0: "Bypass"}, "011")
+        assert target == {0: "Bypass"}
+
+    @pytest.mark.asyncio
+    async def test_sources_enabled_populates_and_resolves_current_source(self):
+        def test_function(client: Receiver):
+            assert client.available_sources == ["Coax Digital 1", "USB Input"]
+            assert client.source == "USB Input"
+
+        await self._receive(["!SRCENABLED(0000000001000001)", "!SRC(6)"], test_function)
+
+    @pytest.mark.asyncio
+    async def test_room_perfect_positions_present_populates_and_resolves(self):
+        def test_function(client: Receiver):
+            assert client.available_room_perfect_positions == ["Bypass", "Focus 2"]
+            assert client.room_perfect_position == "Focus 2"
+
+        await self._receive(["!RPSTATUS(00000101)", "!RP(2)"], test_function)
+
+    @pytest.mark.asyncio
+    async def test_voicings_enabled_populates_and_resolves_current_voicing(self):
+        def test_function(client: Receiver):
+            assert client.available_voicings == ["Neutral", "Music 2"]
+            assert client.voicing == "Music 2"
+
+        await self._receive(["!VOIENABLED(0000000000000101)", "!VOI(2)"], test_function)
+
+    @pytest.mark.asyncio
+    async def test_current_value_outside_enabled_set_resolves_to_none(self):
+        """If a current-value reply names an index the bitmask didn't
+        enable, resolving to None beats crashing on a missing key."""
+
+        def test_function(client: Receiver):
+            assert client.room_perfect_position is None
+
+        await self._receive(["!RPSTATUS(00000101)", "!RP(1)"], test_function)
+
+    async def _receive(self, commands_received, test_function):
+        """Feed raw TDAI-2170-shaped messages to a TDAI-2170 receiver."""
+        transport = mock.Mock()
+        protocol = LyngdorfProtocol(None, None)
+
+        def create_conn(proto_lambda, host, port):
+            proto = proto_lambda()
+            protocol._on_connection_lost = proto._on_connection_lost
+            protocol._on_message = proto._on_message
+            return [transport, proto]
+
+        client = await async_create_receiver(FAKE_IP, LyngdorfModel.TDAI_2170)
+
+        with mock.patch("asyncio.get_event_loop", new_callable=mock.Mock) as debug_mock:
+            debug_mock.return_value.create_connection = AsyncMock(
+                side_effect=create_conn
+            )
+            await client.async_connect()
+            self.future = asyncio.Future()
+            client._api.register_callback("DONE", self._callback)
+            protocol.data_received(
+                bytes("\r".join([*commands_received, "!DONE(0)"]) + "\r", "utf-8")
+            )
+            await self.future
+            test_function(client)
+            await client.async_disconnect()
+
+
+# =============================================================================
 # Message Framing
 #
 # Messages end with CR, but the TDAI family sends CR LF. Splitting on CR

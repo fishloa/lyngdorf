@@ -56,7 +56,19 @@ class ModelConfig:
         audio_inputs: Audio input mapping (index -> name)
         stream_types: Stream type mapping (index -> name)
         video_outputs: Optional video output mapping
-        room_perfect_positions: Optional Room Perfect position mapping
+        room_perfect_positions: Fixed Room Perfect position mapping (index
+            -> name), used for models whose set of positions is hardware-
+            fixed rather than dynamically enumerated over the wire - see
+            `fixed_sources`.
+        fixed_sources: Fixed source mapping (index -> name), used for
+            models whose sources are fixed hardware inputs rather than a
+            dynamic, user-configurable list. TDAI-2170 is the only current
+            example: it has no count+enumeration burst for sources (no
+            SRCLIST), only a bitmask (SRCENABLED) of which of these fixed
+            entries are enabled. None for every model with a dynamic list.
+        fixed_voicings: Fixed voicing mapping (index -> name), same
+            rationale as `fixed_sources` but for voicings (gated by
+            VOIENABLED on TDAI-2170 rather than a VOILIST/RPVOIS burst).
         has_zone_b: Whether this model supports Zone B (Zone 2) functionality
         has_video: Whether this model supports video inputs/outputs
         has_surround: Whether this model has discrete per-channel
@@ -84,6 +96,8 @@ class ModelConfig:
     stream_types: dict[int, str]
     video_outputs: dict[int, str] | None = None
     room_perfect_positions: dict[int, str] | None = None
+    fixed_sources: dict[int, str] | None = None
+    fixed_voicings: dict[int, str] | None = None
     has_zone_b: bool = False
     has_video: bool = False
     has_surround: bool = False
