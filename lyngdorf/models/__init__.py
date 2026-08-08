@@ -22,6 +22,7 @@ Usage:
 
 from enum import Enum
 
+from ..const import Msg
 from .base import ModelCapability, ModelConfig
 from .mp_series import MP40_CONFIG, MP50_CONFIG, MP60_CONFIG
 from .p_series import P100_CONFIG, P200_CONFIG, P300_CONFIG
@@ -143,6 +144,16 @@ class LyngdorfModel(Enum):
         """
         return self.value.mute_state_in_parameter
 
+    @property
+    def keepalive_message(self) -> Msg | None:
+        """Message type this model uses for connection keep-alive/probing.
+
+        Returns:
+            The Msg to query to keep the connection alive, or None if this
+            model has no keep-alive query
+        """
+        return self.value.keepalive_message
+
     def supports_message(self, key) -> bool:
         """Check whether this model's protocol defines a given message.
 
@@ -165,8 +176,6 @@ class LyngdorfModel(Enum):
         Returns:
             dict[Msg, bool] covering every Msg enum member
         """
-        from ..const import Msg
-
         return {msg: msg in self.value.messages for msg in Msg}
 
 

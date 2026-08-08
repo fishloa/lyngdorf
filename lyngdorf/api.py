@@ -206,17 +206,13 @@ class LyngdorfApi:
             return
 
         if time_since_response > MONITOR_INTERVAL and self._protocol:
-            # Keep the connection alive
-            try:
-                ping_command = self._model.lookup_command(Msg.PING)
-            except KeyError:
-                _LOGGER.debug(
-                    "%s: model %s has no PING command; skipping keep-alive",
-                    self.host,
-                    self._model,
-                )
-            else:
-                self._writeCommand(f"{ping_command}?")
+            # Keep the connection alive. Which message to query is a
+            # per-model choice (ModelConfig.keepalive_message) - the API
+            # itself is generic and doesn't assume any particular command
+            # is universally supported.
+            if keepalive_message := self._model.keepalive_message:
+                keepalive_command = self._model.lookup_command(keepalive_message)
+                self._writeCommand(f"{keepalive_command}?")
         self._schedule_monitor()
 
     def _handle_disconnected(self) -> None:

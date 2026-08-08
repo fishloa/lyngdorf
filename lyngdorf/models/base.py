@@ -85,6 +85,14 @@ class ModelConfig:
             on the MUTE message (`!MUTE(ON)` / `!MUTE(OFF)`, the TDAI
             family) rather than as distinct `!MUTEON` / `!MUTEOFF`
             messages (the MP and P families).
+        keepalive_message: Message type queried to keep an idle connection
+            alive and to detect a dead one (`LyngdorfApi._monitor`). Must be
+            a message every model in `messages` actually defines - DEVICE
+            is the one truly universal query across every model, including
+            TDAI-2170's more limited protocol subset, which doesn't even
+            have VERBOSE. None disables the keep-alive query entirely (the
+            connection is still torn down and reconnected on prolonged
+            silence, just without an active probe first).
     """
 
     model_name: str
@@ -103,6 +111,7 @@ class ModelConfig:
     has_surround: bool = False
     power_state_on: str = POWER_ON
     mute_state_in_parameter: bool = False
+    keepalive_message: Msg | None = Msg.DEVICE
 
     def lookup_command(self, key: Msg) -> str:
         """Lookup protocol command for a given message type.
