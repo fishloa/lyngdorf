@@ -2394,9 +2394,9 @@ class TestKeepaliveIsGenericAndUniversal:
         for model in supported_models():
             keepalive = model.keepalive_message
             assert keepalive is not None, f"{model} has no keepalive_message"
-            assert model.supports_message(keepalive), (
-                f"{model} keepalive_message {keepalive} is not in its own messages"
-            )
+            assert model.supports_message(
+                keepalive
+            ), f"{model} keepalive_message {keepalive} is not in its own messages"
 
     @pytest.mark.asyncio
     async def test_monitor_sends_keepalive_for_tdai_model(self):
