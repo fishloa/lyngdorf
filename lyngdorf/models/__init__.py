@@ -21,6 +21,7 @@ Usage:
 """
 
 from enum import Enum
+from typing import cast
 
 from ..const import Msg
 from .base import ModelCapability, ModelConfig
@@ -58,33 +59,44 @@ class LyngdorfModel(Enum):
     P_300 = P300_CONFIG
 
     @property
+    def _config(self) -> ModelConfig:
+        """Typed accessor for `self.value`.
+
+        Enum members here hold `ModelConfig` (and subclass) instances,
+        but `Enum.value` itself is typed `Any` - this cast is what lets
+        every delegate method below type-check cleanly instead of
+        silently returning `Any`.
+        """
+        return cast(ModelConfig, self.value)
+
+    @property
     def config(self) -> ModelConfig:
         """Get the model configuration.
 
         Returns:
             ModelConfig instance for this model
         """
-        return self.value
+        return self._config
 
     @property
     def commands(self) -> dict:
         """Get the protocol command mapping for this model."""
-        return self.value.messages
+        return self._config.messages
 
     @property
     def model_name(self) -> str:
         """Get model name."""
-        return self.value.model_name
+        return self._config.model_name
 
     @property
     def manufacturer(self) -> str:
         """Get manufacturer name."""
-        return self.value.manufacturer
+        return self._config.manufacturer
 
     @property
     def setup_commands(self) -> list[str]:
         """Get setup command sequence."""
-        return self.value.setup_commands
+        return self._config.setup_commands
 
     def lookup_command(self, key) -> str:
         """Lookup protocol command for a given message type.
@@ -98,7 +110,7 @@ class LyngdorfModel(Enum):
         Raises:
             KeyError: If message type not supported by this model
         """
-        return self.value.messages[key]
+        return self._config.messages[key]
 
     def has_zone_b_feature(self) -> bool:
         """Check if this model supports Zone B (Zone 2) functionality.
@@ -106,7 +118,7 @@ class LyngdorfModel(Enum):
         Returns:
             True if the model has Zone B support, False otherwise
         """
-        return self.value.has_zone_b
+        return self._config.has_zone_b
 
     def has_video_feature(self) -> bool:
         """Check if this model supports video inputs and outputs.
@@ -114,7 +126,7 @@ class LyngdorfModel(Enum):
         Returns:
             True if the model has video capability, False otherwise
         """
-        return self.value.has_video
+        return self._config.has_video
 
     def has_surround_feature(self) -> bool:
         """Check if this model has discrete per-channel multichannel trims
@@ -123,7 +135,7 @@ class LyngdorfModel(Enum):
         Returns:
             True if the model has channel trim capability, False otherwise
         """
-        return self.value.has_surround
+        return self._config.has_surround
 
     def power_state_on_value(self) -> str:
         """Return the power-state parameter value that means "powered on".
@@ -132,7 +144,7 @@ class LyngdorfModel(Enum):
             "1" for the MP and P families (`!POWER(1)`), "ON" for the TDAI
             family (`!PWR(ON)`)
         """
-        return self.value.power_state_on
+        return self._config.power_state_on
 
     def has_mute_state_in_parameter(self) -> bool:
         """Check whether mute state arrives as a parameter on MUTE.
@@ -142,7 +154,78 @@ class LyngdorfModel(Enum):
             (TDAI family), False if it uses distinct `!MUTEON` /
             `!MUTEOFF` messages (MP and P families)
         """
-        return self.value.mute_state_in_parameter
+        return self._config.mute_state_in_parameter
+
+    def has_bass_trim_step_feature(self) -> bool:
+        """Check whether this model can step bass trim up/down.
+
+        Returns:
+            True if the model supports incremental bass trim adjustment,
+            False if it only supports setting an absolute value (the TDAI
+            family)
+        """
+        return self._config.has_bass_trim_step()
+
+    def has_treble_trim_step_feature(self) -> bool:
+        """Check whether this model can step treble trim up/down.
+
+        Returns:
+            True if the model supports incremental treble trim
+            adjustment, False if it only supports setting an absolute
+            value (the TDAI family)
+        """
+        return self._config.has_treble_trim_step()
+
+    def volume_up_command(self) -> str:
+        return self._config.volume_up_command()
+
+    def volume_down_command(self) -> str:
+        return self._config.volume_down_command()
+
+    def zone_b_volume_up_command(self) -> str:
+        return self._config.zone_b_volume_up_command()
+
+    def zone_b_volume_down_command(self) -> str:
+        return self._config.zone_b_volume_down_command()
+
+    def trim_bass_up_command(self) -> str | None:
+        return self._config.trim_bass_up_command()
+
+    def trim_bass_down_command(self) -> str | None:
+        return self._config.trim_bass_down_command()
+
+    def trim_centre_up_command(self) -> str:
+        return self._config.trim_centre_up_command()
+
+    def trim_centre_down_command(self) -> str:
+        return self._config.trim_centre_down_command()
+
+    def trim_height_up_command(self) -> str:
+        return self._config.trim_height_up_command()
+
+    def trim_height_down_command(self) -> str:
+        return self._config.trim_height_down_command()
+
+    def trim_lfe_up_command(self) -> str:
+        return self._config.trim_lfe_up_command()
+
+    def trim_lfe_down_command(self) -> str:
+        return self._config.trim_lfe_down_command()
+
+    def trim_surround_up_command(self) -> str:
+        return self._config.trim_surround_up_command()
+
+    def trim_surround_down_command(self) -> str:
+        return self._config.trim_surround_down_command()
+
+    def trim_treble_set_command(self) -> str:
+        return self._config.trim_treble_set_command()
+
+    def trim_treble_up_command(self) -> str | None:
+        return self._config.trim_treble_up_command()
+
+    def trim_treble_down_command(self) -> str | None:
+        return self._config.trim_treble_down_command()
 
     @property
     def keepalive_message(self) -> Msg | None:
@@ -152,7 +235,7 @@ class LyngdorfModel(Enum):
             The Msg to query to keep the connection alive, or None if this
             model has no keep-alive query
         """
-        return self.value.keepalive_message
+        return self._config.keepalive_message
 
     def supports_message(self, key) -> bool:
         """Check whether this model's protocol defines a given message.
@@ -163,7 +246,7 @@ class LyngdorfModel(Enum):
         Returns:
             True if this model's command dictionary has an entry for key
         """
-        return key in self.value.messages
+        return key in self._config.messages
 
     @property
     def capabilities(self) -> dict:
@@ -176,7 +259,7 @@ class LyngdorfModel(Enum):
         Returns:
             dict[Msg, bool] covering every Msg enum member
         """
-        return {msg: msg in self.value.messages for msg in Msg}
+        return {msg: msg in self._config.messages for msg in Msg}
 
 
 def supported_models() -> list[LyngdorfModel]:

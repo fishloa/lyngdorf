@@ -295,16 +295,16 @@ class LyngdorfApi:
             self._writeCommand(f"{self._model.lookup_command(Msg.ZONE_B_MUTE_OFF)}")
 
     def volume_up(self):
-        self._writeCommand(f"{self._model.lookup_command(Msg.VOLUME)}+")
+        self._writeCommand(self._model.volume_up_command())
 
     def volume_down(self):
-        self._writeCommand(f"{self._model.lookup_command(Msg.VOLUME)}-")
+        self._writeCommand(self._model.volume_down_command())
 
     def zone_b_volume_up(self):
-        self._writeCommand(f"{self._model.lookup_command(Msg.ZONE_B_VOLUME)}+")
+        self._writeCommand(self._model.zone_b_volume_up_command())
 
     def zone_b_volume_down(self):
-        self._writeCommand(f"{self._model.lookup_command(Msg.ZONE_B_VOLUME)}-")
+        self._writeCommand(self._model.zone_b_volume_down_command())
 
     def volume(self, volume: float):
         self._writeCommand(
@@ -371,45 +371,63 @@ class LyngdorfApi:
         )
 
     def change_trim_treble(self, trim: float):
-        self._writeCommand(
-            f"{self._model.lookup_command(Msg.TRIM_TREBLE_SET)}({trim*10.0:.0f})"
-        )
+        self._writeCommand(f"{self._model.trim_treble_set_command()}({trim*10.0:.0f})")
 
     def trim_bass_up(self):
-        self._writeCommand(f"{self._model.lookup_command(Msg.TRIM_BASS)}+")
+        if command := self._model.trim_bass_up_command():
+            self._writeCommand(command)
+        else:
+            _LOGGER.warning(
+                "%s: model %s cannot step bass trim; ignoring", self.host, self._model
+            )
 
     def trim_bass_down(self):
-        self._writeCommand(f"{self._model.lookup_command(Msg.TRIM_BASS)}-")
+        if command := self._model.trim_bass_down_command():
+            self._writeCommand(command)
+        else:
+            _LOGGER.warning(
+                "%s: model %s cannot step bass trim; ignoring", self.host, self._model
+            )
 
     def trim_centre_up(self):
-        self._writeCommand(f"{self._model.lookup_command(Msg.TRIM_CENTRE)}+")
+        self._writeCommand(self._model.trim_centre_up_command())
 
     def trim_centre_down(self):
-        self._writeCommand(f"{self._model.lookup_command(Msg.TRIM_CENTRE)}-")
+        self._writeCommand(self._model.trim_centre_down_command())
 
     def trim_height_up(self):
-        self._writeCommand(f"{self._model.lookup_command(Msg.TRIM_HEIGHT)}+")
+        self._writeCommand(self._model.trim_height_up_command())
 
     def trim_height_down(self):
-        self._writeCommand(f"{self._model.lookup_command(Msg.TRIM_HEIGHT)}-")
+        self._writeCommand(self._model.trim_height_down_command())
 
     def trim_lfe_up(self):
-        self._writeCommand(f"{self._model.lookup_command(Msg.TRIM_LFE)}+")
+        self._writeCommand(self._model.trim_lfe_up_command())
 
     def trim_lfe_down(self):
-        self._writeCommand(f"{self._model.lookup_command(Msg.TRIM_LFE)}-")
+        self._writeCommand(self._model.trim_lfe_down_command())
 
     def trim_surround_up(self):
-        self._writeCommand(f"{self._model.lookup_command(Msg.TRIM_SURROUND)}+")
+        self._writeCommand(self._model.trim_surround_up_command())
 
     def trim_surround_down(self):
-        self._writeCommand(f"{self._model.lookup_command(Msg.TRIM_SURROUND)}-")
+        self._writeCommand(self._model.trim_surround_down_command())
 
     def trim_treble_up(self):
-        self._writeCommand(f"{self._model.lookup_command(Msg.TRIM_TREBLE_SET)}+")
+        if command := self._model.trim_treble_up_command():
+            self._writeCommand(command)
+        else:
+            _LOGGER.warning(
+                "%s: model %s cannot step treble trim; ignoring", self.host, self._model
+            )
 
     def trim_treble_down(self):
-        self._writeCommand(f"{self._model.lookup_command(Msg.TRIM_TREBLE_SET)}-")
+        if command := self._model.trim_treble_down_command():
+            self._writeCommand(command)
+        else:
+            _LOGGER.warning(
+                "%s: model %s cannot step treble trim; ignoring", self.host, self._model
+            )
 
     def _process_event(self, message: str) -> None:
         """Process a realtime event."""

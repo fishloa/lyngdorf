@@ -14,6 +14,7 @@ All communication via TCP/IP on port 84 (no serial port support).
 import asyncio
 import logging
 from collections.abc import Callable
+from typing import TYPE_CHECKING
 
 from .api import LyngdorfApi
 from .base import CountingNumberDict
@@ -108,12 +109,12 @@ class Receiver:
         """Register a callback for a message, skipping cleanly if the
         connected model's protocol doesn't define that message.
 
-        Model capability flags (has_zone_b_feature, has_video_feature,
-        has_surround_feature) are the primary gate for the messages we know
-        are model-specific. This catch is a safety net for any message a
-        model doesn't support that isn't covered by those flags - so an
-        unexpected protocol gap degrades a single feature instead of
-        breaking connection setup entirely.
+        Model-specific registration (which messages apply to a given
+        family, and under what shape) is handled by the per-family
+        `_register_*_callbacks` hooks overridden in each Receiver
+        subclass. This catch is a safety net for anything not covered by
+        those hooks - so an unexpected protocol gap degrades a single
+        feature instead of breaking connection setup entirely.
         """
         try:
             command = self.lookup_command(msg)
@@ -142,107 +143,61 @@ class Receiver:
             if index in fixed_names:
                 target.add(index, fixed_names[index])
 
-    async def async_connect(self):
-        # Basics
-        self._register_callback(Msg.DEVICE, self._name_callback)
+    # Per-model-family registration hooks. Each one has a default (MP/P
+    # family) implementation here; subclasses override the ones where
+    # their protocol genuinely differs, instead of branching on model
+    # flags/messages at connect time. See MPReceiver/PReceiver (video +
+    # Zone B), MPReceiver (discrete channel trims) and TDAIReceiverBase /
+    # TDAI2170Receiver (mute, source, RoomPerfect position/voicing shape).
 
-        # Volumes and Mutes
-        self._register_callback(Msg.VOLUME, self._volume_callback)
-        if self._model.has_mute_state_in_parameter():
-            # TDAI family: state arrives as `!MUTE(ON)` / `!MUTE(OFF)`
-            self._register_callback(Msg.MUTE, self._mute_callback)
-        else:
-            # MP and P families: distinct `!MUTEON` / `!MUTEOFF` messages
-            self._register_callback(Msg.MUTE_ON, self._mute_on_callback)
-            self._register_callback(Msg.MUTE_OFF, self._mute_off_callback)
+    def _register_mute_callbacks(self) -> None:
+        """MP/P shape: distinct `!MUTEON` / `!MUTEOFF` messages."""
+        self._register_callback(Msg.MUTE_ON, self._mute_on_callback)
+        self._register_callback(Msg.MUTE_OFF, self._mute_off_callback)
 
-        # Sources
+    def _register_source_callbacks(self) -> None:
         self._register_callback(Msg.SOURCES_COUNT, self._sources.count_callback)
-        # Some models can't populate source names the default way:
-        # TDAI-1120/3400 carry the name under a differently-shaped SRCNAME
-        # message instead of the source-query reply; TDAI-2170 has a fixed
-        # hardware source list gated by a SRCENABLED bitmask rather than
-        # any enumeration burst at all.
-        if self._model.supports_message(Msg.SOURCE_NAME):
-            self._register_callback(Msg.SOURCE_NAME, self._source_name_callback)
-        elif self._model.supports_message(Msg.SOURCES_ENABLED):
-            self._register_callback(Msg.SOURCES_ENABLED, self._sources_enabled_callback)
-            self._register_callback(Msg.SOURCE, self._fixed_source_callback)
-        else:
-            self._register_callback(Msg.SOURCE, self._source_callback)
+        self._register_callback(Msg.SOURCE, self._source_callback)
         self._register_callback(Msg.STREAM_TYPE, self._stream_type_callback)
 
-        # Power
-        self._register_callback(Msg.POWER, self._power_callback)
-
-        # Video routing - only models with video inputs/outputs
-        if self._model.has_video_feature():
-            self._register_callback(Msg.AUDIO_IN, self._audio_input_callback)
-            self._register_callback(Msg.VIDEO_IN, self._video_input_callback)
-            self._register_callback(Msg.VIDEO_TYPE, self._video_info_callback)
-
-        # Zone B (Zone 2) - only models with Zone B support these messages
-        if self._model.has_zone_b_feature():
-            self._register_callback(Msg.ZONE_B_VOLUME, self._zone_b_volume_callback)
-            self._register_callback(Msg.ZONE_B_MUTE_ON, self._zone_b_mute_on_callback)
-            self._register_callback(Msg.ZONE_B_MUTE_OFF, self._zone_b_mute_off_callback)
-            self._register_callback(
-                Msg.ZONE_B_SOURCES_COUNT, self._zone_b_sources.count_callback
-            )
-            self._register_callback(Msg.ZONE_B_SOURCE, self._zone_b_source_callback)
-            self._register_callback(
-                Msg.ZONE_B_AUDIO_IN, self._zone_b_audio_input_callback
-            )
-            self._register_callback(
-                Msg.ZONE_B_STREAM_TYPE, self._zone_b_stream_type_callback
-            )
-            self._register_callback(Msg.ZONE_B_POWER, self._zone_b_power_callback)
-
-        # Audio Tuning
+    def _register_room_perfect_position_callbacks(self) -> None:
         self._register_callback(
             Msg.ROOM_PERFECT_POSITIONS_COUNT,
             self._room_perfect_positions.count_callback,
         )
-        # TDAI-2170 has a fixed set of RoomPerfect positions gated by an
-        # RPSTATUS bitmask rather than an RPLIST/RPFOCS enumeration burst.
-        if self._model.supports_message(Msg.ROOM_PERFECT_POSITIONS_PRESENT):
-            self._register_callback(
-                Msg.ROOM_PERFECT_POSITIONS_PRESENT,
-                self._room_perfect_positions_present_callback,
-            )
-            self._register_callback(
-                Msg.ROOM_PERFECT_POSITION,
-                self._fixed_room_perfect_position_callback,
-            )
-        elif self._model.supports_message(Msg.ROOM_PERFECT_POSITION_NAME):
-            # TDAI-1120/3400 carry the name under RPNAME, comma-packed
-            self._register_callback(
-                Msg.ROOM_PERFECT_POSITION_NAME,
-                self._room_perfect_position_name_callback,
-            )
-        else:
-            self._register_callback(
-                Msg.ROOM_PERFECT_POSITION, self._room_perfect_position_callback
-            )
+        self._register_callback(
+            Msg.ROOM_PERFECT_POSITION, self._room_perfect_position_callback
+        )
+
+    def _register_voicing_callbacks(self) -> None:
         self._register_callback(
             Msg.ROOM_PERFECT_VOICINGS_COUNT, self._voicings.count_callback
         )
-        # Same story for voicings: TDAI-2170 gates a fixed list with
-        # VOIENABLED rather than a VOILIST/RPVOIS burst.
-        if self._model.supports_message(Msg.ROOM_PERFECT_VOICINGS_ENABLED):
-            self._register_callback(
-                Msg.ROOM_PERFECT_VOICINGS_ENABLED, self._voicings_enabled_callback
-            )
-            self._register_callback(
-                Msg.ROOM_PERFECT_VOICING, self._fixed_voicing_callback
-            )
-        elif self._model.supports_message(Msg.ROOM_PERFECT_VOICING_NAME):
-            # TDAI-1120/3400 carry the name under VOINAME, comma-packed
-            self._register_callback(
-                Msg.ROOM_PERFECT_VOICING_NAME, self._voicing_name_callback
-            )
-        else:
-            self._register_callback(Msg.ROOM_PERFECT_VOICING, self._voicing_callback)
+        self._register_callback(Msg.ROOM_PERFECT_VOICING, self._voicing_callback)
+
+    def _register_video_callbacks(self) -> None:
+        """No-op by default - only models with video inputs/outputs
+        override this (MPReceiver, PReceiver)."""
+
+    def _register_zone_b_callbacks(self) -> None:
+        """No-op by default - only models with Zone B override this
+        (MPReceiver, PReceiver)."""
+
+    def _register_surround_trim_callbacks(self) -> None:
+        """No-op by default - only models with discrete multichannel
+        speaker trims override this (MPReceiver)."""
+
+    async def async_connect(self):
+        # Basics
+        self._register_callback(Msg.DEVICE, self._name_callback)
+        self._register_callback(Msg.VOLUME, self._volume_callback)
+        self._register_callback(Msg.POWER, self._power_callback)
+        self._register_mute_callbacks()
+        self._register_source_callbacks()
+        self._register_video_callbacks()
+        self._register_zone_b_callbacks()
+        self._register_room_perfect_position_callbacks()
+        self._register_voicing_callbacks()
 
         # Trim and audio modes - not every model has these (the defensive
         # catch in _register_callback logs and skips whichever don't apply)
@@ -252,13 +207,7 @@ class Receiver:
         self._register_callback(Msg.AUDIO_MODES_COUNT, self._sound_modes.count_callback)
         self._register_callback(Msg.AUDIO_MODE, self._sound_mode_callback)
         self._register_callback(Msg.LIP_SYNC, self._lipsync_callback)
-
-        # Discrete channel trims - only models with multichannel speaker trims
-        if self._model.has_surround_feature():
-            self._register_callback(Msg.TRIM_CENTRE, self._trim_centre_callback)
-            self._register_callback(Msg.TRIM_HEIGHT, self._trim_height_callback)
-            self._register_callback(Msg.TRIM_LFE, self._trim_lfe_callback)
-            self._register_callback(Msg.TRIM_SURROUND, self._trim_surround_callback)
+        self._register_surround_trim_callbacks()
 
         await self._api.async_connect()
 
@@ -825,7 +774,93 @@ class Receiver:
         self._api.trim_treble_down()
 
 
-class MP40Receiver(Receiver):
+if TYPE_CHECKING:
+    _ReceiverMixinBase = Receiver
+else:
+    _ReceiverMixinBase = object
+
+
+class _VideoZoneBReceiverMixin(_ReceiverMixinBase):
+    """Shared video-routing and Zone B registration for the MP and P
+    families - the only two with either feature. Relies on
+    `_register_callback` from `Receiver`, always mixed in alongside it -
+    the TYPE_CHECKING base above is only so mypy knows that, since at
+    runtime this mixes in ahead of the real `Receiver` base instead."""
+
+    def _register_video_callbacks(self) -> None:
+        self._register_callback(Msg.AUDIO_IN, self._audio_input_callback)
+        self._register_callback(Msg.VIDEO_IN, self._video_input_callback)
+        self._register_callback(Msg.VIDEO_TYPE, self._video_info_callback)
+
+    def _register_zone_b_callbacks(self) -> None:
+        self._register_callback(Msg.ZONE_B_VOLUME, self._zone_b_volume_callback)
+        self._register_callback(Msg.ZONE_B_MUTE_ON, self._zone_b_mute_on_callback)
+        self._register_callback(Msg.ZONE_B_MUTE_OFF, self._zone_b_mute_off_callback)
+        self._register_callback(
+            Msg.ZONE_B_SOURCES_COUNT, self._zone_b_sources.count_callback
+        )
+        self._register_callback(Msg.ZONE_B_SOURCE, self._zone_b_source_callback)
+        self._register_callback(Msg.ZONE_B_AUDIO_IN, self._zone_b_audio_input_callback)
+        self._register_callback(
+            Msg.ZONE_B_STREAM_TYPE, self._zone_b_stream_type_callback
+        )
+        self._register_callback(Msg.ZONE_B_POWER, self._zone_b_power_callback)
+
+
+class MPReceiver(_VideoZoneBReceiverMixin, Receiver):
+    """Shared MP-family behaviour: video routing, Zone B, and discrete
+    multichannel speaker trims, all on top of the default (MP/P-shaped)
+    mute/source/RoomPerfect registration."""
+
+    def _register_surround_trim_callbacks(self) -> None:
+        self._register_callback(Msg.TRIM_CENTRE, self._trim_centre_callback)
+        self._register_callback(Msg.TRIM_HEIGHT, self._trim_height_callback)
+        self._register_callback(Msg.TRIM_LFE, self._trim_lfe_callback)
+        self._register_callback(Msg.TRIM_SURROUND, self._trim_surround_callback)
+
+
+class PReceiver(_VideoZoneBReceiverMixin, Receiver):
+    """Shared P-family behaviour: video routing and Zone B, but no
+    discrete channel trims (the base no-op default applies)."""
+
+
+class TDAIReceiverBase(Receiver):
+    """Shared TDAI-1120/3400 behaviour (also the base for TDAI-2170,
+    which overrides source/RoomPerfect registration again below): mute
+    arrives as a `!MUTE(ON)`/`!MUTE(OFF)` parameter rather than distinct
+    MUTEON/MUTEOFF messages, and source/RoomPerfect-position/voicing
+    names arrive under SRCNAME/RPNAME/VOINAME (comma-packed) rather than
+    alongside the bare index/count burst. No video, Zone B, or discrete
+    channel trims (the base no-op defaults apply)."""
+
+    def _register_mute_callbacks(self) -> None:
+        self._register_callback(Msg.MUTE, self._mute_callback)
+
+    def _register_source_callbacks(self) -> None:
+        self._register_callback(Msg.SOURCES_COUNT, self._sources.count_callback)
+        self._register_callback(Msg.SOURCE_NAME, self._source_name_callback)
+        self._register_callback(Msg.STREAM_TYPE, self._stream_type_callback)
+
+    def _register_room_perfect_position_callbacks(self) -> None:
+        self._register_callback(
+            Msg.ROOM_PERFECT_POSITIONS_COUNT,
+            self._room_perfect_positions.count_callback,
+        )
+        self._register_callback(
+            Msg.ROOM_PERFECT_POSITION_NAME,
+            self._room_perfect_position_name_callback,
+        )
+
+    def _register_voicing_callbacks(self) -> None:
+        self._register_callback(
+            Msg.ROOM_PERFECT_VOICINGS_COUNT, self._voicings.count_callback
+        )
+        self._register_callback(
+            Msg.ROOM_PERFECT_VOICING_NAME, self._voicing_name_callback
+        )
+
+
+class MP40Receiver(MPReceiver):
     """Lyngdorf MP-40 receiver client."""
 
     def __init__(self, host: str):
@@ -836,7 +871,7 @@ class MP40Receiver(Receiver):
         super().__init__(host, LyngdorfModel.MP_40)
 
 
-class MP50Receiver(Receiver):
+class MP50Receiver(MPReceiver):
     """Lyngdorf MP-50 receiver client."""
 
     def __init__(self, host: str):
@@ -848,7 +883,7 @@ class MP50Receiver(Receiver):
         super().__init__(host, LyngdorfModel.MP_50)
 
 
-class MP60Receiver(Receiver):
+class MP60Receiver(MPReceiver):
 
     def __init__(self, host: str):
         """Initialize the client."""
@@ -858,7 +893,7 @@ class MP60Receiver(Receiver):
         super().__init__(host, LyngdorfModel.MP_60)
 
 
-class TDAI1120Receiver(Receiver):
+class TDAI1120Receiver(TDAIReceiverBase):
 
     def __init__(self, host: str):
         """Initialize the client."""
@@ -868,8 +903,11 @@ class TDAI1120Receiver(Receiver):
         super().__init__(host, LyngdorfModel.TDAI_1120)
 
 
-class TDAI2170Receiver(Receiver):
-    """Lyngdorf TDAI-2170 receiver client."""
+class TDAI2170Receiver(TDAIReceiverBase):
+    """Lyngdorf TDAI-2170 receiver client: fixed hardware source/
+    RoomPerfect-position/voicing tables gated by bitmask replies
+    (SRCENABLED/RPSTATUS/VOIENABLED) rather than a dynamic enumeration
+    burst - see models/tdai_series.py."""
 
     def __init__(self, host: str):
         """Initialize the TDAI-2170 client."""
@@ -878,8 +916,28 @@ class TDAI2170Receiver(Receiver):
         self._stream_types = TDAI2170_STREAM_TYPES
         super().__init__(host, LyngdorfModel.TDAI_2170)
 
+    def _register_source_callbacks(self) -> None:
+        self._register_callback(Msg.SOURCES_ENABLED, self._sources_enabled_callback)
+        self._register_callback(Msg.SOURCE, self._fixed_source_callback)
 
-class TDAI3400Receiver(Receiver):
+    def _register_room_perfect_position_callbacks(self) -> None:
+        self._register_callback(
+            Msg.ROOM_PERFECT_POSITIONS_PRESENT,
+            self._room_perfect_positions_present_callback,
+        )
+        self._register_callback(
+            Msg.ROOM_PERFECT_POSITION,
+            self._fixed_room_perfect_position_callback,
+        )
+
+    def _register_voicing_callbacks(self) -> None:
+        self._register_callback(
+            Msg.ROOM_PERFECT_VOICINGS_ENABLED, self._voicings_enabled_callback
+        )
+        self._register_callback(Msg.ROOM_PERFECT_VOICING, self._fixed_voicing_callback)
+
+
+class TDAI3400Receiver(TDAIReceiverBase):
     """Lyngdorf TDAI-3400 receiver client."""
 
     def __init__(self, host: str):
@@ -890,7 +948,7 @@ class TDAI3400Receiver(Receiver):
         super().__init__(host, LyngdorfModel.TDAI_3400)
 
 
-class P100Receiver(Receiver):
+class P100Receiver(PReceiver):
     """Steinway Lyngdorf P100 receiver client."""
 
     def __init__(self, host: str):
@@ -900,7 +958,7 @@ class P100Receiver(Receiver):
         super().__init__(host, LyngdorfModel.P_100)
 
 
-class P200Receiver(Receiver):
+class P200Receiver(PReceiver):
     """Steinway Lyngdorf P200 receiver client."""
 
     def __init__(self, host: str):
@@ -910,7 +968,7 @@ class P200Receiver(Receiver):
         super().__init__(host, LyngdorfModel.P_200)
 
 
-class P300Receiver(Receiver):
+class P300Receiver(PReceiver):
     """Steinway Lyngdorf P300 receiver client."""
 
     def __init__(self, host: str):

@@ -14,9 +14,16 @@ docs/):
   TREBLE/BAL commands, and uses SUBSCRIBE/SUBSCRIBEVOL instead of a
   feedback-level setting to enable push notifications.
 
-None of the TDAI models document a PING/PONG command - the Msg.PING key
-used for connection keep-alive (see api.py) is simply absent from all
-three dicts below; the keep-alive is skipped defensively for these models.
+None of the TDAI models document a PING/PONG command, so Msg.PING/PONG
+are simply absent from all three dicts below. Connection keep-alive
+(api.py's LyngdorfApi._monitor) queries ModelConfig.keepalive_message
+instead, which defaults to DEVICE - the one query every model, including
+TDAI-2170, actually supports.
+
+TDAIModelConfig also overrides the MP/P family's `<cmd>+`/`<cmd>-` step
+convention (see models/base.py): TDAI has no such shorthand at all,
+using distinct literal tokens (VOLUP/VOLDN) for volume and no step
+command whatsoever for bass/treble trim - only an absolute set.
 
 Note: the TDAI-2170 and TDAI-3400 corrections below are derived from the
 vendor PDF spec only and have not been verified against real hardware
@@ -28,6 +35,29 @@ vendor PDF spec only and have not been verified against real hardware
 from ..const import STATE_ON, Msg
 from .base import ModelConfig
 
+
+class TDAIModelConfig(ModelConfig):
+    """Command-shape overrides shared by TDAI-1120, TDAI-2170 and
+    TDAI-3400 - see module docstring."""
+
+    def volume_up_command(self) -> str:
+        return self.lookup_command(Msg.VOLUME_UP)
+
+    def volume_down_command(self) -> str:
+        return self.lookup_command(Msg.VOLUME_DOWN)
+
+    def has_bass_trim_step(self) -> bool:
+        return False
+
+    def has_treble_trim_step(self) -> bool:
+        return False
+
+    def trim_treble_set_command(self) -> str:
+        # TDAI has one TREBLE command for both query and set - no
+        # TRIMTREB/TRIMTREBLE-style split.
+        return self.lookup_command(Msg.TRIM_TREBLE)
+
+
 # TDAI-1120 / TDAI-3400 Shared Protocol Commands
 TDAI_MESSAGES: dict[Msg, str] = {
     Msg.DEVICE: "DEVICE",
@@ -36,6 +66,9 @@ TDAI_MESSAGES: dict[Msg, str] = {
     Msg.POWER_ON: "ON",
     Msg.POWER_OFF: "OFF",
     Msg.VOLUME: "VOL",
+    # No VOL+/VOL- shorthand (unlike MP/P) - distinct literal tokens instead.
+    Msg.VOLUME_UP: "VOLUP",
+    Msg.VOLUME_DOWN: "VOLDN",
     Msg.MUTE: "MUTE",
     Msg.MUTE_ON: "MUTEON",
     Msg.MUTE_OFF: "MUTEOFF",
@@ -117,7 +150,7 @@ TDAI1120_ROOM_PERFECT_POSITIONS = {
     9: "Global",
 }
 
-TDAI1120_CONFIG = ModelConfig(
+TDAI1120_CONFIG = TDAIModelConfig(
     model_name="tdai-1120",
     manufacturer="Lyngdorf",
     messages=TDAI_MESSAGES,
@@ -141,6 +174,8 @@ TDAI2170_MESSAGES: dict[Msg, str] = {
     Msg.POWER_ON: "ON",
     Msg.POWER_OFF: "OFF",
     Msg.VOLUME: "VOL",
+    Msg.VOLUME_UP: "VOLUP",
+    Msg.VOLUME_DOWN: "VOLDN",
     Msg.MUTE: "MUTE",
     Msg.MUTE_ON: "MUTEON",
     Msg.MUTE_OFF: "MUTEOFF",
@@ -246,7 +281,7 @@ TDAI2170_VOICINGS = {
     13: "Bass 2",
 }
 
-TDAI2170_CONFIG = ModelConfig(
+TDAI2170_CONFIG = TDAIModelConfig(
     model_name="tdai-2170",
     manufacturer="Lyngdorf",
     messages=TDAI2170_MESSAGES,
@@ -292,7 +327,7 @@ TDAI3400_ROOM_PERFECT_POSITIONS = {
     9: "Global",
 }
 
-TDAI3400_CONFIG = ModelConfig(
+TDAI3400_CONFIG = TDAIModelConfig(
     model_name="tdai-3400",
     manufacturer="Lyngdorf",
     messages=TDAI_MESSAGES,

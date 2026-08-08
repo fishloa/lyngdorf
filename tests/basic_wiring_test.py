@@ -2440,6 +2440,195 @@ class TestKeepaliveIsGenericAndUniversal:
         assert sent == ["!DEVICE?\r"]
 
 
+class TestVolumeAndTrimStepCommandShapePerFamily:
+    """Regression tests: LyngdorfApi.volume_up/down, trim_bass_up/down,
+    trim_treble_up/down and change_trim_treble used to hardcode the MP/P
+    family's wire shape - a bare `<cmd>+`/`<cmd>-` suffix, and a single
+    TRIM_TREBLE_SET key shared with MP's query/set naming split - and
+    applied it unconditionally to every model.
+
+    Neither holds for the TDAI family: real hardware documents distinct
+    literal tokens for volume step (VOLUP/VOLDN, not VOL+/VOL-), no step
+    command at all for bass/treble trim (only an absolute set), and one
+    TREBLE command name for both query and set. Before this fix,
+    volume_up/down sent the wrong wire command to every TDAI model, and
+    the treble setter/step methods raised an uncaught KeyError on every
+    TDAI model (TRIM_TREBLE_SET was never defined for TDAI at all).
+
+    ModelConfig.volume_up_command()/trim_bass_up_command()/
+    trim_treble_set_command() (etc.) make the command shape a per-family
+    method instead of something LyngdorfApi assumes - see
+    models/base.py and models/tdai_series.py's TDAIModelConfig.
+    """
+
+    def test_every_model_can_compute_its_volume_step_commands(self):
+        """No model should raise when asked for its volume step commands -
+        every model has some way to step volume (regression guard for the
+        family-specific command-shape methods generally)."""
+        for model in supported_models():
+            assert model.volume_up_command()
+            assert model.volume_down_command()
+
+    def test_mp_and_p_use_vol_plus_minus_suffix(self):
+        for model in (LyngdorfModel.MP_60, LyngdorfModel.P_200):
+            assert model.volume_up_command() == "VOL+"
+            assert model.volume_down_command() == "VOL-"
+
+    def test_tdai_family_uses_literal_volup_voldn_not_vol_suffix(self):
+        for model in (
+            LyngdorfModel.TDAI_1120,
+            LyngdorfModel.TDAI_2170,
+            LyngdorfModel.TDAI_3400,
+        ):
+            assert model.volume_up_command() == "VOLUP"
+            assert model.volume_down_command() == "VOLDN"
+
+    @pytest.mark.asyncio
+    async def test_api_volume_up_down_sends_correct_wire_command_per_family(self):
+        for model, expected_up, expected_down in (
+            (LyngdorfModel.MP_60, "!VOL+\r", "!VOL-\r"),
+            (LyngdorfModel.TDAI_1120, "!VOLUP\r", "!VOLDN\r"),
+            (LyngdorfModel.TDAI_2170, "!VOLUP\r", "!VOLDN\r"),
+        ):
+            api = LyngdorfApi(FAKE_IP, model)
+            api._protocol = mock.Mock()
+            api.volume_up()
+            api.volume_down()
+            sent = [call.args[0] for call in api._protocol.write.call_args_list]
+            assert sent == [expected_up, expected_down]
+
+    def test_mp_has_bass_and_treble_trim_step_feature(self):
+        assert LyngdorfModel.MP_60.has_bass_trim_step_feature() is True
+        assert LyngdorfModel.MP_60.has_treble_trim_step_feature() is True
+
+    def test_tdai_and_p_lack_bass_and_treble_trim_step_feature(self):
+        for model in (
+            LyngdorfModel.TDAI_1120,
+            LyngdorfModel.TDAI_2170,
+            LyngdorfModel.TDAI_3400,
+            LyngdorfModel.P_200,
+        ):
+            assert model.has_bass_trim_step_feature() is False
+            assert model.has_treble_trim_step_feature() is False
+
+    @pytest.mark.asyncio
+    async def test_api_trim_bass_step_is_a_noop_for_tdai_not_a_wrong_command(self):
+        """TDAI has no bass trim step command at all - the fix must not
+        send a wire command that isn't documented (the old behaviour),
+        it must send nothing."""
+        api = LyngdorfApi(FAKE_IP, LyngdorfModel.TDAI_1120)
+        api._protocol = mock.Mock()
+        api.trim_bass_up()
+        api.trim_bass_down()
+        assert api._protocol.write.call_args_list == []
+
+    @pytest.mark.asyncio
+    async def test_api_trim_treble_step_is_a_noop_for_tdai(self):
+        api = LyngdorfApi(FAKE_IP, LyngdorfModel.TDAI_1120)
+        api._protocol = mock.Mock()
+        api.trim_treble_up()
+        api.trim_treble_down()
+        assert api._protocol.write.call_args_list == []
+
+    @pytest.mark.asyncio
+    async def test_api_trim_bass_step_still_works_for_mp(self):
+        api = LyngdorfApi(FAKE_IP, LyngdorfModel.MP_60)
+        api._protocol = mock.Mock()
+        api.trim_bass_up()
+        api.trim_bass_down()
+        sent = [call.args[0] for call in api._protocol.write.call_args_list]
+        assert sent == ["!TRIMBASS+\r", "!TRIMBASS-\r"]
+
+    @pytest.mark.asyncio
+    async def test_change_trim_treble_no_longer_crashes_on_tdai_1120_and_3400(self):
+        """Regression test for the KeyError: change_trim_treble used
+        Msg.TRIM_TREBLE_SET unconditionally, which TDAI never defines."""
+        for model in (LyngdorfModel.TDAI_1120, LyngdorfModel.TDAI_3400):
+            api = LyngdorfApi(FAKE_IP, model)
+            api._protocol = mock.Mock()
+            api.change_trim_treble(-2.0)
+            sent = [call.args[0] for call in api._protocol.write.call_args_list]
+            assert sent == ["!TREBLE(-20)\r"]
+
+    def test_change_trim_treble_still_raises_on_tdai_2170(self):
+        """TDAI-2170 has no treble trim hardware/command at all (unlike
+        TDAI-1120/3400, which share TDAI-2170's family but do have one) -
+        this is a pre-existing, genuine feature gap, not something the
+        command-shape fix changes. Documented here so a future change
+        that papers over it with a wrong command doesn't go unnoticed."""
+        api = LyngdorfApi(FAKE_IP, LyngdorfModel.TDAI_2170)
+        api._protocol = mock.Mock()
+        with pytest.raises(KeyError):
+            api.change_trim_treble(-2.0)
+
+    @pytest.mark.asyncio
+    async def test_change_trim_treble_still_uses_trimtreb_on_mp(self):
+        """Regression test: MP's query/set naming split (TRIMTREBLE for
+        the reply, TRIMTREB for query/set/step) must be unaffected."""
+        api = LyngdorfApi(FAKE_IP, LyngdorfModel.MP_60)
+        api._protocol = mock.Mock()
+        api.change_trim_treble(-2.0)
+        sent = [call.args[0] for call in api._protocol.write.call_args_list]
+        assert sent == ["!TRIMTREB(-20)\r"]
+
+    def test_receiver_setter_no_longer_crashes_on_tdai(self):
+        """End-to-end regression test through the public Receiver API -
+        this used to raise KeyError before the fix."""
+        from lyngdorf.device import TDAI1120Receiver
+
+        receiver = TDAI1120Receiver(FAKE_IP)
+        receiver._api._protocol = mock.Mock()
+        receiver.trim_treble = -2.0  # must not raise
+        receiver.trim_treble_up()  # must not raise (silently ignored)
+        receiver.trim_treble_down()  # must not raise (silently ignored)
+
+
+class TestReceiverClassHierarchy:
+    """Regression tests for the family-class-hierarchy refactor: model-
+    specific behaviour (which messages a family registers, and under
+    what shape) now lives in overridden `_register_*_callbacks` hooks on
+    per-family Receiver base classes, instead of `if self._model.has_X()`
+    / `if self._model.supports_message(Y): ... elif ...` branches inside
+    async_connect(). These tests guard the intended hierarchy itself -
+    that each concrete model actually inherits from its family base -
+    since a future edit that flattens a class back onto `Receiver`
+    directly would silently reintroduce the branching this replaced."""
+
+    def test_mp_models_share_mpreceiver_base(self):
+        from lyngdorf.device import MP40Receiver, MP50Receiver, MP60Receiver, MPReceiver
+
+        for cls in (MP40Receiver, MP50Receiver, MP60Receiver):
+            assert issubclass(cls, MPReceiver)
+
+    def test_p_models_share_preceiver_base(self):
+        from lyngdorf.device import P100Receiver, P200Receiver, P300Receiver, PReceiver
+
+        for cls in (P100Receiver, P200Receiver, P300Receiver):
+            assert issubclass(cls, PReceiver)
+
+    def test_tdai_models_share_tdaireceiverbase(self):
+        from lyngdorf.device import (
+            TDAI1120Receiver,
+            TDAI2170Receiver,
+            TDAI3400Receiver,
+            TDAIReceiverBase,
+        )
+
+        for cls in (TDAI1120Receiver, TDAI2170Receiver, TDAI3400Receiver):
+            assert issubclass(cls, TDAIReceiverBase)
+
+    def test_base_receiver_has_noop_defaults_for_optional_features(self):
+        """A plain Receiver (no family override) must register nothing
+        for video/Zone B/surround trims - MP/PReceiver opt in instead of
+        Receiver opting every model in by default."""
+        receiver = Receiver(FAKE_IP, LyngdorfModel.TDAI_1120)
+        receiver._api.register_callback = mock.Mock()
+        receiver._register_video_callbacks()
+        receiver._register_zone_b_callbacks()
+        receiver._register_surround_trim_callbacks()
+        receiver._api.register_callback.assert_not_called()
+
+
 # =============================================================================
 # Error Handling Tests
 # =============================================================================

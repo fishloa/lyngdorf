@@ -126,3 +126,81 @@ class ModelConfig:
             KeyError: If message type not supported by this model
         """
         return self.messages[key]
+
+    # Command-shape defaults below are the MP/P family's: a bare `<cmd>+`/
+    # `<cmd>-` suffix steps a value up/down, and query/set share one name
+    # except treble (TRIM_TREBLE is the reply key, TRIM_TREBLE_SET the
+    # query/set/step one - see docs/mp-60.md, TRIMTREBLE vs TRIMTREB,
+    # verified against real hardware). TDAIModelConfig overrides these:
+    # TDAI has no `+`/`-` suffix convention at all, using distinct literal
+    # tokens (VOLUP/VOLDN) for volume and no step command whatsoever for
+    # bass/treble trim.
+
+    def has_bass_trim_step(self) -> bool:
+        """Whether this model can step bass trim up/down, as opposed to
+        only setting it to an absolute value."""
+        return Msg.TRIM_BASS in self.messages
+
+    def has_treble_trim_step(self) -> bool:
+        """Whether this model can step treble trim up/down, as opposed to
+        only setting it to an absolute value."""
+        return Msg.TRIM_TREBLE_SET in self.messages
+
+    def volume_up_command(self) -> str:
+        return f"{self.lookup_command(Msg.VOLUME)}+"
+
+    def volume_down_command(self) -> str:
+        return f"{self.lookup_command(Msg.VOLUME)}-"
+
+    def zone_b_volume_up_command(self) -> str:
+        return f"{self.lookup_command(Msg.ZONE_B_VOLUME)}+"
+
+    def zone_b_volume_down_command(self) -> str:
+        return f"{self.lookup_command(Msg.ZONE_B_VOLUME)}-"
+
+    def trim_bass_up_command(self) -> str | None:
+        if not self.has_bass_trim_step():
+            return None
+        return f"{self.lookup_command(Msg.TRIM_BASS)}+"
+
+    def trim_bass_down_command(self) -> str | None:
+        if not self.has_bass_trim_step():
+            return None
+        return f"{self.lookup_command(Msg.TRIM_BASS)}-"
+
+    def trim_centre_up_command(self) -> str:
+        return f"{self.lookup_command(Msg.TRIM_CENTRE)}+"
+
+    def trim_centre_down_command(self) -> str:
+        return f"{self.lookup_command(Msg.TRIM_CENTRE)}-"
+
+    def trim_height_up_command(self) -> str:
+        return f"{self.lookup_command(Msg.TRIM_HEIGHT)}+"
+
+    def trim_height_down_command(self) -> str:
+        return f"{self.lookup_command(Msg.TRIM_HEIGHT)}-"
+
+    def trim_lfe_up_command(self) -> str:
+        return f"{self.lookup_command(Msg.TRIM_LFE)}+"
+
+    def trim_lfe_down_command(self) -> str:
+        return f"{self.lookup_command(Msg.TRIM_LFE)}-"
+
+    def trim_surround_up_command(self) -> str:
+        return f"{self.lookup_command(Msg.TRIM_SURROUND)}+"
+
+    def trim_surround_down_command(self) -> str:
+        return f"{self.lookup_command(Msg.TRIM_SURROUND)}-"
+
+    def trim_treble_set_command(self) -> str:
+        return self.lookup_command(Msg.TRIM_TREBLE_SET)
+
+    def trim_treble_up_command(self) -> str | None:
+        if not self.has_treble_trim_step():
+            return None
+        return f"{self.lookup_command(Msg.TRIM_TREBLE_SET)}+"
+
+    def trim_treble_down_command(self) -> str | None:
+        if not self.has_treble_trim_step():
+            return None
+        return f"{self.lookup_command(Msg.TRIM_TREBLE_SET)}-"

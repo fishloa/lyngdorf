@@ -56,6 +56,8 @@ Msg = Enum(
         "POWER_ON",
         "POWER_OFF",
         "VOLUME",
+        "VOLUME_UP",  # TDAI: literal VOLUP token (no VOL+ shorthand)
+        "VOLUME_DOWN",  # TDAI: literal VOLDN token (no VOL- shorthand)
         "MUTE",
         "MUTE_ON",
         "MUTE_OFF",
