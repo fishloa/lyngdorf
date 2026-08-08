@@ -1,11 +1,13 @@
 import asyncio
 import logging
+import time
 from unittest import mock
 
 import pytest
 
 from lyngdorf.api import LyngdorfApi, LyngdorfProtocol
 from lyngdorf.const import (
+    MONITOR_INTERVAL,
     MP40_AUDIO_INPUTS,
     MP40_STREAM_TYPES,
     MP40_VIDEO_INPUTS,
@@ -2367,6 +2369,75 @@ class TestPongDetectionDefensive:
 
         api._process_event("!DEVICE(TDAI-3400)")  # must not raise
         await asyncio.sleep(0)  # let the created task run
+
+
+class TestKeepaliveIsGenericAndUniversal:
+    """Regression tests: _monitor used to look up Msg.PING for its
+    keep-alive query, which the TDAI family never defines. The staleness
+    check that force-disconnects and reconnects on prolonged silence still
+    ran regardless, so an idle-but-healthy TDAI connection - one that
+    never got an actual keep-alive sent to reset the staleness clock -
+    was torn down and reconnected every MONITOR_INTERVAL * 4 seconds
+    forever. Reported against a real TDAI-1120 as locking up the device
+    itself (unresponsive front panel, unresponsive to the official
+    Android app, requiring a mains power cycle).
+
+    ModelConfig.keepalive_message makes the choice of keep-alive command a
+    per-model config value (defaulting to DEVICE, the one query every
+    current model defines - including TDAI-2170's more limited protocol,
+    which doesn't even have VERBOSE) rather than something LyngdorfApi
+    hardcodes, so the API itself has no assumption about which command is
+    universal.
+    """
+
+    def test_every_model_has_a_keepalive_message_it_actually_supports(self):
+        for model in supported_models():
+            keepalive = model.keepalive_message
+            assert keepalive is not None, f"{model} has no keepalive_message"
+            assert model.supports_message(
+                keepalive
+            ), f"{model} keepalive_message {keepalive} is not in its own messages"
+
+    @pytest.mark.asyncio
+    async def test_monitor_sends_keepalive_for_tdai_model(self):
+        api = LyngdorfApi(FAKE_IP, LyngdorfModel.TDAI_1120)
+        assert Msg.PING not in api._model.config.messages
+        api._protocol = mock.Mock()
+        api._last_message_time = time.monotonic() - MONITOR_INTERVAL - 1
+
+        api._monitor()
+        if api._monitor_handle is not None:
+            api._monitor_handle.cancel()
+
+        sent = [call.args[0] for call in api._protocol.write.call_args_list]
+        assert sent == ["!DEVICE?\r"]
+
+    @pytest.mark.asyncio
+    async def test_monitor_sends_keepalive_for_tdai_2170_which_has_no_verbose(self):
+        api = LyngdorfApi(FAKE_IP, LyngdorfModel.TDAI_2170)
+        assert Msg.VERBOSE not in api._model.config.messages
+        api._protocol = mock.Mock()
+        api._last_message_time = time.monotonic() - MONITOR_INTERVAL - 1
+
+        api._monitor()
+        if api._monitor_handle is not None:
+            api._monitor_handle.cancel()
+
+        sent = [call.args[0] for call in api._protocol.write.call_args_list]
+        assert sent == ["!DEVICE?\r"]
+
+    @pytest.mark.asyncio
+    async def test_monitor_sends_keepalive_for_mp_model(self):
+        api = LyngdorfApi(FAKE_IP, LyngdorfModel.MP_60)
+        api._protocol = mock.Mock()
+        api._last_message_time = time.monotonic() - MONITOR_INTERVAL - 1
+
+        api._monitor()
+        if api._monitor_handle is not None:
+            api._monitor_handle.cancel()
+
+        sent = [call.args[0] for call in api._protocol.write.call_args_list]
+        assert sent == ["!DEVICE?\r"]
 
 
 # =============================================================================

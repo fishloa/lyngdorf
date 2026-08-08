@@ -294,7 +294,12 @@ class Receiver:
     # Basics
 
     def _name_callback(self, param1: str, param2: str) -> None:
-        self._name = param1
+        # DEVICE is also the keep-alive probe (ModelConfig.keepalive_message),
+        # so this fires every MONITOR_INTERVAL on an idle connection with an
+        # unchanged reply - skip the reassignment rather than redo it on
+        # every poll for no reason.
+        if param1 != self._name:
+            self._name = param1
 
     @property
     def name(self):
