@@ -2497,6 +2497,26 @@ class TestVolumeAndTrimStepCommandShapePerFamily:
             sent = [call.args[0] for call in api._protocol.write.call_args_list]
             assert sent == [expected_up, expected_down]
 
+    def test_mp_and_tdai_1120_3400_have_bass_and_treble_trim_at_all(self):
+        """Bass/treble trim *existing* is a separate question from being
+        *steppable*: TDAI-1120/3400 can set both absolutely but not step
+        either (see has_bass_trim_step_feature tests below)."""
+        for model in (
+            LyngdorfModel.MP_60,
+            LyngdorfModel.TDAI_1120,
+            LyngdorfModel.TDAI_3400,
+        ):
+            assert model.has_bass_trim_feature() is True
+            assert model.has_treble_trim_feature() is True
+
+    def test_tdai_2170_and_p_lack_bass_and_treble_trim_entirely(self):
+        """Regression test: TDAI-2170 has neither bass nor treble trim at
+        all (not merely un-steppable) - change_trim_treble/trim_bass
+        genuinely can't work for it, unlike TDAI-1120/3400."""
+        for model in (LyngdorfModel.TDAI_2170, LyngdorfModel.P_200):
+            assert model.has_bass_trim_feature() is False
+            assert model.has_treble_trim_feature() is False
+
     def test_mp_has_bass_and_treble_trim_step_feature(self):
         assert LyngdorfModel.MP_60.has_bass_trim_step_feature() is True
         assert LyngdorfModel.MP_60.has_treble_trim_step_feature() is True

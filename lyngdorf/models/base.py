@@ -136,6 +136,17 @@ class ModelConfig:
     # tokens (VOLUP/VOLDN) for volume and no step command whatsoever for
     # bass/treble trim.
 
+    def has_bass_trim(self) -> bool:
+        """Whether this model has bass trim control at all. TDAI-2170 is
+        the current example of a model with none (see has_treble_trim)."""
+        return Msg.TRIM_BASS in self.messages
+
+    def has_treble_trim(self) -> bool:
+        """Whether this model has treble trim control at all. TDAI-2170
+        has neither bass nor treble trim; TDAI-1120/3400 have both but
+        can't step either one - see has_bass_trim_step/has_treble_trim_step."""
+        return Msg.TRIM_TREBLE in self.messages
+
     def has_bass_trim_step(self) -> bool:
         """Whether this model can step bass trim up/down, as opposed to
         only setting it to an absolute value."""

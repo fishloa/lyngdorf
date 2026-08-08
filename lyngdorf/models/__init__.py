@@ -156,6 +156,26 @@ class LyngdorfModel(Enum):
         """
         return self._config.mute_state_in_parameter
 
+    def has_bass_trim_feature(self) -> bool:
+        """Check whether this model has bass trim control at all.
+
+        Returns:
+            True if the model can set bass trim (absolute value, with or
+            without stepping - see has_bass_trim_step_feature), False if
+            it has no bass trim control whatsoever (TDAI-2170)
+        """
+        return self._config.has_bass_trim()
+
+    def has_treble_trim_feature(self) -> bool:
+        """Check whether this model has treble trim control at all.
+
+        Returns:
+            True if the model can set treble trim (absolute value, with
+            or without stepping - see has_treble_trim_step_feature),
+            False if it has no treble trim control whatsoever (TDAI-2170)
+        """
+        return self._config.has_treble_trim()
+
     def has_bass_trim_step_feature(self) -> bool:
         """Check whether this model can step bass trim up/down.
 
