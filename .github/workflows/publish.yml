@@ -2,13 +2,13 @@ name: Publish
 
 on:
   push:
-    branches: [main]
-    paths:
-      - 'pyproject.toml'
+    tags:
+      - 'v*'
   workflow_dispatch:
 
 permissions:
   contents: read
+  id-token: write  # required for PyPI Trusted Publishing (OIDC)
 
 jobs:
   deploy:
@@ -22,6 +22,14 @@ jobs:
       run: |
         VERSION=$(poetry version -s)
         echo "version=$VERSION" >> $GITHUB_OUTPUT
+    - name: Check tag matches pyproject.toml version
+      if: startsWith(github.ref, 'refs/tags/')
+      run: |
+        TAG="${GITHUB_REF_NAME#v}"
+        if [ "$TAG" != "${{ steps.get_version.outputs.version }}" ]; then
+          echo "::error::Tag $GITHUB_REF_NAME does not match pyproject.toml version ${{ steps.get_version.outputs.version }}"
+          exit 1
+        fi
     - name: Check if version exists on PyPI
       id: check_pypi
       run: |
@@ -53,6 +61,4 @@ jobs:
       run: poetry build
     - name: Publish to PyPI
       if: steps.check_pypi.outputs.exists != 'true'
-      run: |
-        poetry config pypi-token.pypi ${{ secrets.PYPI_API_TOKEN }}
-        poetry publish
+      uses: pypa/gh-action-pypi-publish@release/v1
