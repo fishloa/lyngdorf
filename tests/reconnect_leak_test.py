@@ -12,6 +12,7 @@ This test stands a fake asyncio server in for the device and asserts that N
 device-initiated drops leave exactly one live connection and open no more
 than N+1 in total.
 """
+
 import asyncio
 
 import pytest
@@ -76,8 +77,7 @@ async def test_reconnect_does_not_leak_connections(monkeypatch):
 
         assert api.healthy
         assert _FakeAmp.live == 1, (
-            f"orphaned/leaked connections left open on device: "
-            f"{_FakeAmp.live - 1}"
+            f"orphaned/leaked connections left open on device: " f"{_FakeAmp.live - 1}"
         )
         assert _FakeAmp.total <= n_drops + 1, (
             f"opened too many connections: {_FakeAmp.total} "
@@ -93,5 +93,5 @@ async def test_reconnect_does_not_leak_connections(monkeypatch):
             server.close_clients()
         try:
             await asyncio.wait_for(server.wait_closed(), 2.0)
-        except (asyncio.TimeoutError, TimeoutError):
+        except TimeoutError:
             pass
