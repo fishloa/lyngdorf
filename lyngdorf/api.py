@@ -175,6 +175,11 @@ class LyngdorfApi:
             raise ConnectionRefusedError(
                 f"ConnectionRefusedError: {err}", "connect"
             ) from err
+        # Never overwrite a live protocol without closing it first: a stale
+        # transport left dangling stays ESTABLISHED on the device and leaks a
+        # control-port slot (the TDAI family allows only a few connections).
+        if self._protocol is not None:
+            self._protocol.close()
         self._protocol = cast(LyngdorfProtocol, transport_protocol[1])  # type: ignore
         self._connection_enabled = True
         self._last_message_time = time.monotonic()
@@ -184,6 +189,10 @@ class LyngdorfApi:
 
     def _schedule_monitor(self) -> None:
         """Start the monitor task."""
+        # Cancel any monitor already scheduled: every (re)connect calls this,
+        # and without cancelling, monitors accumulate and each independently
+        # fires its own keepalive-timeout disconnect/reconnect.
+        self._stop_monitor()
         loop = asyncio.get_event_loop()
         self._monitor_handle = loop.call_later(MONITOR_INTERVAL, self._monitor)
 
@@ -222,6 +231,12 @@ class LyngdorfApi:
         self._stop_monitor()
         if not self._connection_enabled:
             return
+        # Only ever run one reconnect loop. This handler can fire more than
+        # once for a single drop (eof_received + connection_lost, and the
+        # monitor's close() + explicit call); spawning a task each time opens
+        # duplicate connections and orphans sockets on the device.
+        if self._reconnect_task is not None and not self._reconnect_task.done():
+            return
         self._reconnect_task = asyncio.create_task(self._async_reconnect())
 
     async def async_disconnect(self) -> None:
@@ -243,6 +258,11 @@ class LyngdorfApi:
         while self._connection_enabled and not self.healthy:
             _LOGGER.debug("Trying to reconnect...")
             async with self._connect_lock:
+                # Another attempt may have connected while we waited for the
+                # lock; re-check under it so we don't establish (and leak) a
+                # second connection.
+                if self.healthy:
+                    return
                 try:
                     await self._async_establish_connection()
                 except Exception:  # pylint: disable=broad-except
