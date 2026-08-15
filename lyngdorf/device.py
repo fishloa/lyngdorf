@@ -41,6 +41,7 @@ from .const import (
     Msg,
 )
 from .exceptions import LyngdorfInvalidValueError
+from .nowplaying import NowPlaying
 
 _LOGGER = logging.getLogger(__package__)
 
@@ -104,6 +105,7 @@ class Receiver:
         self._trim_lfe: float | None = None
         self._trim_surround: float | None = None
         self._trim_treble: float | None = None
+        self._now_playing: NowPlaying | None = None
 
     def _register_callback(self, msg: Msg, callback: Callable) -> None:
         """Register a callback for a message, skipping cleanly if the
@@ -208,6 +210,9 @@ class Receiver:
         self._register_callback(Msg.AUDIO_MODE, self._sound_mode_callback)
         self._register_callback(Msg.LIP_SYNC, self._lipsync_callback)
         self._register_surround_trim_callbacks()
+
+        if self._model.has_streaming_feature():
+            self._api.register_now_playing_callback(self._now_playing_changed)
 
         await self._api.async_connect()
 
@@ -772,6 +777,16 @@ class Receiver:
 
     def trim_treble_down(self):
         self._api.trim_treble_down()
+
+    # Now-playing metadata (streaming-capable models only)
+
+    @property
+    def now_playing(self) -> NowPlaying | None:
+        return self._now_playing
+
+    def _now_playing_changed(self, np: NowPlaying | None) -> None:
+        self._now_playing = np
+        self._notify_notification_callbacks()
 
 
 if TYPE_CHECKING:

@@ -31,6 +31,18 @@ MONITOR_INTERVAL = 90  # 90 seconds between PING commands
 # mute, and trim never populate). 50ms pacing was confirmed sufficient.
 SETUP_COMMAND_DELAY = 0.05
 
+# Now-playing metadata (streaming-capable models only - see
+# ModelConfig.has_streaming). A separate HTTP JSON API run by the embedded
+# streaming module (StreamUnlimited StreamSDK), not part of the :84 RIO
+# protocol at all - reverse-engineered, no vendor documentation. Confirmed
+# live against a real MP-60. See lyngdorf/nowplaying.py.
+STREAMMAGIC_PORT = 8080
+NOW_PLAYING_PATH = "player:player/data"
+# How long a single long-poll (`pollQueue`) call blocks server-side waiting
+# for a change before returning empty. Comfortably under typical HTTP
+# client/proxy idle timeouts.
+NOW_PLAYING_POLL_TIMEOUT = 25
+
 # Power States
 # The MP and P families report power as a numeric parameter: `!POWER(1)`.
 POWER_ON = "1"
@@ -190,6 +202,9 @@ __all__ = [
     "RECONNECT_MAX_WAIT",
     "MONITOR_INTERVAL",
     "SETUP_COMMAND_DELAY",
+    "STREAMMAGIC_PORT",
+    "NOW_PLAYING_PATH",
+    "NOW_PLAYING_POLL_TIMEOUT",
     "POWER_ON",
     "POWER_OFF",
     "STATE_ON",

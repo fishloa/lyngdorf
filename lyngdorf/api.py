@@ -24,12 +24,21 @@ from typing import cast
 from .const import (
     DEFAULT_LYNGDORF_PORT,
     MONITOR_INTERVAL,
+    NOW_PLAYING_POLL_TIMEOUT,
     RECONNECT_BACKOFF,
     RECONNECT_MAX_WAIT,
     RECONNECT_SCALE,
     SETUP_COMMAND_DELAY,
+    STREAMMAGIC_PORT,
     LyngdorfModel,
     Msg,
+)
+from .nowplaying import (
+    NowPlaying,
+    async_fetch_now_playing,
+    async_init_now_playing_queue,
+    async_poll_now_playing_events,
+    async_subscribe_now_playing,
 )
 
 _LOGGER = logging.getLogger(__package__)
@@ -132,6 +141,8 @@ class LyngdorfApi:
     # per-instance/class without affecting real connections' pacing.
     setup_command_delay: float = SETUP_COMMAND_DELAY
 
+    streammagic_port: int = STREAMMAGIC_PORT
+
     def __init__(self, host: str, model: LyngdorfModel):
         """Initialize the client."""
         self._connection_enabled = False
@@ -145,6 +156,9 @@ class LyngdorfApi:
         self._protocol: LyngdorfProtocol | None = None
         self._callbacks: dict[str, list[Callable]] = {}
         self._notification_callbacks: list[Callable[[], None]] = []
+        self._now_playing: NowPlaying | None = None
+        self._now_playing_callbacks: list[Callable[[NowPlaying | None], None]] = []
+        self._now_playing_task: asyncio.Task | None = None
 
     async def async_connect(self) -> None:
         """Connect to the receiver asynchronously."""
@@ -185,6 +199,8 @@ class LyngdorfApi:
         self._last_message_time = time.monotonic()
         self._schedule_monitor()
         await self._writeSetup()
+        if self._model.has_streaming_feature():
+            self._start_now_playing_poll()
         _LOGGER.debug("%s: connection complete", self.host)
 
     def _schedule_monitor(self) -> None:
@@ -239,11 +255,22 @@ class LyngdorfApi:
             return
         self._reconnect_task = asyncio.create_task(self._async_reconnect())
 
+    def _start_now_playing_poll(self) -> None:
+        if self._now_playing_task is not None and not self._now_playing_task.done():
+            return
+        self._now_playing_task = asyncio.create_task(self._poll_now_playing())
+
+    def _stop_now_playing_poll(self) -> None:
+        if self._now_playing_task is not None:
+            self._now_playing_task.cancel()
+            self._now_playing_task = None
+
     async def async_disconnect(self) -> None:
         """Close the connection to the receiver asynchronously."""
         async with self._connect_lock:
             self._connection_enabled = False
             self._stop_monitor()
+            self._stop_now_playing_poll()
             if self._reconnect_task is not None:
                 self._reconnect_task.cancel()
                 self._reconnect_task = None
@@ -535,6 +562,95 @@ class LyngdorfApi:
                         param1,
                         param2,
                         callback,
+                    )
+
+    @property
+    def now_playing(self) -> NowPlaying | None:
+        """Current now-playing metadata, or None if idle/unavailable."""
+        return self._now_playing
+
+    def register_now_playing_callback(
+        self, callback: Callable[[NowPlaying | None], None]
+    ) -> None:
+        self._now_playing_callbacks.append(callback)
+
+    async def _poll_now_playing(self) -> None:
+        """Long-poll loop for now-playing changes on the :8080 API.
+
+        Runs as a background task for streaming-capable models. Creates an
+        event queue, subscribes to player data changes, then loops: long-
+        poll for events -> on any change, fetch current state via getData
+        -> diff against cached value -> fire callbacks. On any failure
+        (network, expired queue), drops the queue and re-initializes with
+        exponential backoff.
+        """
+        port = self.streammagic_port
+        backoff = 1.0
+        queue_id: str | None = None
+
+        while self._connection_enabled:
+            try:
+                if queue_id is None:
+                    np = await async_fetch_now_playing(self.host, port)
+                    self._update_now_playing(np)
+
+                    queue_id = await async_init_now_playing_queue(self.host, port)
+                    if queue_id is None:
+                        _LOGGER.debug(
+                            "%s: failed to create now-playing queue, retrying",
+                            self.host,
+                        )
+                        await asyncio.sleep(backoff)
+                        backoff = min(30.0, backoff * 2)
+                        continue
+
+                    if not await async_subscribe_now_playing(self.host, queue_id, port):
+                        _LOGGER.debug(
+                            "%s: failed to subscribe now-playing queue", self.host
+                        )
+                        queue_id = None
+                        await asyncio.sleep(backoff)
+                        backoff = min(30.0, backoff * 2)
+                        continue
+
+                    backoff = 1.0
+
+                events = await async_poll_now_playing_events(
+                    self.host, queue_id, port, NOW_PLAYING_POLL_TIMEOUT
+                )
+
+                if events is None:
+                    _LOGGER.debug(
+                        "%s: now-playing queue expired, re-initializing", self.host
+                    )
+                    queue_id = None
+                    continue
+
+                if events:
+                    np = await async_fetch_now_playing(self.host, port)
+                    self._update_now_playing(np)
+
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                _LOGGER.debug(
+                    "%s: now-playing poll error, retrying", self.host, exc_info=True
+                )
+                queue_id = None
+                await asyncio.sleep(backoff)
+                backoff = min(30.0, backoff * 2)
+
+    def _update_now_playing(self, np: NowPlaying | None) -> None:
+        if np != self._now_playing:
+            self._now_playing = np
+            for cb in self._now_playing_callbacks:
+                try:
+                    cb(np)
+                except Exception:
+                    _LOGGER.error(
+                        "%s: now-playing callback error: %s",
+                        self.host,
+                        traceback.format_exc(),
                     )
 
     @property

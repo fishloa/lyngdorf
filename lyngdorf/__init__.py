@@ -34,6 +34,7 @@ from .device import (
     async_find_receiver_model,
     async_get_device_serial,
 )
+from .nowplaying import NowPlaying
 
 __all__ = [
     "LyngdorfModel",
@@ -51,6 +52,7 @@ __all__ = [
     "async_create_receiver",
     "async_find_receiver_model",
     "async_get_device_serial",
+    "NowPlaying",
 ]
 
 try:

@@ -137,6 +137,15 @@ class LyngdorfModel(Enum):
         """
         return self._config.has_surround
 
+    def has_streaming_feature(self) -> bool:
+        """Check if this model has the embedded streaming module's
+        now-playing HTTP API (see lyngdorf/nowplaying.py).
+
+        Returns:
+            True if the model exposes now-playing metadata, False otherwise
+        """
+        return self._config.has_streaming
+
     def power_state_on_value(self) -> str:
         """Return the power-state parameter value that means "powered on".
 

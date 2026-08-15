@@ -153,6 +153,7 @@ MP40_CONFIG = ModelConfig(
     has_zone_b=True,
     has_video=True,
     has_surround=True,
+    has_streaming=True,
 )
 
 # MP-50 Hardware Configuration
@@ -228,6 +229,7 @@ MP50_CONFIG = ModelConfig(
     has_zone_b=True,
     has_video=True,
     has_surround=True,
+    has_streaming=True,
 )
 
 # MP-60 Hardware Configuration
@@ -308,4 +310,5 @@ MP60_CONFIG = ModelConfig(
     has_zone_b=True,
     has_video=True,
     has_surround=True,
+    has_streaming=True,
 )

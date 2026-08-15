@@ -162,6 +162,7 @@ TDAI1120_CONFIG = TDAIModelConfig(
     # Power and mute states are words, not digits: !PWR(ON), !MUTE(OFF)
     power_state_on=STATE_ON,
     mute_state_in_parameter=True,
+    has_streaming=True,
 )
 
 # TDAI-2170 Protocol Commands
@@ -339,4 +340,5 @@ TDAI3400_CONFIG = TDAIModelConfig(
     # Power and mute states are words, not digits: !PWR(ON), !MUTE(OFF)
     power_state_on=STATE_ON,
     mute_state_in_parameter=True,
+    has_streaming=True,
 )

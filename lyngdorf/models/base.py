@@ -93,6 +93,13 @@ class ModelConfig:
             have VERBOSE. None disables the keep-alive query entirely (the
             connection is still torn down and reconnected on prolonged
             silence, just without an active probe first).
+        has_streaming: Whether this model has the embedded streaming
+            module's separate now-playing HTTP API (see
+            lyngdorf/nowplaying.py, ``:8080``, unrelated to the ``:84`` RIO
+            protocol `messages` describes). True for MP-40/50/60 and
+            TDAI-1120/3400; False for TDAI-2170 (unconfirmed - only present
+            if an optional streaming board is fitted) and the P-series
+            (no streaming source at all).
     """
 
     model_name: str
@@ -109,6 +116,7 @@ class ModelConfig:
     has_zone_b: bool = False
     has_video: bool = False
     has_surround: bool = False
+    has_streaming: bool = False
     power_state_on: str = POWER_ON
     mute_state_in_parameter: bool = False
     keepalive_message: Msg | None = Msg.DEVICE
