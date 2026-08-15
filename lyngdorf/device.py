@@ -545,6 +545,8 @@ class Receiver:
 
     def _requery_zone_b_mute(self) -> None:
         """Re-query Zone B mute status. See _requery_mute / #26."""
+        if not self._model.has_zone_b_feature():
+            return
         try:
             mute_cmd = self._model.lookup_command(Msg.ZONE_B_MUTE)
             self._api._writeCommand(f"{mute_cmd}?")
