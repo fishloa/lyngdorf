@@ -993,7 +993,7 @@ class TestReceiverCreation:
         async def mock_connection(*args, **kwargs):
             reader = mock.AsyncMock()
             writer = mock.AsyncMock()
-            reader.read = mock.AsyncMock(return_value=b"!DEVICE(MP-60)")
+            reader.readuntil = mock.AsyncMock(return_value=b"!DEVICE(MP-60)\r")
             writer.write = mock.Mock()
             writer.close = mock.Mock()
             writer.wait_closed = mock.AsyncMock()
@@ -1009,8 +1009,8 @@ class TestReceiverCreation:
             assert receiver.model == LyngdorfModel.MP_60
 
     @pytest.mark.asyncio
-    async def test_async_create_receiver_auto_detect_exception(self):
-        """Test async_create_receiver when auto-detection raises exception."""
+    async def test_async_create_receiver_auto_detect_oserror_propagates(self):
+        """OSError from probe propagates through async_create_receiver."""
         from lyngdorf.device import async_create_receiver
 
         async def mock_connection_error(*args, **kwargs):
@@ -1021,7 +1021,7 @@ class TestReceiverCreation:
             new_callable=mock.AsyncMock,
             side_effect=mock_connection_error,
         ):
-            with pytest.raises(NotImplementedError):
+            with pytest.raises(OSError, match="Connection error"):
                 await async_create_receiver(FAKE_IP)
 
     @pytest.mark.asyncio
@@ -1032,7 +1032,7 @@ class TestReceiverCreation:
         async def mock_connection(*args, **kwargs):
             reader = mock.AsyncMock()
             writer = mock.AsyncMock()
-            reader.read = mock.AsyncMock(return_value=b"!DEVICE(unknown-model)")
+            reader.readuntil = mock.AsyncMock(return_value=b"!DEVICE(unknown-model)\r")
             writer.write = mock.Mock()
             writer.close = mock.Mock()
             writer.wait_closed = mock.AsyncMock()
@@ -1055,7 +1055,7 @@ class TestReceiverCreation:
         async def mock_connection(*args, **kwargs):
             reader = mock.AsyncMock()
             writer = mock.AsyncMock()
-            reader.read = mock.AsyncMock(return_value=b"!DEVICE(MP-60)")
+            reader.readuntil = mock.AsyncMock(return_value=b"!DEVICE(MP-60)\r")
             writer.write = mock.Mock()
             writer.drain = mock.AsyncMock()
             writer.close = mock.Mock()
@@ -1079,7 +1079,7 @@ class TestReceiverCreation:
         async def mock_connection(*args, **kwargs):
             reader = mock.AsyncMock()
             writer = mock.AsyncMock()
-            reader.read = mock.AsyncMock(return_value=b"!DEVICE(unknown-model)")
+            reader.readuntil = mock.AsyncMock(return_value=b"!DEVICE(unknown-model)\r")
             writer.write = mock.Mock()
             writer.drain = mock.AsyncMock()
             writer.close = mock.Mock()
@@ -1095,8 +1095,8 @@ class TestReceiverCreation:
             assert model is None
 
     @pytest.mark.asyncio
-    async def test_async_find_receiver_model_timeout(self):
-        """Test async_find_receiver_model with timeout."""
+    async def test_async_find_receiver_model_timeout_propagates(self):
+        """TimeoutError must propagate — callers handle it."""
         from lyngdorf.device import async_find_receiver_model
 
         async def mock_connection_timeout(*args, **kwargs):
@@ -1107,12 +1107,12 @@ class TestReceiverCreation:
             new_callable=mock.AsyncMock,
             side_effect=mock_connection_timeout,
         ):
-            model = await async_find_receiver_model("192.168.1.1", timeout=0.01)
-            assert model is None
+            with pytest.raises(TimeoutError):
+                await async_find_receiver_model("192.168.1.1", timeout=0.01)
 
     @pytest.mark.asyncio
-    async def test_async_find_receiver_model_connection_error(self):
-        """Test async_find_receiver_model with connection error."""
+    async def test_async_find_receiver_model_oserror_propagates(self):
+        """OSError must propagate — callers handle it."""
         from lyngdorf.device import async_find_receiver_model
 
         async def mock_connection_error(*args, **kwargs):
@@ -1123,8 +1123,8 @@ class TestReceiverCreation:
             new_callable=mock.AsyncMock,
             side_effect=mock_connection_error,
         ):
-            model = await async_find_receiver_model("192.168.1.1", timeout=5.0)
-            assert model is None
+            with pytest.raises(OSError, match="Connection refused"):
+                await async_find_receiver_model("192.168.1.1", timeout=5.0)
 
     @pytest.mark.asyncio
     async def test_async_find_receiver_model_malformed_response(self):
@@ -1134,7 +1134,7 @@ class TestReceiverCreation:
         async def mock_connection(*args, **kwargs):
             reader = mock.AsyncMock()
             writer = mock.AsyncMock()
-            reader.read = mock.AsyncMock(return_value=b"!DEVICE_MALFORMED")
+            reader.readuntil = mock.AsyncMock(return_value=b"!DEVICE_MALFORMED\r")
             writer.write = mock.Mock()
             writer.drain = mock.AsyncMock()
             writer.close = mock.Mock()
@@ -1157,7 +1157,7 @@ class TestReceiverCreation:
         async def mock_connection(*args, **kwargs):
             reader = mock.AsyncMock()
             writer = mock.AsyncMock()
-            reader.read = mock.AsyncMock(return_value=b"!DEVICE(MP-60)")
+            reader.readuntil = mock.AsyncMock(return_value=b"!DEVICE(MP-60)\r")
             writer.write = mock.Mock()
             writer.drain = mock.AsyncMock()
             writer.close = mock.Mock()

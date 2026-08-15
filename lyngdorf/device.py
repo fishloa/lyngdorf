@@ -1009,10 +1009,7 @@ async def async_create_receiver(
     host: str, model: LyngdorfModel | None = None
 ) -> Receiver | None:
     if not model:
-        try:
-            model = await async_find_receiver_model(host)
-        except Exception:
-            return None
+        model = await async_find_receiver_model(host)
         if not model:
             raise NotImplementedError("Unknown Receiver")
     if model == LyngdorfModel.MP_40:
@@ -1041,6 +1038,15 @@ async def async_create_receiver(
 async def async_find_receiver_model(
     host: str, timeout: float = 5.0
 ) -> LyngdorfModel | None:
+    """Probe a Lyngdorf device for its model over TCP :84.
+
+    Returns the matching LyngdorfModel, or None if the reply doesn't
+    identify a supported model.
+
+    Raises:
+        TimeoutError: connection or read timed out.
+        OSError: TCP connection failed (refused, unreachable, etc.).
+    """
     writer = None
     try:
         reader, writer = await asyncio.wait_for(
@@ -1048,21 +1054,23 @@ async def async_find_receiver_model(
         )
         writer.write(b"!DEVICE?\r")
         await writer.drain()
-        buf = await asyncio.wait_for(reader.read(20), timeout=timeout)
+        buf = await asyncio.wait_for(reader.readuntil(b"\r"), timeout=timeout)
         message = buf.decode("utf-8")
-        message = message[1:]
+        message = message[1:]  # strip leading '!'
         if 1 < message.find("(") < message.find(")"):
-            modelName = message[1 + message.find("(") : message.find(")")]
-            model = lookup_receiver_model(modelName)
+            model_name = message[1 + message.find("(") : message.find(")")]
+            model = lookup_receiver_model(model_name)
             if model:
                 return model
             _LOGGER.warning(
-                f"model {modelName} receiver found at {host}, but we cannot use it as it is not implemented"
+                "Model %s found at %s but is not supported", model_name, host
             )
-    except TimeoutError:
-        _LOGGER.warning(f"Connection to {host} timed out")
-    except OSError as exc:
-        _LOGGER.warning(f"Attempting to connect with {host}, but we failed: {exc}")
+        else:
+            _LOGGER.warning(
+                "Unexpected DEVICE reply from %s: %r", host, message.strip()
+            )
+    except asyncio.IncompleteReadError:
+        _LOGGER.warning("Connection to %s closed before a complete reply", host)
     finally:
         if writer:
             writer.close()
