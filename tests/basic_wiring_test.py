@@ -428,7 +428,7 @@ class TestMP40Receiver:
 
         assert MP40_STREAM_TYPES[0] == "None"
         assert MP40_STREAM_TYPES[2] == "Spotify"
-        assert MP40_STREAM_TYPES[6] == "Roon ready"
+        assert MP40_STREAM_TYPES[6] == "Roon Ready"
 
     @pytest.mark.asyncio
     async def test_mp40_shared_commands_with_mp60(self):
@@ -517,7 +517,7 @@ class TestMP50Receiver:
 
         assert MP50_STREAM_TYPES[0] == "None"
         assert MP50_STREAM_TYPES[2] == "Spotify"
-        assert MP50_STREAM_TYPES[6] == "Roon ready"
+        assert MP50_STREAM_TYPES[6] == "Roon Ready"
 
     @pytest.mark.asyncio
     async def test_mp50_shared_commands_with_mp60(self):
@@ -590,7 +590,7 @@ class TestMP60Receiver:
 
         assert MP60_STREAM_TYPES[0] == "None"
         assert MP60_STREAM_TYPES[2] == "Spotify"
-        assert MP60_STREAM_TYPES[6] == "Roon ready"
+        assert MP60_STREAM_TYPES[6] == "Roon Ready"
 
 
 # =============================================================================
@@ -613,12 +613,17 @@ class TestTDAI1120Receiver:
         assert receiver.model == LyngdorfModel.TDAI_1120
 
     def test_tdai1120_stream_types(self):
-        """Test TDAI-1120 stream types constants."""
+        """Test TDAI-1120 stream types constants (firmware-verified)."""
         from lyngdorf.const import TDAI1120_STREAM_TYPES
 
         assert TDAI1120_STREAM_TYPES[0] == "None"
         assert TDAI1120_STREAM_TYPES[1] == "vTuner"
+        assert TDAI1120_STREAM_TYPES[4] == "UPnP"
         assert TDAI1120_STREAM_TYPES[7] == "Bluetooth"
+        assert TDAI1120_STREAM_TYPES[8] == "GoogleCast"
+        assert TDAI1120_STREAM_TYPES[9] == "TIDAL"
+        assert TDAI1120_STREAM_TYPES[10] == "airable"
+        assert TDAI1120_STREAM_TYPES[11] == "Qobuz"
 
 
 class TestTDAI2170Receiver:
@@ -635,14 +640,11 @@ class TestTDAI2170Receiver:
         assert receiver._video_inputs == {}
         assert receiver.model == LyngdorfModel.TDAI_2170
 
-    def test_tdai2170_stream_types(self):
-        """Test TDAI-2170 stream types constants."""
+    def test_tdai2170_has_no_stream_types(self):
+        """TDAI-2170 has no streaming hardware — stream types must be empty."""
         from lyngdorf.const import TDAI2170_STREAM_TYPES
 
-        assert TDAI2170_STREAM_TYPES[0] == "None"
-        assert TDAI2170_STREAM_TYPES[1] == "vTuner"
-        assert TDAI2170_STREAM_TYPES[2] == "Spotify"
-        assert TDAI2170_STREAM_TYPES[6] == "Roon Ready"
+        assert TDAI2170_STREAM_TYPES == {}
 
     def test_tdai2170_shares_basic_commands_with_tdai1120(self):
         """TDAI-2170 shares its basic power/volume commands with TDAI-1120."""
@@ -700,14 +702,17 @@ class TestTDAI3400Receiver:
         assert receiver.model == LyngdorfModel.TDAI_3400
 
     def test_tdai3400_stream_types(self):
-        """Test TDAI-3400 stream types constants."""
+        """Test TDAI-3400 stream types constants (firmware-verified)."""
         from lyngdorf.const import TDAI3400_STREAM_TYPES
 
         assert TDAI3400_STREAM_TYPES[0] == "None"
         assert TDAI3400_STREAM_TYPES[1] == "vTuner"
         assert TDAI3400_STREAM_TYPES[2] == "Spotify"
-        assert TDAI3400_STREAM_TYPES[7] == "Bluetooth"
+        assert TDAI3400_STREAM_TYPES[4] == "UPnP"
+        assert 7 not in TDAI3400_STREAM_TYPES
         assert TDAI3400_STREAM_TYPES[8] == "TIDAL"
+        assert TDAI3400_STREAM_TYPES[9] == "airable"
+        assert TDAI3400_STREAM_TYPES[10] == "Qobuz"
 
     def test_tdai3400_shares_tdai1120_protocol(self):
         """TDAI-3400 uses the same unprefixed protocol as TDAI-1120.
@@ -726,6 +731,139 @@ class TestTDAI3400Receiver:
         assert tdai3400._model.lookup_command(Msg.VOLUME) == "VOL"
         assert tdai1120._model.lookup_command(Msg.VOLUME) == "VOL"
         assert tdai3400._model.config.messages == tdai1120._model.config.messages
+
+
+class TestTDAI2210Receiver:
+    """Tests for TDAI-2210 specific functionality."""
+
+    def test_tdai2210_receiver_initialization(self):
+        """Test TDAI2210Receiver initialization sets correct constants."""
+        from lyngdorf.device import TDAI2210Receiver
+
+        receiver = TDAI2210Receiver("192.168.1.1")
+
+        assert receiver._audio_inputs == {}
+        assert receiver._video_inputs == {}
+        assert receiver.model == LyngdorfModel.TDAI_2210
+
+    def test_tdai2210_shares_tdai1120_protocol(self):
+        """TDAI-2210 uses the same protocol and stream types as TDAI-1120."""
+        from lyngdorf.device import TDAI1120Receiver, TDAI2210Receiver
+
+        tdai1120 = TDAI1120Receiver("192.168.1.1")
+        tdai2210 = TDAI2210Receiver("192.168.1.1")
+
+        assert tdai2210._model.config.messages == tdai1120._model.config.messages
+        assert tdai2210._stream_types == tdai1120._stream_types
+
+    def test_tdai2210_stream_types(self):
+        """Test TDAI-2210 stream types are identical to TDAI-1120."""
+        from lyngdorf.const import TDAI1120_STREAM_TYPES, TDAI2210_STREAM_TYPES
+
+        assert TDAI2210_STREAM_TYPES is TDAI1120_STREAM_TYPES
+
+    def test_tdai2210_has_streaming(self):
+        """TDAI-2210 has streaming capability."""
+        assert LyngdorfModel.TDAI_2210.has_streaming_feature() is True
+
+
+class TestNewMPCommands:
+    """Tests for new MP protocol commands."""
+
+    def test_mp_has_navigation_commands(self):
+        """MP series has navigation commands."""
+        from lyngdorf.device import MP60Receiver
+
+        mp60 = MP60Receiver("192.168.1.1")
+
+        assert mp60._model.lookup_command(Msg.CURSOR_UP) == "DIRU"
+        assert mp60._model.lookup_command(Msg.CURSOR_DOWN) == "DIRD"
+        assert mp60._model.lookup_command(Msg.CURSOR_LEFT) == "DIRL"
+        assert mp60._model.lookup_command(Msg.CURSOR_RIGHT) == "DIRR"
+        assert mp60._model.lookup_command(Msg.CURSOR_ENTER) == "ENTER"
+        assert mp60._model.lookup_command(Msg.MENU) == "MENU"
+        assert mp60._model.lookup_command(Msg.NAV_BACK) == "BACK"
+
+    def test_mp_has_dts_dialog_commands(self):
+        """MP series has DTS Dialog Control."""
+        from lyngdorf.device import MP60Receiver
+
+        mp60 = MP60Receiver("192.168.1.1")
+
+        assert (
+            mp60._model.lookup_command(Msg.DTS_DIALOG_AVAILABLE) == "DTSDIALOGAVAILABLE"
+        )
+        assert mp60._model.lookup_command(Msg.DTS_DIALOG) == "DTSDIALOG"
+        assert mp60._model.lookup_command(Msg.DTS_DIALOG_UP) == "DTSDIALOGUP"
+        assert mp60._model.lookup_command(Msg.DTS_DIALOG_DOWN) == "DTSDIALOGDN"
+
+    def test_mp_has_loudness_and_maxvol(self):
+        """MP series has loudness and max volume queries."""
+        from lyngdorf.device import MP60Receiver
+
+        mp60 = MP60Receiver("192.168.1.1")
+
+        assert mp60._model.lookup_command(Msg.LOUDNESS) == "LOUDNESS"
+        assert mp60._model.lookup_command(Msg.MAX_VOLUME) == "MAXVOL"
+
+    def test_mp_has_step_commands(self):
+        """MP series has source/voicing/position step commands."""
+        from lyngdorf.device import MP60Receiver
+
+        mp60 = MP60Receiver("192.168.1.1")
+
+        assert mp60._model.lookup_command(Msg.SOURCE_NEXT) == "SRC+"
+        assert mp60._model.lookup_command(Msg.SOURCE_PREV) == "SRC-"
+        assert mp60._model.lookup_command(Msg.VOICING_NEXT) == "RPVOI+"
+        assert mp60._model.lookup_command(Msg.VOICING_PREV) == "RPVOI-"
+        assert mp60._model.lookup_command(Msg.FOCUS_POSITION_NEXT) == "RPFOC+"
+        assert mp60._model.lookup_command(Msg.FOCUS_POSITION_PREV) == "RPFOC-"
+
+    def test_mp_has_video_output_query(self):
+        """MP series can query video output."""
+        from lyngdorf.device import MP60Receiver
+
+        mp60 = MP60Receiver("192.168.1.1")
+
+        assert mp60._model.lookup_command(Msg.VIDEO_OUTPUT) == "HDMIMAINOUT"
+
+    def test_mp_audio_inputs_include_pureudio_qobuz(self):
+        """MP50/60 audio inputs include PureAudio (43) and Qobuz (44)."""
+        from lyngdorf.const import MP50_AUDIO_INPUTS, MP60_AUDIO_INPUTS
+
+        assert MP50_AUDIO_INPUTS[43] == "PureAudio"
+        assert MP50_AUDIO_INPUTS[44] == "Qobuz"
+        assert MP60_AUDIO_INPUTS[43] == "PureAudio"
+        assert MP60_AUDIO_INPUTS[44] == "Qobuz"
+
+    def test_tdai_has_step_commands(self):
+        """TDAI series has source/voicing/position step commands."""
+        from lyngdorf.device import TDAI1120Receiver
+
+        tdai = TDAI1120Receiver("192.168.1.1")
+
+        assert tdai._model.lookup_command(Msg.SOURCE_NEXT) == "SRCUP"
+        assert tdai._model.lookup_command(Msg.SOURCE_PREV) == "SRCDN"
+        assert tdai._model.lookup_command(Msg.VOICING_NEXT) == "VOIUP"
+        assert tdai._model.lookup_command(Msg.VOICING_PREV) == "VOIDN"
+        assert tdai._model.lookup_command(Msg.FOCUS_POSITION_NEXT) == "RPUP"
+        assert tdai._model.lookup_command(Msg.FOCUS_POSITION_PREV) == "RPDN"
+
+    def test_tdai_lacks_mp_only_commands(self):
+        """TDAI series does not have MP-only commands."""
+        from lyngdorf.device import TDAI1120Receiver
+
+        tdai = TDAI1120Receiver("192.168.1.1")
+
+        for msg in (
+            Msg.LOUDNESS,
+            Msg.MAX_VOLUME,
+            Msg.DTS_DIALOG,
+            Msg.VIDEO_OUTPUT,
+            Msg.CURSOR_UP,
+            Msg.MENU,
+        ):
+            assert not tdai._model.supports_message(msg)
 
 
 class TestP100Receiver:

@@ -68,6 +68,42 @@ MP_MESSAGES: dict[Msg, str] = {
     Msg.TRIM_SURROUND: "TRIMSURRS",
     Msg.TRIM_TREBLE: "TRIMTREBLE",
     Msg.TRIM_TREBLE_SET: "TRIMTREB",
+    Msg.MAX_VOLUME: "MAXVOL",
+    Msg.LOUDNESS: "LOUDNESS",
+    Msg.DTS_DIALOG_AVAILABLE: "DTSDIALOGAVAILABLE",
+    Msg.DTS_DIALOG: "DTSDIALOG",
+    Msg.DTS_DIALOG_UP: "DTSDIALOGUP",
+    Msg.DTS_DIALOG_DOWN: "DTSDIALOGDN",
+    Msg.VIDEO_OUTPUT: "HDMIMAINOUT",
+    Msg.SOURCE_NEXT: "SRC+",
+    Msg.SOURCE_PREV: "SRC-",
+    Msg.SOURCE_BUTTON: "SRCBTN",
+    Msg.VOICING_NEXT: "RPVOI+",
+    Msg.VOICING_PREV: "RPVOI-",
+    Msg.FOCUS_POSITION_NEXT: "RPFOC+",
+    Msg.FOCUS_POSITION_PREV: "RPFOC-",
+    Msg.AUDIO_MODE_NEXT: "AUDMODE+",
+    Msg.AUDIO_MODE_PREV: "AUDMODE-",
+    Msg.AUDIO_MODE_BUTTON: "AUDIO",
+    Msg.CURSOR_UP: "DIRU",
+    Msg.CURSOR_DOWN: "DIRD",
+    Msg.CURSOR_LEFT: "DIRL",
+    Msg.CURSOR_RIGHT: "DIRR",
+    Msg.CURSOR_ENTER: "ENTER",
+    Msg.MENU: "MENU",
+    Msg.INFO: "INFO",
+    Msg.SETTINGS: "SETUP",
+    Msg.NAV_BACK: "BACK",
+    Msg.DIGIT_0: "NUM(0)",
+    Msg.DIGIT_1: "NUM(1)",
+    Msg.DIGIT_2: "NUM(2)",
+    Msg.DIGIT_3: "NUM(3)",
+    Msg.DIGIT_4: "NUM(4)",
+    Msg.DIGIT_5: "NUM(5)",
+    Msg.DIGIT_6: "NUM(6)",
+    Msg.DIGIT_7: "NUM(7)",
+    Msg.DIGIT_8: "NUM(8)",
+    Msg.DIGIT_9: "NUM(9)",
 }
 
 # Shared MP Setup Command Sequence
@@ -103,6 +139,11 @@ MP_SETUP_MESSAGES: list[str] = [
     f"{MP_MESSAGES[Msg.TRIM_LFE]}?",
     f"{MP_MESSAGES[Msg.TRIM_SURROUND]}?",
     f"{MP_MESSAGES[Msg.TRIM_TREBLE_SET]}?",
+    f"{MP_MESSAGES[Msg.MAX_VOLUME]}?",
+    f"{MP_MESSAGES[Msg.LOUDNESS]}?",
+    f"{MP_MESSAGES[Msg.DTS_DIALOG_AVAILABLE]}?",
+    f"{MP_MESSAGES[Msg.DTS_DIALOG]}?",
+    f"{MP_MESSAGES[Msg.VIDEO_OUTPUT]}?",
 ]
 
 # MP-40 Hardware Configuration
@@ -138,8 +179,11 @@ MP40_STREAM_TYPES = {
     3: "AirPlay",
     4: "UPnP",
     5: "Storage",
-    6: "Roon ready",
-    7: "Unknown",
+    6: "Roon Ready",
+    7: "TIDAL",
+    8: "airable",
+    9: "PureAudio",
+    10: "Qobuz",
 }
 
 MP40_CONFIG = ModelConfig(
@@ -197,6 +241,8 @@ MP50_AUDIO_INPUTS = {
     40: "DLNA",
     41: "Storage",
     42: "airable",
+    43: "PureAudio",
+    44: "Qobuz",
 }
 
 MP50_VIDEO_OUTPUTS = {
@@ -213,8 +259,11 @@ MP50_STREAM_TYPES = {
     3: "AirPlay",
     4: "UPnP",
     5: "Storage",
-    6: "Roon ready",
-    7: "Unknown",
+    6: "Roon Ready",
+    7: "TIDAL",
+    8: "airable",
+    9: "PureAudio",
+    10: "Qobuz",
 }
 
 MP50_CONFIG = ModelConfig(
@@ -275,6 +324,8 @@ MP60_AUDIO_INPUTS = {
     40: "DLNA",
     41: "Storage",
     42: "airable",
+    43: "PureAudio",
+    44: "Qobuz",
 }
 
 MP60_ROOM_PERFECT_POSITIONS = {
@@ -293,8 +344,11 @@ MP60_STREAM_TYPES = {
     3: "AirPlay",
     4: "UPnP",
     5: "Storage",
-    6: "Roon ready",
-    7: "Unknown",
+    6: "Roon Ready",
+    7: "TIDAL",
+    8: "airable",
+    9: "PureAudio",
+    10: "Qobuz",
 }
 
 MP60_CONFIG = ModelConfig(

@@ -36,6 +36,7 @@ from .const import (
     STATE_ON,
     TDAI1120_STREAM_TYPES,
     TDAI2170_STREAM_TYPES,
+    TDAI2210_STREAM_TYPES,
     TDAI3400_STREAM_TYPES,
     LyngdorfModel,
     Msg,
@@ -952,6 +953,17 @@ class TDAI2170Receiver(TDAIReceiverBase):
         self._register_callback(Msg.ROOM_PERFECT_VOICING, self._fixed_voicing_callback)
 
 
+class TDAI2210Receiver(TDAIReceiverBase):
+    """Lyngdorf TDAI-2210 receiver client (same protocol as TDAI-1120)."""
+
+    def __init__(self, host: str):
+        """Initialize the TDAI-2210 client."""
+        self._audio_inputs = {}
+        self._video_inputs = {}
+        self._stream_types = TDAI2210_STREAM_TYPES
+        super().__init__(host, LyngdorfModel.TDAI_2210)
+
+
 class TDAI3400Receiver(TDAIReceiverBase):
     """Lyngdorf TDAI-3400 receiver client."""
 
@@ -1013,6 +1025,8 @@ async def async_create_receiver(
         return TDAI1120Receiver(host)
     if model == LyngdorfModel.TDAI_2170:
         return TDAI2170Receiver(host)
+    if model == LyngdorfModel.TDAI_2210:
+        return TDAI2210Receiver(host)
     if model == LyngdorfModel.TDAI_3400:
         return TDAI3400Receiver(host)
     if model == LyngdorfModel.P_100:

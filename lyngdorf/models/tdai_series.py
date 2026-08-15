@@ -97,6 +97,12 @@ TDAI_MESSAGES: dict[Msg, str] = {
     Msg.TRIM_BASS: "BASS",
     Msg.TRIM_TREBLE: "TREBLE",
     Msg.BALANCE: "BAL",
+    Msg.SOURCE_NEXT: "SRCUP",
+    Msg.SOURCE_PREV: "SRCDN",
+    Msg.VOICING_NEXT: "VOIUP",
+    Msg.VOICING_PREV: "VOIDN",
+    Msg.FOCUS_POSITION_NEXT: "RPUP",
+    Msg.FOCUS_POSITION_PREV: "RPDN",
 }
 
 # TDAI-1120 / TDAI-3400 Shared Setup Sequence
@@ -128,14 +134,15 @@ TDAI1120_STREAM_TYPES = {
     0: "None",
     1: "vTuner",
     2: "Spotify",
-    3: "AirPlay",
-    4: "uPnP",
+    3: "Airplay",
+    4: "UPnP",
     5: "USB File",
     6: "Roon Ready",
     7: "Bluetooth",
     8: "GoogleCast",
-    9: "Unknown",
-    10: "Qobuz",
+    9: "TIDAL",
+    10: "airable",
+    11: "Qobuz",
 }
 
 TDAI1120_ROOM_PERFECT_POSITIONS = {
@@ -216,16 +223,7 @@ TDAI2170_SETUP_MESSAGES: list[str] = [
 
 # TDAI-2170 Hardware Configuration
 # Older integrated amplifier model
-TDAI2170_STREAM_TYPES = {
-    0: "None",
-    1: "vTuner",
-    2: "Spotify",
-    3: "AirPlay",
-    4: "uPnP",
-    5: "USB File",
-    6: "Roon Ready",
-    7: "Unknown",
-}
+TDAI2170_STREAM_TYPES: dict[int, str] = {}
 
 TDAI2170_ROOM_PERFECT_POSITIONS = {
     0: "Bypass",
@@ -308,12 +306,11 @@ TDAI3400_STREAM_TYPES = {
     1: "vTuner",
     2: "Spotify",
     3: "AirPlay",
-    4: "uPnP",
+    4: "UPnP",
     5: "USB File",
     6: "Roon Ready",
-    7: "Bluetooth",
     8: "TIDAL",
-    9: "Unknown",
+    9: "airable",
     10: "Qobuz",
 }
 
@@ -329,6 +326,23 @@ TDAI3400_ROOM_PERFECT_POSITIONS = {
     8: "Focus 8",
     9: "Global",
 }
+
+TDAI2210_STREAM_TYPES = TDAI1120_STREAM_TYPES
+TDAI2210_ROOM_PERFECT_POSITIONS = TDAI1120_ROOM_PERFECT_POSITIONS
+
+TDAI2210_CONFIG = TDAIModelConfig(
+    model_name="tdai-2210",
+    manufacturer="Lyngdorf",
+    messages=TDAI_MESSAGES,
+    setup_commands=TDAI_SETUP_MESSAGES,
+    video_inputs={},
+    audio_inputs={},
+    stream_types=TDAI2210_STREAM_TYPES,
+    room_perfect_positions=TDAI2210_ROOM_PERFECT_POSITIONS,
+    power_state_on=STATE_ON,
+    mute_state_in_parameter=True,
+    has_streaming=True,
+)
 
 TDAI3400_CONFIG = TDAIModelConfig(
     model_name="tdai-3400",

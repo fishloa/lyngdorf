@@ -7,8 +7,8 @@ receiver models.
 
 Protocol Families:
 - MP Family: MP-40, MP-50, MP-60 (shared protocol)
-- TDAI Family: TDAI-1120 and TDAI-3400 (shared protocol), TDAI-2170 (older,
-  more limited protocol - see models/tdai_series.py)
+- TDAI Family: TDAI-1120, TDAI-2210, and TDAI-3400 (shared protocol),
+  TDAI-2170 (older, more limited protocol - see models/tdai_series.py)
 - P Family: P100, P200, P300 (MP-like protocol, no channel trims, no
   streaming source - see models/p_series.py)
 
@@ -121,6 +121,48 @@ Msg = Enum(
         "TRIM_TREBLE",
         "TRIM_TREBLE_SET",
         "BALANCE",  # Audio balance control
+        # Max volume query (MP only)
+        "MAX_VOLUME",
+        # Loudness toggle (MP only)
+        "LOUDNESS",
+        # DTS Dialog Control (MP only, surround content)
+        "DTS_DIALOG_AVAILABLE",
+        "DTS_DIALOG",
+        "DTS_DIALOG_UP",
+        "DTS_DIALOG_DOWN",
+        # Video output query (MP only)
+        "VIDEO_OUTPUT",
+        # Source/voicing/position stepping
+        "SOURCE_NEXT",
+        "SOURCE_PREV",
+        "SOURCE_BUTTON",  # MP only - toggles source menu
+        "VOICING_NEXT",
+        "VOICING_PREV",
+        "FOCUS_POSITION_NEXT",
+        "FOCUS_POSITION_PREV",
+        "AUDIO_MODE_NEXT",  # MP only
+        "AUDIO_MODE_PREV",  # MP only
+        "AUDIO_MODE_BUTTON",  # MP only - toggles audio mode menu
+        # Navigation (MP only)
+        "CURSOR_UP",
+        "CURSOR_DOWN",
+        "CURSOR_LEFT",
+        "CURSOR_RIGHT",
+        "CURSOR_ENTER",
+        "MENU",
+        "INFO",
+        "SETTINGS",
+        "NAV_BACK",
+        "DIGIT_0",
+        "DIGIT_1",
+        "DIGIT_2",
+        "DIGIT_3",
+        "DIGIT_4",
+        "DIGIT_5",
+        "DIGIT_6",
+        "DIGIT_7",
+        "DIGIT_8",
+        "DIGIT_9",
     ],
 )
 
@@ -134,6 +176,7 @@ from .models import (  # noqa: E402, F401
     P300_CONFIG,
     TDAI1120_CONFIG,
     TDAI2170_CONFIG,
+    TDAI2210_CONFIG,
     TDAI3400_CONFIG,
     LyngdorfModel,
     supported_models,
@@ -173,6 +216,8 @@ from .models.tdai_series import (  # noqa: E402, F401
     TDAI2170_ROOM_PERFECT_POSITIONS,
     TDAI2170_SETUP_MESSAGES,
     TDAI2170_STREAM_TYPES,
+    TDAI2210_ROOM_PERFECT_POSITIONS,
+    TDAI2210_STREAM_TYPES,
     TDAI3400_ROOM_PERFECT_POSITIONS,
     TDAI3400_STREAM_TYPES,
     TDAI_MESSAGES,
@@ -189,6 +234,9 @@ MP50_SETUP_MESSAGES: list[str] = MP_SETUP_MESSAGES
 
 TDAI1120_MESSAGES: dict[Msg, str] = TDAI_MESSAGES
 TDAI1120_SETUP_MESSAGES: list[str] = TDAI_SETUP_MESSAGES
+# TDAI-2210 shares the TDAI-1120 protocol (see models/tdai_series.py)
+TDAI2210_MESSAGES: dict[Msg, str] = TDAI_MESSAGES
+TDAI2210_SETUP_MESSAGES: list[str] = TDAI_SETUP_MESSAGES
 # TDAI-3400 shares the TDAI-1120 protocol (see models/tdai_series.py)
 TDAI3400_MESSAGES: dict[Msg, str] = TDAI_MESSAGES
 TDAI3400_SETUP_MESSAGES: list[str] = TDAI_SETUP_MESSAGES
@@ -221,6 +269,7 @@ __all__ = [
     "P300_CONFIG",
     "TDAI1120_CONFIG",
     "TDAI2170_CONFIG",
+    "TDAI2210_CONFIG",
     "TDAI3400_CONFIG",
     # MP series constants
     "MP40_VIDEO_INPUTS",
@@ -250,6 +299,10 @@ __all__ = [
     "TDAI2170_ROOM_PERFECT_POSITIONS",
     "TDAI2170_MESSAGES",
     "TDAI2170_SETUP_MESSAGES",
+    "TDAI2210_STREAM_TYPES",
+    "TDAI2210_ROOM_PERFECT_POSITIONS",
+    "TDAI2210_MESSAGES",
+    "TDAI2210_SETUP_MESSAGES",
     "TDAI3400_STREAM_TYPES",
     "TDAI3400_ROOM_PERFECT_POSITIONS",
     "TDAI3400_MESSAGES",

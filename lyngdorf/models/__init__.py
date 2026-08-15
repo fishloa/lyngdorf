@@ -27,7 +27,12 @@ from ..const import Msg
 from .base import ModelCapability, ModelConfig
 from .mp_series import MP40_CONFIG, MP50_CONFIG, MP60_CONFIG
 from .p_series import P100_CONFIG, P200_CONFIG, P300_CONFIG
-from .tdai_series import TDAI1120_CONFIG, TDAI2170_CONFIG, TDAI3400_CONFIG
+from .tdai_series import (
+    TDAI1120_CONFIG,
+    TDAI2170_CONFIG,
+    TDAI2210_CONFIG,
+    TDAI3400_CONFIG,
+)
 
 
 class LyngdorfModel(Enum):
@@ -42,6 +47,7 @@ class LyngdorfModel(Enum):
         MP_60: MP-60 multichannel processor
         TDAI_1120: TDAI-1120 integrated amplifier
         TDAI_2170: TDAI-2170 integrated amplifier
+        TDAI_2210: TDAI-2210 integrated amplifier
         TDAI_3400: TDAI-3400 integrated amplifier
         P_100: P100 multichannel processor
         P_200: P200 multichannel processor
@@ -53,6 +59,7 @@ class LyngdorfModel(Enum):
     MP_60 = MP60_CONFIG
     TDAI_1120 = TDAI1120_CONFIG
     TDAI_2170 = TDAI2170_CONFIG
+    TDAI_2210 = TDAI2210_CONFIG
     TDAI_3400 = TDAI3400_CONFIG
     P_100 = P100_CONFIG
     P_200 = P200_CONFIG
@@ -311,6 +318,7 @@ __all__ = [
     "MP60_CONFIG",
     "TDAI1120_CONFIG",
     "TDAI2170_CONFIG",
+    "TDAI2210_CONFIG",
     "TDAI3400_CONFIG",
     "P100_CONFIG",
     "P200_CONFIG",
