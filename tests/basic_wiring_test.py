@@ -866,6 +866,92 @@ class TestNewMPCommands:
             assert not tdai._model.supports_message(msg)
 
 
+class TestMuteRequeryOnPowerOn:
+    """Tests for #26: re-query mute status when power turns on."""
+
+    def _call_with_mocked_notify(self, receiver, method, *args):
+        """Call a callback with _notify_notification_callbacks mocked out."""
+        with mock.patch.object(receiver, "_notify_notification_callbacks"):
+            method(*args)
+
+    def test_power_on_requeues_mute(self):
+        """Power-on triggers a MUTE? query to the device."""
+        from lyngdorf.device import MP60Receiver
+
+        receiver = MP60Receiver("192.168.1.1")
+        receiver._api._writeCommand = mock.Mock()
+
+        self._call_with_mocked_notify(receiver, receiver._power_callback, "1", "")
+
+        assert receiver._power_on is True
+        receiver._api._writeCommand.assert_called_once_with("MUTE?")
+
+    def test_power_off_does_not_requery_mute(self):
+        """Power-off does NOT trigger a mute re-query."""
+        from lyngdorf.device import MP60Receiver
+
+        receiver = MP60Receiver("192.168.1.1")
+        receiver._api._writeCommand = mock.Mock()
+
+        self._call_with_mocked_notify(receiver, receiver._power_callback, "0", "")
+
+        assert receiver._power_on is False
+        receiver._api._writeCommand.assert_not_called()
+
+    def test_tdai_power_on_requeues_mute(self):
+        """TDAI power-on (param='ON') triggers MUTE? query."""
+        from lyngdorf.device import TDAI1120Receiver
+
+        receiver = TDAI1120Receiver("192.168.1.1")
+        receiver._api._writeCommand = mock.Mock()
+
+        self._call_with_mocked_notify(receiver, receiver._power_callback, "ON", "")
+
+        assert receiver._power_on is True
+        receiver._api._writeCommand.assert_called_once_with("MUTE?")
+
+    def test_zone_b_power_on_requeues_zone_b_mute(self):
+        """Zone B power-on triggers a Zone B mute re-query."""
+        from lyngdorf.device import MP60Receiver
+
+        receiver = MP60Receiver("192.168.1.1")
+        receiver._api._writeCommand = mock.Mock()
+
+        self._call_with_mocked_notify(
+            receiver, receiver._zone_b_power_callback, "1", ""
+        )
+
+        assert receiver._zone_b_power_on is True
+        receiver._api._writeCommand.assert_called_once()
+        call_arg = receiver._api._writeCommand.call_args[0][0]
+        assert "?" in call_arg
+
+    def test_zone_b_power_off_does_not_requery(self):
+        """Zone B power-off does NOT trigger a mute re-query."""
+        from lyngdorf.device import MP60Receiver
+
+        receiver = MP60Receiver("192.168.1.1")
+        receiver._api._writeCommand = mock.Mock()
+
+        self._call_with_mocked_notify(
+            receiver, receiver._zone_b_power_callback, "0", ""
+        )
+
+        assert receiver._zone_b_power_on is False
+        receiver._api._writeCommand.assert_not_called()
+
+    def test_tdai_zone_b_requery_is_noop(self):
+        """TDAI has no Zone B mute, requery silently skips."""
+        from lyngdorf.device import TDAI1120Receiver
+
+        receiver = TDAI1120Receiver("192.168.1.1")
+        receiver._api._writeCommand = mock.Mock()
+
+        receiver._requery_zone_b_mute()
+
+        receiver._api._writeCommand.assert_not_called()
+
+
 class TestP100Receiver:
     """Tests for P100Receiver specific functionality."""
 

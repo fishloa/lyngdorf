@@ -524,11 +524,32 @@ class Receiver:
 
     def _power_callback(self, param1: str, param2: str):
         self._power_on = self._model.power_state_on_value() == param1
+        if self._power_on:
+            self._requery_mute()
         self._notify_notification_callbacks()
+
+    def _requery_mute(self) -> None:
+        """Re-query mute status from the device.
+
+        Power cycling can silently clear mute without a push notification,
+        leaving stale cached state. See #26.
+        """
+        mute_cmd = self._model.lookup_command(Msg.MUTE)
+        self._api._writeCommand(f"{mute_cmd}?")
 
     def _zone_b_power_callback(self, param1: str, param2: str):
         self._zone_b_power_on = self._model.power_state_on_value() == param1
+        if self._zone_b_power_on:
+            self._requery_zone_b_mute()
         self._notify_notification_callbacks()
+
+    def _requery_zone_b_mute(self) -> None:
+        """Re-query Zone B mute status. See _requery_mute / #26."""
+        try:
+            mute_cmd = self._model.lookup_command(Msg.ZONE_B_MUTE)
+            self._api._writeCommand(f"{mute_cmd}?")
+        except KeyError:
+            pass
 
     @property
     def power_on(self):
