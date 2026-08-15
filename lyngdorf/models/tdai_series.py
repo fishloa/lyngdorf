@@ -135,6 +135,7 @@ TDAI1120_STREAM_TYPES = {
     7: "Bluetooth",
     8: "GoogleCast",
     9: "Unknown",
+    10: "Qobuz",
 }
 
 TDAI1120_ROOM_PERFECT_POSITIONS = {
@@ -313,6 +314,7 @@ TDAI3400_STREAM_TYPES = {
     7: "Bluetooth",
     8: "TIDAL",
     9: "Unknown",
+    10: "Qobuz",
 }
 
 TDAI3400_ROOM_PERFECT_POSITIONS = {
