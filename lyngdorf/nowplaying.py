@@ -199,11 +199,27 @@ class StreamMagicSession:
     two in flight, and the poll loop is sequential anyway.
     """
 
+    #: Reuse failures tolerated before giving up on keep-alive entirely.
+    #: A dropped idle socket is normal and costs one retry; a device that
+    #: keeps failing is one that does not really support reuse, and
+    #: retrying it forever would double its request count.
+    MAX_REUSE_FAILURES = 3
+
     def __init__(self, host: str, port: int = STREAMMAGIC_PORT) -> None:
         self._host = host
         self._port = port
         self._conn: http.client.HTTPConnection | None = None
         self._lock = asyncio.Lock()
+        self._reuse_failures = 0
+        self.keep_alive_disabled = False
+        """Set once this device has proved it cannot handle reuse.
+
+        #31 reports a TDAI-3400 that replies chunked and "dislikes
+        keep-alive", so a device declining it is expected, not
+        exceptional. Latching means one connection-per-request from then
+        on - the behaviour this class replaced - rather than a failed
+        reuse plus a retry on every single request.
+        """
         self.reused_connection = False
         """Whether the last request went down an already-open connection.
 
@@ -248,16 +264,36 @@ class StreamMagicSession:
             reusing = self._conn is not None
             self.reused_connection = reusing
             try:
-                return self._fetch_once(path_and_query, timeout)
+                response = self._fetch_once(path_and_query, timeout)
             except (OSError, http.client.HTTPException):
                 self.close()
-                if reusing and attempt == 1:
-                    _LOGGER.debug(
-                        "%s: kept-alive connection was stale, retrying", self._host
-                    )
-                    continue
+                if reusing:
+                    self._note_reuse_failure()
+                    if attempt == 1:
+                        _LOGGER.debug(
+                            "%s: kept-alive connection was stale, retrying", self._host
+                        )
+                        continue
                 raise
+            else:
+                if reusing:
+                    # A reuse that worked clears the tally, so occasional
+                    # stale sockets over a long session never add up to a
+                    # false verdict against the device.
+                    self._reuse_failures = 0
+                return response
         return None
+
+    def _note_reuse_failure(self) -> None:
+        self._reuse_failures += 1
+        if self._reuse_failures < self.MAX_REUSE_FAILURES or self.keep_alive_disabled:
+            return
+        self.keep_alive_disabled = True
+        _LOGGER.debug(
+            "%s: keep-alive failed %d times, using one connection per request",
+            self._host,
+            self._reuse_failures,
+        )
 
     def _fetch_once(self, path_and_query: str, timeout: float) -> str | None:
         if self._conn is None:
@@ -266,14 +302,15 @@ class StreamMagicSession:
             )
         conn = self._conn
 
-        conn.request("GET", path_and_query)
+        headers = {"Connection": "close"} if self.keep_alive_disabled else {}
+        conn.request("GET", path_and_query, headers=headers)
         resp = conn.getresponse()
         body = resp.read().decode(errors="replace")
 
         # `will_close` folds together HTTP version, the `Connection:`
         # header and whether the body was framed well enough to find the
         # next response - i.e. exactly "may this socket be reused".
-        if resp.will_close:
+        if resp.will_close or self.keep_alive_disabled:
             self.close()
 
         return body if resp.status == 200 else None

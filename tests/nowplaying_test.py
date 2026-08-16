@@ -428,6 +428,47 @@ class TestStreamMagicSession:
         assert await session.get("/api/getData?path=x", 0.5) is None
 
     @pytest.mark.asyncio
+    async def test_gives_up_on_keep_alive_after_repeated_failures(self, fake_server):
+        """#31 reports a TDAI-3400 that dislikes keep-alive. A device that
+        keeps failing reuse must be left alone, not retried forever."""
+        host, port = fake_server.server_address
+        session = StreamMagicSession(str(host), port)
+        try:
+            # The first request opens a fresh connection, so it cannot
+            # fail a reuse; every one after it can.
+            assert await session.get("/api/getData?path=x", 5.0) is not None
+            for _ in range(session.MAX_REUSE_FAILURES):
+                session._conn.sock.close()  # type: ignore[union-attr]
+                assert await session.get("/api/getData?path=x", 5.0) is not None
+            assert session.keep_alive_disabled is True
+
+            # From here on, every request gets its own connection.
+            fake_server.connections = 0
+            for _ in range(3):
+                assert await session.get("/api/getData?path=x", 5.0) is not None
+            assert fake_server.connections == 3
+        finally:
+            session.close()
+
+    @pytest.mark.asyncio
+    async def test_successful_reuse_clears_the_failure_tally(self, fake_server):
+        """An occasional stale socket over a long session must not
+        accumulate into a false verdict against the device."""
+        host, port = fake_server.server_address
+        session = StreamMagicSession(str(host), port)
+        try:
+            assert await session.get("/api/getData?path=x", 5.0) is not None
+            for _ in range(session.MAX_REUSE_FAILURES * 2):
+                session._conn.sock.close()  # type: ignore[union-attr]
+                # Fails the reuse, retries on a fresh connection.
+                assert await session.get("/api/getData?path=x", 5.0) is not None
+                # A clean reuse straight after clears the tally.
+                assert await session.get("/api/getData?path=x", 5.0) is not None
+            assert session.keep_alive_disabled is False
+        finally:
+            session.close()
+
+    @pytest.mark.asyncio
     async def test_close_is_idempotent(self, fake_server):
         host, port = fake_server.server_address
         session = StreamMagicSession(str(host), port)
