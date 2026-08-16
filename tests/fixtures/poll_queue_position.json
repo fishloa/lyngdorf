@@ -1,0 +1,8 @@
+[
+  {
+    "itemType": "update",
+    "rowsEvents": [],
+    "path": "player:player/data/playTime",
+    "itemValue": { "type": "i64_", "i64_": 28650 }
+  }
+]

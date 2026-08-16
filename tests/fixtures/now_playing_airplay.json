@@ -1,0 +1,33 @@
+[
+  {
+    "mediaRoles": {
+      "doNotTrack": true,
+      "mediaData": {
+        "metaData": {
+          "playLogicPath": "airplay:playlogic",
+          "live": true,
+          "serviceID": "airplay"
+        },
+        "resources": [
+          { "uri": "airplay://", "mimeType": "audio/unknown" }
+        ]
+      },
+      "title": "AirPlay",
+      "type": "audio",
+      "audioType": "audioBroadcast"
+    },
+    "controls": { "next_": true, "previous": true, "pause": true },
+    "status": { "duration": 723785 },
+    "state": "playing",
+    "playId": { "systemMemberId": "Solar", "timestamp": 7602552 },
+    "trackRoles": {
+      "mediaData": {
+        "metaData": { "album": "Live in Gdansk", "artist": "David Gilmour" },
+        "resources": [ { "duration": 723785 } ],
+        "activeResource": { "duration": 723785 }
+      },
+      "title": "Shine on You Crazy Diamond - Live in Gdańsk",
+      "icon": "http://192.168.16.16:8080/file/stream//tmp/temp_data_airPlayAlbum_1ed652e05b8a7f0eaded3ac8bbbd676d"
+    }
+  }
+]

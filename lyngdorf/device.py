@@ -14,6 +14,7 @@ All communication via TCP/IP on port 84 (no serial port support).
 import asyncio
 import logging
 from collections.abc import Callable
+from datetime import datetime
 from typing import TYPE_CHECKING
 
 from .api import LyngdorfApi
@@ -526,6 +527,8 @@ class Receiver:
         self._power_on = self._model.power_state_on_value() == param1
         if self._power_on:
             self._requery_mute()
+        # Only poll the streaming module while the device is actually on.
+        self._api.set_power_state(self._power_on)
         self._notify_notification_callbacks()
 
     def _requery_mute(self) -> None:
@@ -811,6 +814,46 @@ class Receiver:
     def _now_playing_changed(self, np: NowPlaying | None) -> None:
         self._now_playing = np
         self._notify_notification_callbacks()
+
+    @property
+    def has_position(self) -> bool:
+        """Whether this model can report playback position at all.
+
+        Position comes from the embedded streaming module, which only
+        some models have - the TDAI-2170 and the P series have no
+        streaming hardware, so there is nothing to report on those.
+        """
+        return self._model.has_streaming_feature()
+
+    @property
+    def position_ms(self) -> int | None:
+        """Elapsed playback position in milliseconds, or None if unknown.
+
+        Always None on models without a streaming module.
+        """
+        if not self.has_position:
+            return None
+        return self._api.position_ms
+
+    @property
+    def position_updated_at(self) -> datetime | None:
+        """When `position_ms` was last refreshed from the device."""
+        if not self.has_position:
+            return None
+        return self._api.position_updated_at
+
+    @property
+    def position_percent(self) -> float | None:
+        """Fraction of the current track played, 0.0-1.0.
+
+        None when either position or duration is unknown, or when the
+        duration is zero - live streams report a duration of 0, and a
+        progress fraction is meaningless for them.
+        """
+        duration = self._now_playing.duration_ms if self._now_playing else None
+        if self.position_ms is None or not duration:
+            return None
+        return min(1.0, self.position_ms / duration)
 
 
 if TYPE_CHECKING:

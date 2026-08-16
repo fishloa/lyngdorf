@@ -38,6 +38,12 @@ SETUP_COMMAND_DELAY = 0.05
 # live against a real MP-60. See lyngdorf/nowplaying.py.
 STREAMMAGIC_PORT = 8080
 NOW_PLAYING_PATH = "player:player/data"
+# Elapsed playback position, in milliseconds. A sibling node of
+# NOW_PLAYING_PATH rather than a field inside it - the payload at
+# NOW_PLAYING_PATH carries `status.duration` but no position. Subscribing
+# to this path on the event queue pushes a new value roughly once a
+# second while playing (the device's own web client does exactly this).
+NOW_PLAYING_POSITION_PATH = "player:player/data/playTime"
 # How long a single long-poll (`pollQueue`) call blocks server-side waiting
 # for a change before returning empty. Comfortably under typical HTTP
 # client/proxy idle timeouts.
@@ -252,6 +258,7 @@ __all__ = [
     "SETUP_COMMAND_DELAY",
     "STREAMMAGIC_PORT",
     "NOW_PLAYING_PATH",
+    "NOW_PLAYING_POSITION_PATH",
     "NOW_PLAYING_POLL_TIMEOUT",
     "POWER_ON",
     "POWER_OFF",

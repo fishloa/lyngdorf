@@ -19,12 +19,14 @@ import time
 import traceback
 from asyncio import timeout as asyncio_timeout
 from collections.abc import Callable
+from datetime import UTC, datetime
 from typing import cast
 
 from .const import (
     DEFAULT_LYNGDORF_PORT,
     MONITOR_INTERVAL,
     NOW_PLAYING_POLL_TIMEOUT,
+    NOW_PLAYING_POSITION_PATH,
     RECONNECT_BACKOFF,
     RECONNECT_MAX_WAIT,
     RECONNECT_SCALE,
@@ -35,10 +37,13 @@ from .const import (
 )
 from .nowplaying import (
     NowPlaying,
+    StreamMagicSession,
     async_fetch_now_playing,
+    async_fetch_position,
     async_init_now_playing_queue,
     async_poll_now_playing_events,
     async_subscribe_now_playing,
+    parse_position_events,
 )
 
 _LOGGER = logging.getLogger(__package__)
@@ -159,6 +164,10 @@ class LyngdorfApi:
         self._now_playing: NowPlaying | None = None
         self._now_playing_callbacks: list[Callable[[NowPlaying | None], None]] = []
         self._now_playing_task: asyncio.Task | None = None
+        self._now_playing_wanted = False
+        self._position_ms: int | None = None
+        self._position_updated_at: datetime | None = None
+        self._position_callbacks: list[Callable[[int | None], None]] = []
 
     async def async_connect(self) -> None:
         """Connect to the receiver asynchronously."""
@@ -256,14 +265,93 @@ class LyngdorfApi:
         self._reconnect_task = asyncio.create_task(self._async_reconnect())
 
     def _start_now_playing_poll(self) -> None:
-        if self._now_playing_task is not None and not self._now_playing_task.done():
+        """Ask for the poll to be running; safe to call repeatedly."""
+        self._now_playing_wanted = True
+        self._ensure_now_playing_task()
+
+    def _ensure_now_playing_task(self) -> None:
+        """Start the poll task unless one already exists.
+
+        `_now_playing_task` is the single guard against running two polls
+        at once - which would double the request rate and hold a second
+        connection to a device with few slots. It is cleared only when a
+        task has genuinely finished (see `_on_now_playing_task_done`),
+        never at cancellation time: a cancelled task keeps running until
+        the loop next gets to it, and its HTTP request keeps running in
+        its executor thread until the response arrives, so it still owns
+        its socket for a while after `cancel()` returns.
+        """
+        if self._now_playing_task is not None:
             return
-        self._now_playing_task = asyncio.create_task(self._poll_now_playing())
+
+        coro = self._poll_now_playing()
+        try:
+            task = asyncio.create_task(coro)
+        except RuntimeError:
+            # Reached from the synchronous power notification callback,
+            # which normally runs on the event loop but need not - and
+            # with no loop there is nothing to schedule the poll onto.
+            # Connecting starts it again, so this cannot strand the poll.
+            coro.close()
+            _LOGGER.debug(
+                "%s: no running loop, not starting now-playing poll", self.host
+            )
+            return
+
+        self._now_playing_task = task
+        task.add_done_callback(self._on_now_playing_task_done)
+
+    def _on_now_playing_task_done(self, task: asyncio.Task) -> None:
+        """Release the slot, and restart if the poll is still wanted.
+
+        A task that ends while still wanted (its loop saw the connection
+        drop, say) would otherwise leave the poll silently stopped until
+        the next reconnect or power notification.
+        """
+        if self._now_playing_task is task:
+            self._now_playing_task = None
+
+        if task.cancelled():
+            return
+        if (exc := task.exception()) is not None:
+            # Deliberately not restarted: an immediately-failing task
+            # would otherwise spin, hammering the device.
+            _LOGGER.debug("%s: now-playing poll task failed", self.host, exc_info=exc)
+            return
+
+        if self._now_playing_wanted and self._connection_enabled:
+            self._ensure_now_playing_task()
 
     def _stop_now_playing_poll(self) -> None:
+        self._now_playing_wanted = False
         if self._now_playing_task is not None:
             self._now_playing_task.cancel()
-            self._now_playing_task = None
+
+    def set_power_state(self, power_on: bool) -> None:
+        """Follow device power with the now-playing poll.
+
+        A powered-off device has nothing to play, so polling it is pure
+        traffic against hardware that has few connection slots - and the
+        poll runs about once a second whenever position is subscribed.
+        Stopping on power-off also drops the kept-alive socket, leaving
+        only the :84 control connection while the device is off.
+
+        Called on every power notification, including repeats, so both
+        start and stop must be idempotent - they are.
+        """
+        if not self._model.has_streaming_feature():
+            return
+
+        if power_on:
+            self._start_now_playing_poll()
+            return
+
+        self._stop_now_playing_poll()
+        # Nothing is playing on a device that is off; leaving the last
+        # track cached would have consumers show stale now-playing state
+        # for as long as it stayed off.
+        self._update_now_playing(None)
+        self._update_position(None)
 
     async def async_disconnect(self) -> None:
         """Close the connection to the receiver asynchronously."""
@@ -574,6 +662,31 @@ class LyngdorfApi:
     ) -> None:
         self._now_playing_callbacks.append(callback)
 
+    @property
+    def position_ms(self) -> int | None:
+        """Elapsed playback position in milliseconds, or None if unknown.
+
+        Pair with `NowPlaying.duration_ms` for a progress percentage.
+        Tracked separately from `now_playing` because it updates about
+        once a second, which would otherwise churn that object and every
+        metadata consumer along with it.
+        """
+        return self._position_ms
+
+    @property
+    def position_updated_at(self) -> datetime | None:
+        """When `position_ms` was last refreshed from the device.
+
+        Lets a consumer extrapolate the current position between updates
+        instead of displaying a value that visibly lags.
+        """
+        return self._position_updated_at
+
+    def register_position_callback(
+        self, callback: Callable[[int | None], None]
+    ) -> None:
+        self._position_callbacks.append(callback)
+
     async def _poll_now_playing(self) -> None:
         """Long-poll loop for now-playing changes on the :8080 API.
 
@@ -587,58 +700,98 @@ class LyngdorfApi:
         port = self.streammagic_port
         backoff = 1.0
         queue_id: str | None = None
+        # One connection reused for every request below. Subscribing to
+        # position makes this loop iterate about once a second, so a
+        # connection per request would burn ~86,400 sockets a day on
+        # hardware that has few to spare.
+        session = StreamMagicSession(self.host, port)
 
-        while self._connection_enabled:
-            try:
-                if queue_id is None:
-                    np = await async_fetch_now_playing(self.host, port)
-                    self._update_now_playing(np)
-
-                    queue_id = await async_init_now_playing_queue(self.host, port)
+        try:
+            while self._connection_enabled:
+                try:
                     if queue_id is None:
-                        _LOGGER.debug(
-                            "%s: failed to create now-playing queue, retrying",
-                            self.host,
+                        np = await async_fetch_now_playing(
+                            self.host, port, session=session
                         )
-                        await asyncio.sleep(backoff)
-                        backoff = min(30.0, backoff * 2)
-                        continue
+                        self._update_now_playing(np)
+                        self._update_position(
+                            await async_fetch_position(self.host, port, session=session)
+                        )
 
-                    if not await async_subscribe_now_playing(self.host, queue_id, port):
+                        queue_id = await async_init_now_playing_queue(
+                            self.host, port, session=session
+                        )
+                        if queue_id is None:
+                            _LOGGER.debug(
+                                "%s: failed to create now-playing queue, retrying",
+                                self.host,
+                            )
+                            await asyncio.sleep(backoff)
+                            backoff = min(30.0, backoff * 2)
+                            continue
+
+                        if not await async_subscribe_now_playing(
+                            self.host, queue_id, port, session=session
+                        ):
+                            _LOGGER.debug(
+                                "%s: failed to subscribe now-playing queue", self.host
+                            )
+                            queue_id = None
+                            await asyncio.sleep(backoff)
+                            backoff = min(30.0, backoff * 2)
+                            continue
+
+                        backoff = 1.0
+
+                    events = await async_poll_now_playing_events(
+                        self.host,
+                        queue_id,
+                        port,
+                        NOW_PLAYING_POLL_TIMEOUT,
+                        session=session,
+                    )
+
+                    if events is None:
                         _LOGGER.debug(
-                            "%s: failed to subscribe now-playing queue", self.host
+                            "%s: now-playing queue expired, re-initializing", self.host
                         )
                         queue_id = None
-                        await asyncio.sleep(backoff)
-                        backoff = min(30.0, backoff * 2)
                         continue
 
-                    backoff = 1.0
+                    if events:
+                        position = parse_position_events(events)
+                        if position is not None:
+                            self._update_position(position)
 
-                events = await async_poll_now_playing_events(
-                    self.host, queue_id, port, NOW_PLAYING_POLL_TIMEOUT
-                )
+                        # Position ticks about once a second; refetching
+                        # the full payload for those would mean an HTTP
+                        # request per second for one integer we already
+                        # have inline.
+                        if any(
+                            not isinstance(event, dict)
+                            or event.get("path") != NOW_PLAYING_POSITION_PATH
+                            for event in events
+                        ):
+                            np = await async_fetch_now_playing(
+                                self.host, port, session=session
+                            )
+                            self._update_now_playing(np)
 
-                if events is None:
+                except asyncio.CancelledError:
+                    raise
+                except Exception:
                     _LOGGER.debug(
-                        "%s: now-playing queue expired, re-initializing", self.host
+                        "%s: now-playing poll error, retrying",
+                        self.host,
+                        exc_info=True,
                     )
                     queue_id = None
-                    continue
-
-                if events:
-                    np = await async_fetch_now_playing(self.host, port)
-                    self._update_now_playing(np)
-
-            except asyncio.CancelledError:
-                raise
-            except Exception:
-                _LOGGER.debug(
-                    "%s: now-playing poll error, retrying", self.host, exc_info=True
-                )
-                queue_id = None
-                await asyncio.sleep(backoff)
-                backoff = min(30.0, backoff * 2)
+                    await asyncio.sleep(backoff)
+                    backoff = min(30.0, backoff * 2)
+        finally:
+            # The task is cancelled on disconnect; without this the
+            # kept-alive socket would linger on the device.
+            session.close()
 
     def _update_now_playing(self, np: NowPlaying | None) -> None:
         if np != self._now_playing:
@@ -652,6 +805,30 @@ class LyngdorfApi:
                         self.host,
                         traceback.format_exc(),
                     )
+
+    def _update_position(self, position_ms: int | None) -> None:
+        """Record a new playback position.
+
+        The timestamp is refreshed on every device report, including when
+        the value repeats (a paused track reports the same millisecond
+        indefinitely) - otherwise a consumer extrapolating from it would
+        drift further from reality the longer the pause lasted. Callbacks
+        still only fire on an actual change.
+        """
+        self._position_updated_at = datetime.now(UTC)
+        if position_ms == self._position_ms:
+            return
+
+        self._position_ms = position_ms
+        for cb in self._position_callbacks:
+            try:
+                cb(position_ms)
+            except Exception:
+                _LOGGER.error(
+                    "%s: position callback error: %s",
+                    self.host,
+                    traceback.format_exc(),
+                )
 
     @property
     def connected(self) -> bool:
