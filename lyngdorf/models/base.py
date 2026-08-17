@@ -95,7 +95,7 @@ class ModelConfig:
             silence, just without an active probe first).
         has_streaming: Whether this model has the embedded streaming
             module's separate now-playing HTTP API (see
-            lyngdorf/nowplaying.py, ``:8080``, unrelated to the ``:84`` RIO
+            lyngdorf/streaming.py, ``:8080``, unrelated to the ``:84`` RIO
             protocol `messages` describes). True for MP-40/50/60 and
             TDAI-1120/3400; False for TDAI-2170 (unconfirmed - only present
             if an optional streaming board is fitted) and the P-series

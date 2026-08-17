@@ -1,4 +1,4 @@
-"""Tests for the nowplaying module (parser + poll loop).
+"""Tests for the streaming module (parser + poll loop).
 
 No device is required: `FakeStreamMagicServer` stands in for the
 streaming module's :8080 API. The payloads it serves are real captures
@@ -18,7 +18,7 @@ import pytest
 from lyngdorf.api import LyngdorfApi
 from lyngdorf.const import LyngdorfModel
 from lyngdorf.device import Receiver
-from lyngdorf.nowplaying import (
+from lyngdorf.streaming import (
     NowPlaying,
     StreamMagicSession,
     _coerce_ms,

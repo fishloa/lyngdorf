@@ -35,7 +35,7 @@ from .const import (
     LyngdorfModel,
     Msg,
 )
-from .nowplaying import (
+from .streaming import (
     NowPlaying,
     StreamMagicSession,
     async_fetch_now_playing,

@@ -1,9 +1,10 @@
-"""Now-playing metadata via the streaming module's HTTP API.
+"""The streaming module's HTTP API.
 
 Streaming-capable Lyngdorf models (see ``ModelConfig.has_streaming``) embed a
-StreamUnlimited streaming module that exposes now-playing metadata (track
-title/artist/album/art, play state) over a separate HTTP JSON API on port
+StreamUnlimited streaming module that exposes its own HTTP JSON API on port
 8080 - unrelated to the ``:84`` RIO protocol the rest of this library speaks.
+This module owns everything spoken to it: the connection, now-playing
+metadata, playback position, and transport control.
 
 This API is not documented anywhere by Lyngdorf, Cambridge Audio, or
 StreamUnlimited - everything here is derived from observing real device

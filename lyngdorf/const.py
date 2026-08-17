@@ -35,7 +35,7 @@ SETUP_COMMAND_DELAY = 0.05
 # ModelConfig.has_streaming). A separate HTTP JSON API run by the embedded
 # streaming module (StreamUnlimited StreamSDK), not part of the :84 RIO
 # protocol at all - reverse-engineered, no vendor documentation. Confirmed
-# live against a real MP-60. See lyngdorf/nowplaying.py.
+# live against a real MP-60. See lyngdorf/streaming.py.
 STREAMMAGIC_PORT = 8080
 NOW_PLAYING_PATH = "player:player/data"
 # Elapsed playback position, in milliseconds. A sibling node of

@@ -43,7 +43,7 @@ from .const import (
     Msg,
 )
 from .exceptions import LyngdorfInvalidValueError
-from .nowplaying import NowPlaying
+from .streaming import NowPlaying
 
 _LOGGER = logging.getLogger(__package__)
 

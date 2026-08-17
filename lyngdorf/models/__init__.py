@@ -146,7 +146,7 @@ class LyngdorfModel(Enum):
 
     def has_streaming_feature(self) -> bool:
         """Check if this model has the embedded streaming module's
-        now-playing HTTP API (see lyngdorf/nowplaying.py).
+        now-playing HTTP API (see lyngdorf/streaming.py).
 
         Returns:
             True if the model exposes now-playing metadata, False otherwise

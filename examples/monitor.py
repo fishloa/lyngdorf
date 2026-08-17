@@ -25,7 +25,7 @@ from lyngdorf.device import (
     async_create_receiver,
     lookup_receiver_model,
 )
-from lyngdorf.nowplaying import NowPlaying
+from lyngdorf.streaming import NowPlaying
 
 
 def ts() -> str:
