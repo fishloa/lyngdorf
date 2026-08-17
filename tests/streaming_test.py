@@ -301,6 +301,18 @@ class _NowPlayingHandler(BaseHTTPRequestHandler):
         self.write(body)
 
     def do_GET(self):
+        self.server.last_path = self.path
+        if "/api/setData" in self.path:
+            if self.server.fail_writes:
+                body = b'{"error":{"title":"Error","message":"failed"}}'
+                self.send_response(500)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.write(body)
+            else:
+                self._respond(b"null")
+            return
         if "/api/getData" in self.path and "playTime" in self.path:
             self._respond(json.dumps(self.server.position_response).encode())
         elif "/api/getData" in self.path:
@@ -327,6 +339,8 @@ class FakeStreamMagicServer(HTTPServer):
     get_data_response: object = [TestParseNowPlaying.PLAYING_PAYLOAD]
     position_response: object = load_fixture("play_time.json")
     poll_response: list = []
+    last_path: str = ""
+    fail_writes: bool = False
 
 
 @pytest.fixture()

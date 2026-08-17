@@ -44,6 +44,11 @@ NOW_PLAYING_PATH = "player:player/data"
 # to this path on the event queue pushes a new value roughly once a
 # second while playing (the device's own web client does exactly this).
 NOW_PLAYING_POSITION_PATH = "player:player/data/playTime"
+# Transport control. `activate` rather than `value`: this node is an action,
+# not a setting. Confirmed against a real MP-60 - see lyngdorf/streaming.py.
+CONTROL_PATH = "player:player/control"
+# Combined shuffle/repeat mode. One enum, not two independent flags.
+PLAY_MODE_PATH = "settings:/mediaPlayer/playMode"
 # How long a single long-poll (`pollQueue`) call blocks server-side waiting
 # for a change before returning empty. Comfortably under typical HTTP
 # client/proxy idle timeouts.
@@ -259,6 +264,8 @@ __all__ = [
     "STREAMMAGIC_PORT",
     "NOW_PLAYING_PATH",
     "NOW_PLAYING_POSITION_PATH",
+    "CONTROL_PATH",
+    "PLAY_MODE_PATH",
     "NOW_PLAYING_POLL_TIMEOUT",
     "POWER_ON",
     "POWER_OFF",

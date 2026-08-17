@@ -66,7 +66,13 @@ from dataclasses import dataclass
 from typing import TypeVar
 from urllib.parse import quote
 
-from .const import NOW_PLAYING_PATH, NOW_PLAYING_POSITION_PATH, STREAMMAGIC_PORT
+from .const import (
+    CONTROL_PATH,
+    NOW_PLAYING_PATH,
+    NOW_PLAYING_POSITION_PATH,
+    PLAY_MODE_PATH,
+    STREAMMAGIC_PORT,
+)
 
 _LOGGER = logging.getLogger(__package__)
 
@@ -636,3 +642,115 @@ async def async_poll_now_playing_events(
         timeout + 5.0,
     )
     return data if isinstance(data, list) else None
+
+
+# -- Transport control (writes) ------------------------------------------
+#
+# Everything below writes to the device. Two behaviours are worth knowing
+# before calling any of it.
+#
+# The device validates nothing. Setting the play mode `bogusMode`
+# returns HTTP 200 and reads back as `bogusMode`; so do modes the device
+# does not declare. A request succeeding says only that it was accepted,
+# never that it will be honoured. Callers must check `NowPlaying.controls`
+# and `NowPlaying.play_modes` first - `LyngdorfApi` does.
+#
+# Pause means different things on different sources. Where the device
+# does its own streaming, as with Spotify Connect, `pause` toggles: playing
+# to paused and back again, since there is no separate resume command. On
+# AirPlay and other controller-driven sources the same command ends the
+# session outright, and the device cannot restart it - only the controlling
+# app can. The device reports which happened: a real pause leaves `controls`
+# populated, a teardown empties it.
+
+CONTROL_PAUSE = "pause"
+CONTROL_NEXT = "next_"
+CONTROL_PREVIOUS = "previous"
+CONTROL_SEEK = "seekTime"
+
+
+async def _activate(
+    host: str,
+    payload: dict,
+    port: int,
+    timeout: float,
+    session: StreamMagicSession | None,
+) -> bool:
+    """POST-less write to the control node, reporting HTTP success.
+
+    Success is read from the status, never the body: the device answers a
+    successful activate with literal `null`, which parses to None exactly
+    as a failure does.
+    """
+    status = await _get_status(
+        session,
+        host,
+        port,
+        f"/api/setData?path={quote(CONTROL_PATH, safe='')}"
+        f"&role=activate&value={quote(json.dumps(payload))}",
+        timeout,
+    )
+    if status != 200:
+        _LOGGER.debug("%s: control %s rejected (status %s)", host, payload, status)
+    return status == 200
+
+
+async def async_activate_control(
+    host: str,
+    control: str,
+    port: int = STREAMMAGIC_PORT,
+    timeout: float = 8.0,
+    session: StreamMagicSession | None = None,
+) -> bool:
+    """Send one transport action, e.g. `CONTROL_PAUSE`.
+
+    Returns False on rejection or network failure rather than raising.
+    """
+    return await _activate(host, {"control": control}, port, timeout, session)
+
+
+async def async_seek(
+    host: str,
+    position_ms: int,
+    port: int = STREAMMAGIC_PORT,
+    timeout: float = 8.0,
+    session: StreamMagicSession | None = None,
+) -> bool:
+    """Seek to an absolute position, in milliseconds.
+
+    The device's own web client sends `{"control": "seek", ...}`, which is
+    wrong - that is parsed as the browse-and-play control and answered
+    with HTTP 500 "Directory is empty. No playable items found."
+    """
+    return await _activate(
+        host,
+        {"control": CONTROL_SEEK, "time": int(position_ms)},
+        port,
+        timeout,
+        session,
+    )
+
+
+async def async_set_play_mode(
+    host: str,
+    mode: str,
+    port: int = STREAMMAGIC_PORT,
+    timeout: float = 8.0,
+    session: StreamMagicSession | None = None,
+) -> bool:
+    """Set the combined shuffle/repeat mode, e.g. "shuffle", "repeatAll".
+
+    One enum rather than two flags, so setting it replaces both axes at
+    once.
+    """
+    value = json.dumps({"type": "playerPlayMode", "playerPlayMode": mode})
+    status = await _get_status(
+        session,
+        host,
+        port,
+        f"/api/setData?path={quote(PLAY_MODE_PATH)}&role=value&value={quote(value)}",
+        timeout,
+    )
+    if status != 200:
+        _LOGGER.debug("%s: play mode %r rejected (status %s)", host, mode, status)
+    return status == 200
