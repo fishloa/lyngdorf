@@ -907,14 +907,22 @@ class TestAvailablePlayModesUnion:
     """Regression coverage for the null play mode being unreachable,
     built from the real device captures that produced the bug rather than
     synthetic data - `now_playing_spotify_connect.json` (a real per-source
-    payload) omits `normal`, and `play_modes.json` (the real global enum,
-    `fake_server`'s default response to `getRows` on
+    payload) omits `normal`, and `play_modes_roles_value.json` (the real
+    global enum in the `roles=value` shape `async_fetch_play_modes` actually
+    requests, `fake_server`'s default response to `getRows` on
     `settings:/mediaPlayer/playModes`) omits the `repeatAll` variants.
 
     `available_play_modes` used to prefer the per-source list whenever it
     was non-empty, which made `normal` unreachable and
     `async_set_shuffle(False)` raise `LyngdorfUnsupportedError` from a
     shuffling source - confirmed against a real MP-60 on firmware 5.4.2.
+    This whole class doubles as the round-trip regression test for a second
+    bug in the same fallback: the parser used to require exactly two
+    elements per row, which matched only the `roles=title,value` shape and
+    silently discarded every row of the `roles=value` shape the code
+    actually requests, so `_global_play_modes` was always empty against
+    real hardware even though these tests passed against the old,
+    mismatched fixture.
     """
 
     @staticmethod

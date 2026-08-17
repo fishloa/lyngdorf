@@ -255,6 +255,26 @@ class TestRealCaptures:
         assert np is not None
         assert "playMode" not in np.controls
 
+    def test_spotify_smart_shuffle_track(self):
+        """Captured with Spotify's "smart shuffle" active. The device has
+        no distinct wire value for that - it reports plain `shuffle`, which
+        is what `play_mode_current.json` (captured at the same time)
+        carries. Not a bug: asserted here so it stays that way."""
+        np = parse_now_playing(
+            _unwrap_value(load_fixture("now_playing_spotify_smart_shuffle.json"))
+        )
+        assert np is not None
+        assert np.title == "Liar - Live At The Rainbow, London / March 1974"
+        assert np.artist == "Queen"
+        assert np.album == "Live at the Rainbow (Deluxe)"
+        assert np.source == "Liked Songs"
+        assert np.state == PlaybackState.PLAYING
+        assert np.duration_ms == 507737
+        assert PlayMode(shuffle=True, repeat=Repeat.OFF) in np.play_modes
+        # Same omission as the other native-source capture: `normal` is
+        # never in the per-source list.
+        assert PlayMode(shuffle=False, repeat=Repeat.OFF) not in np.play_modes
+
 
 class TestParsePositionEvents:
     """Position events carry their value inline, so no refetch is needed.
@@ -494,10 +514,16 @@ class FakeStreamMagicServer(HTTPServer):
     queue_id: str = "{test-queue-123}"
     get_data_response: object = [TestParseNowPlaying.PLAYING_PAYLOAD]
     position_response: object = load_fixture("play_time.json")
-    play_mode_response: object = [
-        {"type": "playerPlayMode", "playerPlayMode": "normal"}
-    ]
-    play_modes_response: object = load_fixture("play_modes.json")
+    # A real device capture (`settings:/mediaPlayer/playMode`, roles=value)
+    # rather than a hand-written approximation.
+    play_mode_response: object = load_fixture("play_mode_current.json")
+    # This is the shape `async_fetch_play_modes` actually receives - it
+    # requests `roles=value`, giving single-element rows.
+    # `play_modes_roles_title_value.json` (the `roles=title,value`
+    # two-element-row shape) is used explicitly by tests that check the
+    # parser also handles that shape - see
+    # `test_fetch_play_modes_title_value_shape` below.
+    play_modes_response: object = load_fixture("play_modes_roles_value.json")
     poll_response: list = []
     last_path: str = ""
     fail_writes: bool = False
@@ -614,8 +640,9 @@ async def test_fetch_position_connection_error():
 
 @pytest.mark.asyncio
 async def test_fetch_play_mode(fake_server: FakeStreamMagicServer):
+    """Default response is the real `play_mode_current.json` capture."""
     host, port = fake_server.server_address
-    assert await async_fetch_play_mode(str(host), port) == "normal"
+    assert await async_fetch_play_mode(str(host), port) == "shuffle"
 
 
 @pytest.mark.asyncio
@@ -632,7 +659,26 @@ async def test_fetch_play_mode_connection_error():
 
 @pytest.mark.asyncio
 async def test_fetch_play_modes(fake_server: FakeStreamMagicServer):
-    """The global enum fallback, read via `getRows` rather than `getData`."""
+    """The global enum fallback, read via `getRows` rather than `getData`.
+
+    This is the real round trip: the fake server's default
+    `play_modes_response` is `play_modes_roles_value.json`, the actual
+    `roles=value` shape `async_fetch_play_modes` requests (single-element
+    rows) - not the `[title, value]` shape a now-fixed bug was tested
+    against. Restoring the old `len(row) != 2` check makes this fail.
+    """
+    host, port = fake_server.server_address
+    modes = await async_fetch_play_modes(str(host), port)
+    assert modes == frozenset({"normal", "shuffle", "repeatOne", "shuffleRepeatOne"})
+
+
+@pytest.mark.asyncio
+async def test_fetch_play_modes_title_value_shape(fake_server: FakeStreamMagicServer):
+    """The parser must also accept `roles=title,value` two-element rows -
+    a genuine device response (`play_modes_roles_title_value.json`), even though it is not
+    what this request currently asks for. Guards against reintroducing a
+    fixed row-length check tied to one particular role set."""
+    fake_server.play_modes_response = load_fixture("play_modes_roles_title_value.json")
     host, port = fake_server.server_address
     modes = await async_fetch_play_modes(str(host), port)
     assert modes == frozenset({"normal", "shuffle", "repeatOne", "shuffleRepeatOne"})
@@ -646,6 +692,24 @@ async def test_fetch_play_modes_malformed_rows_are_skipped(
         "rowsCount": 2,
         "rows": [
             ["Normal", {"type": "playerPlayMode", "playerPlayMode": "normal"}],
+            "junk",
+        ],
+    }
+    host, port = fake_server.server_address
+    assert await async_fetch_play_modes(str(host), port) == frozenset({"normal"})
+
+
+@pytest.mark.asyncio
+async def test_fetch_play_modes_malformed_single_element_rows_are_skipped(
+    fake_server: FakeStreamMagicServer,
+):
+    """Same as above but for the single-element `roles=value` shape: an
+    empty row and a non-list row must both be skipped, not crash."""
+    fake_server.play_modes_response = {
+        "rowsCount": 3,
+        "rows": [
+            [{"type": "playerPlayMode", "playerPlayMode": "normal"}],
+            [],
             "junk",
         ],
     }

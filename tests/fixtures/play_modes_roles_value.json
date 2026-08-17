@@ -1,0 +1,30 @@
+{
+  "rowsCount": 4,
+  "rows": [
+    [
+      {
+        "type": "playerPlayMode",
+        "playerPlayMode": "normal"
+      }
+    ],
+    [
+      {
+        "type": "playerPlayMode",
+        "playerPlayMode": "shuffle"
+      }
+    ],
+    [
+      {
+        "type": "playerPlayMode",
+        "playerPlayMode": "repeatOne"
+      }
+    ],
+    [
+      {
+        "type": "playerPlayMode",
+        "playerPlayMode": "shuffleRepeatOne"
+      }
+    ]
+  ],
+  "rowsVersion": 0
+}

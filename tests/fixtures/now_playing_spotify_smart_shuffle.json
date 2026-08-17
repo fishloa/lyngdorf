@@ -1,0 +1,88 @@
+[
+  {
+    "state": "playing",
+    "status": {
+      "duration": 507737,
+      "timeSeek": true,
+      "byteSeek": true
+    },
+    "mediaRoles": {
+      "containerType": "none",
+      "icon": "https://i.scdn.co/image/ab67616d0000b273649e2c0c6baeae5b212262ed",
+      "doNotTrack": true,
+      "audioType": "audioBroadcast",
+      "type": "audio",
+      "title": "Liked Songs",
+      "mediaData": {
+        "resources": [
+          {
+            "uri": "spotify://?preset=%7B%22trackUri%22:%22spotify:track:6YdeVsjUmRQJDJXNn21xoP%22,%22srcUri%22:%22spotify:user:fishloa:collection%22,%22title%22:%22Liked%20Songs%22%7D",
+            "bitRate": 320000,
+            "mimeType": "audio/ogg",
+            "codec": "Vorbis (container: Ogg)"
+          }
+        ],
+        "metaData": {
+          "artist": "Chris Rea",
+          "contentPlayContextPath": "spotify:/ui/context",
+          "playLogicPath": "spotify:playlogic",
+          "serviceID": "spotify",
+          "live": true,
+          "album": "The Road to Hell (Deluxe Edition, 2019 Remaster)"
+        }
+      }
+    },
+    "error": "",
+    "streamId": 1,
+    "matchingMediaRoles": [],
+    "playId": {
+      "systemMemberId": "Solar",
+      "timestamp": 23967847
+    },
+    "controls": {
+      "backward15sec": false,
+      "forward15sec": false,
+      "pause": true,
+      "playMode": {
+        "repeatOne": true,
+        "shuffle": true,
+        "shuffleRepeatOne": true,
+        "repeatAll": true,
+        "shuffleRepeatAll": true
+      },
+      "previous": true,
+      "seekTime": true,
+      "next_": true
+    },
+    "contextPath": "spotify:/ui/context",
+    "trackRoles": {
+      "containerType": "none",
+      "icon": "https://i.scdn.co/image/ab67616d0000b273ce674a2ea539a905a707e1a4",
+      "doNotTrack": true,
+      "audioType": "audioBroadcast",
+      "type": "audio",
+      "title": "Liar - Live At The Rainbow, London / March 1974",
+      "mediaData": {
+        "resources": [
+          {
+            "sampleFrequency": 44100,
+            "uri": "spotify://",
+            "bitRate": 320000,
+            "mimeType": "audio/ogg",
+            "bitsPerSample": 32,
+            "nrAudioChannels": 2,
+            "codec": "Vorbis (container: Ogg)"
+          }
+        ],
+        "metaData": {
+          "artist": "Queen",
+          "contentPlayContextPath": "spotify:/ui/context",
+          "playLogicPath": "spotify:playlogic",
+          "serviceID": "spotify",
+          "live": true,
+          "album": "Live at the Rainbow (Deluxe)"
+        }
+      }
+    }
+  }
+]

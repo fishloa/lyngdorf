@@ -686,7 +686,17 @@ async def async_fetch_play_modes(
     the per-source list separately omits `normal`), so neither is
     authoritative alone. `settings:/mediaPlayer/playModes` is a list rather
     than a single value, so this uses `getRows` rather than `getData`.
-    Real response shape, confirmed against an MP-60::
+
+    Row shape depends on the roles requested, confirmed against an MP-60.
+    This request asks for `roles=value`, which gives single-element rows::
+
+        {"rowsCount": 4, "rows": [
+            [{"type": "playerPlayMode", "playerPlayMode": "normal"}],
+            [{"type": "playerPlayMode", "playerPlayMode": "shuffle"}],
+            ...
+        ]}
+
+    Requesting `roles=title,value` instead gives two-element rows::
 
         {"rowsCount": 4, "rows": [
             ["Normal", {"type": "playerPlayMode", "playerPlayMode": "normal"}],
@@ -694,7 +704,12 @@ async def async_fetch_play_modes(
             ...
         ]}
 
-    Each row is `[title, value]`; only `value["playerPlayMode"]` is kept.
+    Either way the value is the LAST element of the row, so it is read from
+    `row[-1]` rather than a fixed index - a row is accepted as long as it is
+    a non-empty list whose last element coerces to a play mode. This keeps
+    the parser correct regardless of which roles a future change requests,
+    rather than silently discarding every row whenever the two disagree
+    about row length.
     Returns an empty set on any failure or unexpected shape, never raises -
     a fallback that itself needs troubleshooting has failed at its one job.
     """
@@ -713,9 +728,9 @@ async def async_fetch_play_modes(
 
     modes: set[str] = set()
     for row in rows:
-        if not isinstance(row, list) or len(row) != 2:
+        if not isinstance(row, list) or not row:
             continue
-        mode = _coerce_play_mode(row[1])
+        mode = _coerce_play_mode(row[-1])
         if mode is not None:
             modes.add(mode)
     return frozenset(modes)
