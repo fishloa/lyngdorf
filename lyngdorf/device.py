@@ -42,6 +42,7 @@ from .const import (
     Msg,
 )
 from .exceptions import LyngdorfInvalidValueError
+from .models import NumericRange
 from .states import Control, PlayMode, Repeat
 from .streaming import NowPlaying
 
@@ -102,6 +103,12 @@ class Receiver:
         self._room_perfect_position: str | None = None
         self._voicing: str | None = None
         self._lipsync: int | None = None
+        # Seeded from the documented default (see ModelConfig.lipsync_default_range),
+        # not None - a live LIPSYNCRANGE? reply (queried at startup on the
+        # MP and P families) overwrites it via _lipsync_range_callback once
+        # it arrives. None permanently on a model with no lip sync control
+        # at all (the TDAI family).
+        self._lipsync_range: NumericRange | None = self._model.lipsync_default_range()
         self._trim_bass: float | None = None
         self._trim_centre: float | None = None
         self._trim_height: float | None = None
@@ -239,6 +246,7 @@ class Receiver:
         self._register_callback(Msg.AUDIO_MODES_COUNT, self._sound_modes.count_callback)
         self._register_callback(Msg.AUDIO_MODE, self._sound_mode_callback)
         self._register_callback(Msg.LIP_SYNC, self._lipsync_callback)
+        self._register_callback(Msg.LIP_SYNC_MIN_MAX, self._lipsync_range_callback)
         self._register_surround_trim_callbacks()
 
         await self._api.async_connect()
@@ -799,6 +807,32 @@ class Receiver:
                 "%s is not a valid voicing name, and cannot be chosen", voicing
             )
 
+    def _lipsync_range_callback(self, param1: str, ignored: str) -> None:
+        """Handle a LIPSYNCRANGE reply - `!LIPSYNCRANGE(min,max)` arrives
+        as a single comma-separated field (see `LyngdorfApi._process_event`,
+        which only splits on the first top-level `(`/`)` pair), not two
+        distinct positional params the way most two-value replies do.
+        Confirmed against a real MP-60 on firmware 5.4.2: `!LIPSYNCRANGE(0,500)`.
+        """
+        min_str, _, max_str = param1.partition(",")
+        self._lipsync_range = NumericRange(
+            min=float(min_str), max=float(max_str), step=1.0
+        )
+        self._notify_notification_callbacks()
+
+    @property
+    def lipsync_range(self) -> NumericRange | None:
+        """The device's valid lipsync range, in ms.
+
+        Reflects a live `!LIPSYNCRANGE(min,max)` reply once one has
+        arrived (queried at startup on the MP and P families - see
+        `mp_series.MP_SETUP_MESSAGES`/`p_series.P_SETUP_MESSAGES`); until
+        then, the documented default (`NumericRange(0, 500, 1)`, matching
+        a real MP-60's measured reply). None on a model with no lip sync
+        control at all (the TDAI family - see `has_lipsync_feature`).
+        """
+        return self._lipsync_range
+
     def _lipsync_callback(self, param1: str, param2: str):
         self._lipsync = int(param1)
         self._notify_notification_callbacks()
@@ -824,6 +858,12 @@ class Receiver:
     def trim_bass(self, trim: float):
         self._api.change_trim_bass(trim)
 
+    @property
+    def trim_bass_range(self) -> NumericRange | None:
+        """The documented dB range (and UI step) for `trim_bass`, or None
+        on a model with no bass trim at all (TDAI-2170)."""
+        return self._model.trim_bass_range()
+
     def trim_bass_up(self):
         self._api.trim_bass_up()
 
@@ -841,6 +881,13 @@ class Receiver:
     @trim_centre.setter
     def trim_centre(self, trim: float):
         self._api.change_trim_centre(trim)
+
+    @property
+    def trim_centre_range(self) -> NumericRange | None:
+        """The documented dB range (and UI step) for `trim_centre`, or
+        None on a model with no discrete channel trims at all (see
+        `has_surround_feature`)."""
+        return self._model.trim_centre_range()
 
     def trim_centre_up(self):
         self._api.trim_centre_up()
@@ -860,6 +907,13 @@ class Receiver:
     def trim_height(self, trim: float):
         self._api.change_trim_height(trim)
 
+    @property
+    def trim_height_range(self) -> NumericRange | None:
+        """The documented dB range (and UI step) for `trim_height`, or
+        None on a model with no discrete channel trims at all (see
+        `has_surround_feature`)."""
+        return self._model.trim_height_range()
+
     def trim_height_up(self):
         self._api.trim_height_up()
 
@@ -877,6 +931,13 @@ class Receiver:
     @trim_lfe.setter
     def trim_lfe(self, trim: float):
         self._api.change_trim_lfe(trim)
+
+    @property
+    def trim_lfe_range(self) -> NumericRange | None:
+        """The documented dB range (and UI step) for `trim_lfe`, or None
+        on a model with no discrete channel trims at all (see
+        `has_surround_feature`)."""
+        return self._model.trim_lfe_range()
 
     def trim_lfe_up(self):
         self._api.trim_lfe_up()
@@ -896,6 +957,13 @@ class Receiver:
     def trim_surround(self, trim: float):
         self._api.change_trim_surround(trim)
 
+    @property
+    def trim_surround_range(self) -> NumericRange | None:
+        """The documented dB range (and UI step) for `trim_surround`, or
+        None on a model with no discrete channel trims at all (see
+        `has_surround_feature`)."""
+        return self._model.trim_surround_range()
+
     def trim_surround_up(self):
         self._api.trim_surround_up()
 
@@ -913,6 +981,12 @@ class Receiver:
     @trim_treble.setter
     def trim_treble(self, trim: float):
         self._api.change_trim_treble(trim)
+
+    @property
+    def trim_treble_range(self) -> NumericRange | None:
+        """The documented dB range (and UI step) for `trim_treble`, or
+        None on a model with no treble trim at all (TDAI-2170)."""
+        return self._model.trim_treble_range()
 
     def trim_treble_up(self):
         self._api.trim_treble_up()

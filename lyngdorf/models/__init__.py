@@ -24,7 +24,7 @@ from enum import Enum
 from typing import cast
 
 from ..const import Msg
-from .base import ModelCapability, ModelConfig
+from .base import ModelCapability, ModelConfig, NumericRange
 from .mp_series import MP40_CONFIG, MP50_CONFIG, MP60_CONFIG
 from .p_series import P100_CONFIG, P200_CONFIG, P300_CONFIG
 from .tdai_series import (
@@ -162,6 +162,46 @@ class LyngdorfModel(Enum):
             TDAI family)
         """
         return self._config.has_lipsync()
+
+    def trim_bass_range(self) -> NumericRange | None:
+        """The documented dB range (and step) for bass trim, or None on a
+        model with no bass trim at all (TDAI-2170)."""
+        return self._config.trim_bass_range
+
+    def trim_treble_range(self) -> NumericRange | None:
+        """The documented dB range (and step) for treble trim, or None on
+        a model with no treble trim at all (TDAI-2170)."""
+        return self._config.trim_treble_range
+
+    def trim_centre_range(self) -> NumericRange | None:
+        """The documented dB range (and step) for centre channel trim, or
+        None on a model with no discrete channel trims (see
+        has_surround_feature)."""
+        return self._config.trim_centre_range
+
+    def trim_height_range(self) -> NumericRange | None:
+        """The documented dB range (and step) for height channel trim, or
+        None on a model with no discrete channel trims (see
+        has_surround_feature)."""
+        return self._config.trim_height_range
+
+    def trim_lfe_range(self) -> NumericRange | None:
+        """The documented dB range (and step) for LFE channel trim, or
+        None on a model with no discrete channel trims (see
+        has_surround_feature)."""
+        return self._config.trim_lfe_range
+
+    def trim_surround_range(self) -> NumericRange | None:
+        """The documented dB range (and step) for surround channel trim,
+        or None on a model with no discrete channel trims (see
+        has_surround_feature)."""
+        return self._config.trim_surround_range
+
+    def lipsync_default_range(self) -> NumericRange | None:
+        """The range to assume for lipsync before the device answers a
+        LIPSYNCRANGE? query, or None on a model with no lip sync control
+        at all (the TDAI family - see has_lipsync_feature)."""
+        return self._config.lipsync_default_range
 
     def power_state_on_value(self) -> str:
         """Return the power-state parameter value that means "powered on".
@@ -323,6 +363,7 @@ __all__ = [
     "supported_models",
     "ModelConfig",
     "ModelCapability",
+    "NumericRange",
     "MP40_CONFIG",
     "MP50_CONFIG",
     "MP60_CONFIG",

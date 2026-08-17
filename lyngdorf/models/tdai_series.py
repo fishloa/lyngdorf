@@ -33,7 +33,17 @@ vendor PDF spec only and have not been verified against real hardware
 """
 
 from ..const import STATE_ON, Msg
-from .base import ModelConfig
+from .base import ModelConfig, NumericRange
+
+# docs/tdai-1120.md and docs/tdai-3400.md both document !BASS(n)/!TREBLE(n)
+# as "n = -12 to 12 (dB)" - whole dB values, with no "10 = 1dB"-style
+# sub-decibel encoding the way the MP series' TRIMBASS/TRIMTREB commands
+# have (see mp_series.py's MP_BASS_TREBLE_TRIM_RANGE) - hence the 1.0 dB
+# step here even though the min/max bound happens to match the MP series
+# exactly. TDAI-2170 has neither BASS nor TREBLE at all (see
+# TDAI2170_MESSAGES) so gets no range - has_bass_trim()/has_treble_trim()
+# already reflect that via Msg.TRIM_BASS/Msg.TRIM_TREBLE absence.
+TDAI_BASS_TREBLE_TRIM_RANGE = NumericRange(min=-12.0, max=12.0, step=1.0)
 
 
 class TDAIModelConfig(ModelConfig):
@@ -171,6 +181,8 @@ TDAI1120_CONFIG = TDAIModelConfig(
     power_state_on=STATE_ON,
     mute_state_in_parameter=True,
     has_streaming=True,
+    trim_bass_range=TDAI_BASS_TREBLE_TRIM_RANGE,
+    trim_treble_range=TDAI_BASS_TREBLE_TRIM_RANGE,
 )
 
 # TDAI-2170 Protocol Commands
@@ -342,6 +354,8 @@ TDAI2210_CONFIG = TDAIModelConfig(
     power_state_on=STATE_ON,
     mute_state_in_parameter=True,
     has_streaming=True,
+    trim_bass_range=TDAI_BASS_TREBLE_TRIM_RANGE,
+    trim_treble_range=TDAI_BASS_TREBLE_TRIM_RANGE,
 )
 
 TDAI3400_CONFIG = TDAIModelConfig(
@@ -357,4 +371,6 @@ TDAI3400_CONFIG = TDAIModelConfig(
     power_state_on=STATE_ON,
     mute_state_in_parameter=True,
     has_streaming=True,
+    trim_bass_range=TDAI_BASS_TREBLE_TRIM_RANGE,
+    trim_treble_range=TDAI_BASS_TREBLE_TRIM_RANGE,
 )

@@ -14,7 +14,19 @@ Protocol Characteristics:
 """
 
 from ..const import Msg
-from .base import ModelConfig
+from .base import ModelConfig, NumericRange
+
+# Trim ranges below are transcribed from docs/mp-40.md, docs/mp-50.md and
+# docs/mp-60.md, which all document identical bounds and "10 = 1dB"
+# encoding (hence the 0.1 dB step) for every MP model - not assumed, each
+# was checked individually. !TRIMBASS/!TRIMTREB: -120..120 (-12..+12 dB).
+MP_BASS_TREBLE_TRIM_RANGE = NumericRange(min=-12.0, max=12.0, step=0.1)
+# !TRIMCENTER/!TRIMHEIGHT/!TRIMLFE/!TRIMSURRS: -100..100 (-10..+10 dB).
+MP_CHANNEL_TRIM_RANGE = NumericRange(min=-10.0, max=10.0, step=0.1)
+# Fallback for Receiver.lipsync_range before a real LIPSYNCRANGE? reply
+# arrives - see Receiver._lipsync_range_callback. Matches a real MP-60's
+# measured reply on firmware 5.4.2: !LIPSYNCRANGE(0,500).
+LIPSYNC_DEFAULT_RANGE = NumericRange(min=0.0, max=500.0, step=1.0)
 
 # Shared MP Protocol Commands
 # All MP-40, MP-50, and MP-60 models use this command mapping
@@ -125,6 +137,7 @@ MP_SETUP_MESSAGES: list[str] = [
     f"{MP_MESSAGES[Msg.VIDEO_TYPE]}?",
     f"{MP_MESSAGES[Msg.STREAM_TYPE]}?",
     f"{MP_MESSAGES[Msg.LIP_SYNC]}?",
+    f"{MP_MESSAGES[Msg.LIP_SYNC_MIN_MAX]}?",
     f"{MP_MESSAGES[Msg.ZONE_B_STREAM_TYPE]}?",
     f"{MP_MESSAGES[Msg.AUDIO_IN]}?",
     f"{MP_MESSAGES[Msg.VIDEO_IN]}?",
@@ -198,6 +211,13 @@ MP40_CONFIG = ModelConfig(
     has_video=True,
     has_surround=True,
     has_streaming=True,
+    trim_bass_range=MP_BASS_TREBLE_TRIM_RANGE,
+    trim_treble_range=MP_BASS_TREBLE_TRIM_RANGE,
+    trim_centre_range=MP_CHANNEL_TRIM_RANGE,
+    trim_height_range=MP_CHANNEL_TRIM_RANGE,
+    trim_lfe_range=MP_CHANNEL_TRIM_RANGE,
+    trim_surround_range=MP_CHANNEL_TRIM_RANGE,
+    lipsync_default_range=LIPSYNC_DEFAULT_RANGE,
 )
 
 # MP-50 Hardware Configuration
@@ -279,6 +299,13 @@ MP50_CONFIG = ModelConfig(
     has_video=True,
     has_surround=True,
     has_streaming=True,
+    trim_bass_range=MP_BASS_TREBLE_TRIM_RANGE,
+    trim_treble_range=MP_BASS_TREBLE_TRIM_RANGE,
+    trim_centre_range=MP_CHANNEL_TRIM_RANGE,
+    trim_height_range=MP_CHANNEL_TRIM_RANGE,
+    trim_lfe_range=MP_CHANNEL_TRIM_RANGE,
+    trim_surround_range=MP_CHANNEL_TRIM_RANGE,
+    lipsync_default_range=LIPSYNC_DEFAULT_RANGE,
 )
 
 # MP-60 Hardware Configuration
@@ -365,4 +392,11 @@ MP60_CONFIG = ModelConfig(
     has_video=True,
     has_surround=True,
     has_streaming=True,
+    trim_bass_range=MP_BASS_TREBLE_TRIM_RANGE,
+    trim_treble_range=MP_BASS_TREBLE_TRIM_RANGE,
+    trim_centre_range=MP_CHANNEL_TRIM_RANGE,
+    trim_height_range=MP_CHANNEL_TRIM_RANGE,
+    trim_lfe_range=MP_CHANNEL_TRIM_RANGE,
+    trim_surround_range=MP_CHANNEL_TRIM_RANGE,
+    lipsync_default_range=LIPSYNC_DEFAULT_RANGE,
 )

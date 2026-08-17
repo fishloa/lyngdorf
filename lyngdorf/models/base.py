@@ -12,6 +12,36 @@ from typing import Protocol
 from ..const import POWER_ON, Msg
 
 
+@dataclass(frozen=True)
+class NumericRange:
+    """The valid range for an adjustable numeric setting (a trim, or
+    lipsync), as `(min, max, step)`.
+
+    A value object rather than a bare tuple so a consumer (in particular
+    the Home Assistant `number` platform, which needs exactly these three
+    fields to build a `NumberEntity`) gets named, self-documenting fields
+    instead of having to remember index 0/1/2.
+
+    `step` is a display/UI granularity, not something this library
+    enforces on writes - `Receiver.trim_bass`'s setter (see device.py)
+    validates against `min`/`max` only, the same way Home Assistant itself
+    only clamps to the native min/max and never rounds to a step before
+    calling into an integration. It exists here purely so a consumer can
+    build a correctly-grained slider without having to know, for example,
+    that the MP series' trims are addressable to 0.1 dB (`api.py` encodes
+    `int(trim * 10)` on the wire) while the TDAI series' are whole-dB only.
+
+    Frozen (and so hashable/comparable by value) rather than a plain
+    class, matching `PlayMode` and `NowPlaying` elsewhere in this
+    codebase - there is no mutable state here to protect, just three
+    numbers that are meaningless individually.
+    """
+
+    min: float
+    max: float
+    step: float
+
+
 class ModelCapability(Protocol):
     """Protocol defining what a model configuration must provide.
 
@@ -100,6 +130,27 @@ class ModelConfig:
             TDAI-1120/3400; False for TDAI-2170 (unconfirmed - only present
             if an optional streaming board is fitted) and the P-series
             (no streaming source at all).
+        trim_bass_range, trim_treble_range: The device-documented dB range
+            (and UI step granularity) for bass/treble trim, or None on a
+            model with no bass/treble trim at all (TDAI-2170). Taken from
+            the per-model vendor manuals in docs/ - NOT assumed equal
+            across families: the MP series encodes 0.1 dB steps
+            (`!TRIMBASS`, "10 = 1dB" per docs/mp-40.md et al) while the
+            TDAI series' `!BASS`/`!TREBLE` are documented as whole dB only
+            (docs/tdai-1120.md, docs/tdai-3400.md), even though both
+            families happen to share the same -12..+12 dB bound.
+        trim_centre_range, trim_height_range, trim_lfe_range,
+            trim_surround_range: The device-documented dB range for the
+            discrete multichannel speaker trims - MP series only (see
+            has_surround); None everywhere else, including the TDAI family
+            (which has bass/treble trim but no per-channel trims at all).
+        lipsync_default_range: The range to report for `Receiver.lipsync_range`
+            before the device has answered a `LIPSYNCRANGE?` query (or on a
+            model where it never will, if this is None). The MP and P
+            families both map Msg.LIP_SYNC_MIN_MAX and query it at
+            startup, so this is a fallback, not the final word - see
+            `Receiver._lipsync_range_callback`. None for the TDAI family,
+            which has no lip sync control at all.
     """
 
     model_name: str
@@ -117,6 +168,13 @@ class ModelConfig:
     has_video: bool = False
     has_surround: bool = False
     has_streaming: bool = False
+    trim_bass_range: NumericRange | None = None
+    trim_treble_range: NumericRange | None = None
+    trim_centre_range: NumericRange | None = None
+    trim_height_range: NumericRange | None = None
+    trim_lfe_range: NumericRange | None = None
+    trim_surround_range: NumericRange | None = None
+    lipsync_default_range: NumericRange | None = None
     power_state_on: str = POWER_ON
     mute_state_in_parameter: bool = False
     keepalive_message: Msg | None = Msg.DEVICE

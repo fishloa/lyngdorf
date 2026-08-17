@@ -164,6 +164,26 @@ receiver.trim_bass_up()
 receiver.trim_bass_down()
 ```
 
+### Numeric Ranges & Lip Sync
+```python
+# Each adjustable numeric setting has a matching *_range property -
+# NumericRange(min, max, step) - None on a model with no such setting at
+# all (e.g. trim_centre_range is None on every TDAI; every trim range is
+# None on the P series). A UI (e.g. Home Assistant's `number` platform)
+# should build its slider bounds from these instead of hardcoding them -
+# they vary by model, and the MP series' 0.1 dB step genuinely differs
+# from the TDAI series' whole-dB-only one even where the dB bound matches.
+print(receiver.trim_bass_range)     # NumericRange(-12.0, 12.0, 0.1) on an MP
+print(receiver.trim_centre_range)   # None on a TDAI - no discrete channel trims
+
+# lipsync_range is a live property: it starts at the documented default
+# (NumericRange(0, 500, 1)) and is overwritten once the device answers its
+# own LIPSYNCRANGE? query - re-read it rather than caching it once. None
+# on the TDAI family, which has no lip sync control at all.
+print(receiver.lipsync_range)
+receiver.lipsync = 20   # ms
+```
+
 ### Zone B Control (MP Series)
 ```python
 # Zone B power

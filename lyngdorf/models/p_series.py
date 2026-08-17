@@ -13,7 +13,14 @@ Manual only and has not been verified against real hardware.
 """
 
 from ..const import Msg
-from .base import ModelConfig
+from .base import ModelConfig, NumericRange
+
+# Fallback for Receiver.lipsync_range before a real LIPSYNCRANGE? reply
+# arrives - see Receiver._lipsync_range_callback. The P series has never
+# been verified against real hardware (see module docstring); this
+# mirrors the MP-60 measurement (!LIPSYNCRANGE(0,500)) since both
+# families document the same LIPSYNC/LIPSYNCRANGE commands.
+P_LIPSYNC_DEFAULT_RANGE = NumericRange(min=0.0, max=500.0, step=1.0)
 
 # Shared P Series Protocol Commands
 P_MESSAGES: dict[Msg, str] = {
@@ -76,6 +83,7 @@ P_SETUP_MESSAGES: list[str] = [
     f"{P_MESSAGES[Msg.ROOM_PERFECT_VOICING]}?",
     f"{P_MESSAGES[Msg.VIDEO_TYPE]}?",
     f"{P_MESSAGES[Msg.LIP_SYNC]}?",
+    f"{P_MESSAGES[Msg.LIP_SYNC_MIN_MAX]}?",
     f"{P_MESSAGES[Msg.AUDIO_IN]}?",
     f"{P_MESSAGES[Msg.VIDEO_IN]}?",
     f"{P_MESSAGES[Msg.AUDIO_TYPE]}?",
@@ -128,6 +136,7 @@ P100_CONFIG = ModelConfig(
     stream_types={},
     has_zone_b=True,
     has_video=True,
+    lipsync_default_range=P_LIPSYNC_DEFAULT_RANGE,
 )
 
 # P200 / P300 Hardware Configuration
@@ -166,6 +175,7 @@ P200_CONFIG = ModelConfig(
     video_outputs=P_VIDEO_OUTPUTS,
     has_zone_b=True,
     has_video=True,
+    lipsync_default_range=P_LIPSYNC_DEFAULT_RANGE,
 )
 
 P300_CONFIG = ModelConfig(
@@ -179,4 +189,5 @@ P300_CONFIG = ModelConfig(
     video_outputs=P_VIDEO_OUTPUTS,
     has_zone_b=True,
     has_video=True,
+    lipsync_default_range=P_LIPSYNC_DEFAULT_RANGE,
 )

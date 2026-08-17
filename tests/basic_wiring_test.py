@@ -28,6 +28,7 @@ from lyngdorf.const import (
 )
 from lyngdorf.device import Receiver, async_create_receiver, lookup_receiver_model
 from lyngdorf.exceptions import LyngdorfInvalidValueError
+from lyngdorf.models import NumericRange
 
 _LOGGER = logging.getLogger(__package__)
 
@@ -335,6 +336,82 @@ class TestLyngdorfModel:
             assert model.supports_message(Msg.TRIM_CENTRE) is False
             assert model.supports_message(Msg.TRIM_BASS) is False
             assert model.supports_message(Msg.STREAM_TYPE) is False
+
+    def test_mp_series_trim_ranges_are_identical_across_the_family(self):
+        """#36: docs/mp-40.md, docs/mp-50.md and docs/mp-60.md were each
+        checked individually rather than assumed to match - they turn out
+        to document identical bounds and "10 = 1dB" (0.1 dB step)
+        encoding for every trim, across all three MP models."""
+        from lyngdorf.models import NumericRange
+
+        bass_treble = NumericRange(min=-12.0, max=12.0, step=0.1)
+        channel = NumericRange(min=-10.0, max=10.0, step=0.1)
+        for model in (LyngdorfModel.MP_40, LyngdorfModel.MP_50, LyngdorfModel.MP_60):
+            assert model.trim_bass_range() == bass_treble
+            assert model.trim_treble_range() == bass_treble
+            assert model.trim_centre_range() == channel
+            assert model.trim_height_range() == channel
+            assert model.trim_lfe_range() == channel
+            assert model.trim_surround_range() == channel
+
+    def test_tdai_bass_treble_trim_range_has_a_coarser_step_than_mp(self):
+        """docs/tdai-1120.md and docs/tdai-3400.md document !BASS/!TREBLE
+        as "n = -12 to 12 (dB)" with no sub-decibel encoding, unlike the
+        MP series' "10 = 1dB" TRIMBASS/TRIMTREB - so the bound happens to
+        match the MP series exactly but the step must not (0.1 would
+        overstate the real resolution)."""
+        from lyngdorf.models import NumericRange
+
+        expected = NumericRange(min=-12.0, max=12.0, step=1.0)
+        for model in (
+            LyngdorfModel.TDAI_1120,
+            LyngdorfModel.TDAI_2210,
+            LyngdorfModel.TDAI_3400,
+        ):
+            assert model.trim_bass_range() == expected
+            assert model.trim_treble_range() == expected
+            # No discrete channel trims on any TDAI model.
+            assert model.trim_centre_range() is None
+            assert model.trim_height_range() is None
+            assert model.trim_lfe_range() is None
+            assert model.trim_surround_range() is None
+
+    def test_tdai_2170_has_no_trim_ranges_at_all(self):
+        """TDAI-2170 has neither bass/treble trim nor discrete channel
+        trims (see has_bass_trim_feature/has_treble_trim_feature) - every
+        range must be None, not a fabricated default."""
+        model = LyngdorfModel.TDAI_2170
+        assert model.trim_bass_range() is None
+        assert model.trim_treble_range() is None
+        assert model.trim_centre_range() is None
+        assert model.trim_height_range() is None
+        assert model.trim_lfe_range() is None
+        assert model.trim_surround_range() is None
+
+    def test_p_series_has_no_trim_ranges(self):
+        """The P series protocol has no TRIM* commands whatsoever (see
+        p_series.py's module docstring) - every trim range must be None."""
+        for model in (LyngdorfModel.P_100, LyngdorfModel.P_200, LyngdorfModel.P_300):
+            assert model.trim_bass_range() is None
+            assert model.trim_treble_range() is None
+            assert model.trim_centre_range() is None
+            assert model.trim_height_range() is None
+            assert model.trim_lfe_range() is None
+            assert model.trim_surround_range() is None
+
+    def test_lipsync_default_range_matches_lipsync_feature(self):
+        """lipsync_default_range() must be non-None exactly where
+        has_lipsync_feature() is True (MP and P series) - see the real
+        MP-60 measurement of !LIPSYNCRANGE(0,500) this default mirrors -
+        and None everywhere else (the TDAI family)."""
+        from lyngdorf.models import NumericRange
+
+        expected_default = NumericRange(min=0.0, max=500.0, step=1.0)
+        for model in supported_models():
+            if model.has_lipsync_feature():
+                assert model.lipsync_default_range() == expected_default
+            else:
+                assert model.lipsync_default_range() is None
 
     def test_readme_supported_models_matches_enum(self):
         """The README's "## Supported Models" section is the single
@@ -1835,6 +1912,114 @@ class TestTrimControls:
             client_functions,
             assertion_function,
         )
+
+    def test_trim_and_lipsync_ranges_match_model_config(self):
+        """#36: Receiver.trim_*_range/lipsync_range must delegate to the
+        connected model's config - checked across every model, not just
+        MP-60. No connection is needed: these come straight from static
+        per-model data (see ModelConfig), except lipsync_range, which
+        starts at the documented default and is only overwritten by a
+        live LIPSYNCRANGE reply (see test_lipsync_range_reading below)."""
+        from lyngdorf.device import (
+            MP40Receiver,
+            MP50Receiver,
+            MP60Receiver,
+            P100Receiver,
+            P200Receiver,
+            P300Receiver,
+            TDAI1120Receiver,
+            TDAI2170Receiver,
+            TDAI2210Receiver,
+            TDAI3400Receiver,
+        )
+
+        for cls, model in (
+            (MP40Receiver, LyngdorfModel.MP_40),
+            (MP50Receiver, LyngdorfModel.MP_50),
+            (MP60Receiver, LyngdorfModel.MP_60),
+            (TDAI1120Receiver, LyngdorfModel.TDAI_1120),
+            (TDAI2170Receiver, LyngdorfModel.TDAI_2170),
+            (TDAI2210Receiver, LyngdorfModel.TDAI_2210),
+            (TDAI3400Receiver, LyngdorfModel.TDAI_3400),
+            (P100Receiver, LyngdorfModel.P_100),
+            (P200Receiver, LyngdorfModel.P_200),
+            (P300Receiver, LyngdorfModel.P_300),
+        ):
+            receiver = cls(FAKE_IP)
+            assert receiver.trim_bass_range == model.trim_bass_range()
+            assert receiver.trim_treble_range == model.trim_treble_range()
+            assert receiver.trim_centre_range == model.trim_centre_range()
+            assert receiver.trim_height_range == model.trim_height_range()
+            assert receiver.trim_lfe_range == model.trim_lfe_range()
+            assert receiver.trim_surround_range == model.trim_surround_range()
+            assert receiver.lipsync_range == model.lipsync_default_range()
+
+    @pytest.mark.asyncio
+    async def test_lipsync_range_reading(self):
+        """#36: a real MP-60 on firmware 5.4.2 answered
+        !LIPSYNCRANGE(0,500) to the LIPSYNCRANGE? query added to
+        mp_series.py's setup_commands - confirm the reply is parsed via
+        the newly-registered callback and overwrites the documented
+        default, firing a notification the way max_volume's callback
+        does (#40)."""
+
+        def test_function(client: Receiver):
+            assert client.lipsync_range == NumericRange(min=0.0, max=500.0, step=1.0)
+
+        responses = SETUP_RESPONSES + ["!LIPSYNCRANGE(50,450)"]
+
+        def test_function_custom_range(client: Receiver):
+            assert client.lipsync_range == NumericRange(min=50.0, max=450.0, step=1.0)
+
+        await self._test_receiving_commands(
+            responses, "LIPSYNCRANGE", test_function_custom_range
+        )
+
+    def test_lipsync_range_default_before_any_reply(self):
+        """lipsync_range starts at the documented default
+        (NumericRange(0, 500, 1)), not None, on a model that supports lip
+        sync - matching a real MP-60's measured !LIPSYNCRANGE(0,500) -
+        and stays None forever on a model that has no lip sync control at
+        all (the TDAI family)."""
+        from lyngdorf.device import MP60Receiver, TDAI1120Receiver
+
+        assert MP60Receiver(FAKE_IP).lipsync_range == NumericRange(
+            min=0.0, max=500.0, step=1.0
+        )
+        assert TDAI1120Receiver(FAKE_IP).lipsync_range is None
+
+    async def _test_receiving_commands(
+        self,
+        commands_received,
+        wait_for_command,
+        test_function,
+        before_connect_function=None,
+    ):
+        """Helper to test receiving commands from receiver."""
+        transport = mock.Mock()
+        protocol = LyngdorfProtocol(None, None)
+
+        def create_conn(proto_lambda, host, port):
+            proto = proto_lambda()
+            protocol._on_connection_lost = proto._on_connection_lost
+            protocol._on_message = proto._on_message
+            return [transport, proto]
+
+        client = await async_create_receiver(FAKE_IP, LyngdorfModel.MP_60)
+        if before_connect_function is not None:
+            before_connect_function(client)
+
+        with mock.patch("asyncio.get_event_loop", new_callable=mock.Mock) as debug_mock:
+            debug_mock.return_value.create_connection = AsyncMock(
+                side_effect=create_conn
+            )
+            await client.async_connect()
+            self.future = asyncio.Future()
+            client._api.register_callback(wait_for_command, self._callback)
+            protocol.data_received(bytes("\r".join(commands_received) + "\r", "utf-8"))
+            await self.future
+            test_function(client)
+            await client.async_disconnect()
 
     async def _test_sending_commands(
         self,
