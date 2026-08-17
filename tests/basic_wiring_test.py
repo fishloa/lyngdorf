@@ -282,6 +282,47 @@ class TestLyngdorfModel:
         assert LyngdorfModel.P_200.has_surround_feature() is False
         assert LyngdorfModel.P_300.has_surround_feature() is False
 
+    def test_mp_and_p_series_have_lipsync_feature(self):
+        """MP and P series both map Msg.LIP_SYNC (!LIPSYNC)."""
+        assert LyngdorfModel.MP_40.has_lipsync_feature() is True
+        assert LyngdorfModel.MP_50.has_lipsync_feature() is True
+        assert LyngdorfModel.MP_60.has_lipsync_feature() is True
+        assert LyngdorfModel.P_100.has_lipsync_feature() is True
+        assert LyngdorfModel.P_200.has_lipsync_feature() is True
+        assert LyngdorfModel.P_300.has_lipsync_feature() is True
+
+    def test_tdai_series_no_lipsync_feature(self):
+        """TDAI series has no LIP_SYNC mapping at all - lip sync is an
+        MP/P-only control."""
+        assert LyngdorfModel.TDAI_1120.has_lipsync_feature() is False
+        assert LyngdorfModel.TDAI_2170.has_lipsync_feature() is False
+        assert LyngdorfModel.TDAI_2210.has_lipsync_feature() is False
+        assert LyngdorfModel.TDAI_3400.has_lipsync_feature() is False
+
+    def test_lipsync_feature_covers_every_model(self):
+        """Every model must land in exactly one of the two lists above -
+        a newly added model with no explicit assertion must not silently
+        default to either state."""
+        lipsync_models = {
+            LyngdorfModel.MP_40,
+            LyngdorfModel.MP_50,
+            LyngdorfModel.MP_60,
+            LyngdorfModel.P_100,
+            LyngdorfModel.P_200,
+            LyngdorfModel.P_300,
+        }
+        no_lipsync_models = {
+            LyngdorfModel.TDAI_1120,
+            LyngdorfModel.TDAI_2170,
+            LyngdorfModel.TDAI_2210,
+            LyngdorfModel.TDAI_3400,
+        }
+        assert lipsync_models | no_lipsync_models == set(supported_models())
+        assert lipsync_models & no_lipsync_models == set()
+        for model in supported_models():
+            expected = model in lipsync_models
+            assert model.has_lipsync_feature() is expected
+
     def test_p_series_has_audio_modes_and_lipsync_despite_no_surround_flag(self):
         """P series lacks TRIM* commands entirely but still supports audio
         mode selection and lip sync - these must not be gated by

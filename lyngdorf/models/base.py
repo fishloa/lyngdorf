@@ -165,6 +165,12 @@ class ModelConfig:
         only setting it to an absolute value."""
         return Msg.TRIM_TREBLE_SET in self.messages
 
+    def has_lipsync(self) -> bool:
+        """Whether this model has lip sync (audio/video delay) control.
+        True for the MP and P families; the TDAI family has no LIP_SYNC
+        mapping at all."""
+        return Msg.LIP_SYNC in self.messages
+
     def volume_up_command(self) -> str:
         return f"{self.lookup_command(Msg.VOLUME)}+"
 

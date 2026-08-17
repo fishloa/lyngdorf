@@ -153,6 +153,16 @@ class LyngdorfModel(Enum):
         """
         return self._config.has_streaming
 
+    def has_lipsync_feature(self) -> bool:
+        """Check if this model supports lip sync (audio/video delay)
+        adjustment.
+
+        Returns:
+            True if the model maps Msg.LIP_SYNC, False otherwise (the
+            TDAI family)
+        """
+        return self._config.has_lipsync()
+
     def power_state_on_value(self) -> str:
         """Return the power-state parameter value that means "powered on".
 
