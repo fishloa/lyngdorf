@@ -74,6 +74,7 @@ from .const import (
     PLAY_MODES_PATH,
     STREAMMAGIC_PORT,
 )
+from .states import Control, PlaybackState, PlayMode
 
 _LOGGER = logging.getLogger(__package__)
 
@@ -85,8 +86,10 @@ class NowPlaying:
     """Now-playing metadata for a streaming-capable model.
 
     Attributes:
-        state: Raw play state as reported by the device (e.g. "playing",
-            "paused", "transitioning"), passed through unnormalized.
+        state: Playback state as reported by the device (e.g. playing,
+            paused, transitioning). A lenient `PlaybackState`, so a value
+            the device reports that isn't one of the known members still
+            comes through usably rather than raising - see `states.py`.
         title: Track title.
         artist: Track artist.
         album: Track album.
@@ -96,21 +99,25 @@ class NowPlaying:
         duration_ms: Track duration in milliseconds, if known. No elapsed/
             position is available from this endpoint.
         controls: Transport actions the device currently offers, e.g.
-            {"pause", "next_", "previous", "seekTime"}. Source-dependent
-            and empty when nothing is playing.
-        play_modes: Shuffle/repeat modes the current source offers, e.g.
-            {"shuffle", "repeatAll"}. Empty on sources that offer none.
+            {Control.PAUSE, Control.NEXT_TRACK, Control.PREVIOUS_TRACK,
+            Control.SEEK}. Source-dependent and empty when nothing is
+            playing.
+        play_modes: Shuffle/repeat modes the current source offers, built
+            by mapping each advertised wire string through
+            `PlayMode.from_wire` and dropping any that come back
+            unrecognised (logged at debug). Empty on sources that offer
+            none.
     """
 
-    state: str | None
+    state: PlaybackState | None
     title: str | None
     artist: str | None
     album: str | None
     source: str | None
     art_url: str | None
     duration_ms: int | None
-    controls: frozenset[str] = frozenset()
-    play_modes: frozenset[str] = frozenset()
+    controls: frozenset[Control] = frozenset()
+    play_modes: frozenset[PlayMode] = frozenset()
 
 
 def _enabled_keys(payload: object) -> frozenset[str]:
@@ -156,13 +163,19 @@ def parse_now_playing(payload: object) -> NowPlaying | None:
     controls_payload = payload.get("controls")
     controls_payload = controls_payload if isinstance(controls_payload, dict) else {}
     # `playMode` is a nested capability dict, not a transport action.
-    controls = _enabled_keys(
-        {k: v for k, v in controls_payload.items() if k != "playMode"}
+    controls = frozenset(
+        Control(k)
+        for k in _enabled_keys(
+            {k: v for k, v in controls_payload.items() if k != "playMode"}
+        )
     )
-    play_modes = _enabled_keys(controls_payload.get("playMode"))
+    play_modes = parse_play_modes(_enabled_keys(controls_payload.get("playMode")))
+
+    raw_state = payload.get("state")
+    state = PlaybackState(raw_state) if isinstance(raw_state, str) else None
 
     return NowPlaying(
-        state=payload.get("state"),
+        state=state,
         title=title,
         artist=meta_data.get("artist"),
         album=meta_data.get("album"),
@@ -172,6 +185,24 @@ def parse_now_playing(payload: object) -> NowPlaying | None:
         controls=controls,
         play_modes=play_modes,
     )
+
+
+def parse_play_modes(wire_values: frozenset[str]) -> frozenset[PlayMode]:
+    """Map advertised wire strings through `PlayMode.from_wire`.
+
+    A wire string the device advertises that `PlayMode` does not model
+    (a firmware update grew a mode we do not know about) is dropped rather
+    than raising - logged at debug, since it means the device offers
+    something this library cannot yet represent.
+    """
+    modes = set()
+    for value in wire_values:
+        mode = PlayMode.from_wire(value)
+        if mode is None:
+            _LOGGER.debug("Unmodelled play mode advertised: %r", value)
+            continue
+        modes.add(mode)
+    return frozenset(modes)
 
 
 def _coerce_ms(raw: object) -> int | None:
@@ -771,11 +802,6 @@ async def async_poll_now_playing_events(
 # app can. The device reports which happened: a real pause leaves `controls`
 # populated, a teardown empties it.
 
-CONTROL_PAUSE = "pause"
-CONTROL_NEXT = "next_"
-CONTROL_PREVIOUS = "previous"
-CONTROL_SEEK = "seekTime"
-
 
 async def _write(
     host: str,
@@ -832,12 +858,12 @@ async def _activate(
 
 async def async_activate_control(
     host: str,
-    control: str,
+    control: Control | str,
     port: int = STREAMMAGIC_PORT,
     timeout: float = 8.0,
     session: StreamMagicSession | None = None,
 ) -> bool:
-    """Send one transport action, e.g. `CONTROL_PAUSE`.
+    """Send one transport action, e.g. `Control.PAUSE`.
 
     Returns False on rejection or network failure rather than raising.
     """
@@ -859,7 +885,7 @@ async def async_seek(
     """
     return await _activate(
         host,
-        {"control": CONTROL_SEEK, "time": int(position_ms)},
+        {"control": Control.SEEK, "time": int(position_ms)},
         port,
         timeout,
         session,

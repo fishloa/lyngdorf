@@ -34,6 +34,7 @@ from .device import (
     async_find_receiver_model,
     async_get_device_serial,
 )
+from .states import Control, PlaybackState, PlayMode, Repeat
 from .streaming import NowPlaying
 
 __all__ = [
@@ -53,6 +54,10 @@ __all__ = [
     "async_find_receiver_model",
     "async_get_device_serial",
     "NowPlaying",
+    "Control",
+    "PlaybackState",
+    "PlayMode",
+    "Repeat",
 ]
 
 try:

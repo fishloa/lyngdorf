@@ -19,6 +19,7 @@ import pytest
 from lyngdorf.api import LyngdorfApi
 from lyngdorf.const import LyngdorfModel
 from lyngdorf.device import Receiver
+from lyngdorf.states import Control, PlaybackState, PlayMode, Repeat
 from lyngdorf.streaming import (
     NowPlaying,
     StreamMagicSession,
@@ -34,6 +35,7 @@ from lyngdorf.streaming import (
     async_subscribe_now_playing,
     parse_now_playing,
     parse_play_mode_events,
+    parse_play_modes,
     parse_position_events,
 )
 
@@ -70,7 +72,7 @@ class TestParseNowPlaying:
     def test_playing_track(self):
         np = parse_now_playing(self.PLAYING_PAYLOAD)
         assert np is not None
-        assert np.state == "playing"
+        assert np.state == PlaybackState.PLAYING
         assert np.title == "Bohemian Rhapsody"
         assert np.artist == "Queen"
         assert np.album == "A Night at the Opera"
@@ -82,7 +84,7 @@ class TestParseNowPlaying:
         payload = {**self.PLAYING_PAYLOAD, "state": "paused"}
         np = parse_now_playing(payload)
         assert np is not None
-        assert np.state == "paused"
+        assert np.state == PlaybackState.PAUSED
 
     def test_empty_dict_returns_none(self):
         assert parse_now_playing({}) is None
@@ -164,7 +166,7 @@ class TestRealCaptures:
         assert np.artist == "David Gilmour"
         assert np.album == "Live in Gdansk"
         assert np.source == "AirPlay"
-        assert np.state == "playing"
+        assert np.state == PlaybackState.PLAYING
         assert np.duration_ms == 723785
         assert np.art_url is not None and np.art_url.startswith("http://")
 
@@ -194,12 +196,12 @@ class TestRealCaptures:
             _unwrap_value(load_fixture("now_playing_spotify_connect.json"))
         )
         assert np is not None
-        assert "pause" in np.controls
-        assert "next_" in np.controls
-        assert "previous" in np.controls
-        assert "seekTime" in np.controls
-        assert "repeatAll" in np.play_modes
-        assert "shuffle" in np.play_modes
+        assert Control.PAUSE in np.controls
+        assert Control.NEXT_TRACK in np.controls
+        assert Control.PREVIOUS_TRACK in np.controls
+        assert Control.SEEK in np.controls
+        assert PlayMode(shuffle=False, repeat=Repeat.ALL) in np.play_modes
+        assert PlayMode(shuffle=True, repeat=Repeat.OFF) in np.play_modes
 
     def test_false_controls_are_not_capabilities(self):
         """The device advertises unavailable controls as false."""
@@ -207,13 +209,15 @@ class TestRealCaptures:
             _unwrap_value(load_fixture("now_playing_spotify_connect.json"))
         )
         assert np is not None
-        assert "backward15sec" not in np.controls
-        assert "forward15sec" not in np.controls
+        assert Control.SKIP_BACKWARD_15_SECONDS not in np.controls
+        assert Control.SKIP_FORWARD_15_SECONDS not in np.controls
 
     def test_airplay_has_no_seek_or_play_modes(self):
         np = parse_now_playing(_unwrap_value(load_fixture("now_playing_airplay.json")))
         assert np is not None
-        assert np.controls == frozenset({"pause", "next_", "previous"})
+        assert np.controls == frozenset(
+            {Control.PAUSE, Control.NEXT_TRACK, Control.PREVIOUS_TRACK}
+        )
         assert np.play_modes == frozenset()
 
     def test_play_mode_key_is_not_itself_a_control(self):
@@ -349,6 +353,27 @@ class TestParsePlayModeEvents:
 
     def test_not_a_list_returns_none(self):
         assert parse_play_mode_events(None) is None
+
+
+class TestParsePlayModes:
+    """`parse_play_modes` maps advertised wire strings through
+    `PlayMode.from_wire`, dropping anything unrecognised - shared by
+    `parse_now_playing` (per-source) and the global-enum fallback."""
+
+    def test_maps_known_wire_values(self):
+        assert parse_play_modes(frozenset({"shuffle", "repeatAll"})) == frozenset(
+            {PlayMode(True, Repeat.OFF), PlayMode(False, Repeat.ALL)}
+        )
+
+    def test_drops_unrecognised_values(self):
+        """A firmware update growing a mode this library does not model
+        must not raise, and must not be silently mistaken for a known one."""
+        assert parse_play_modes(frozenset({"shuffle", "bogusMode"})) == frozenset(
+            {PlayMode(True, Repeat.OFF)}
+        )
+
+    def test_empty_input(self):
+        assert parse_play_modes(frozenset()) == frozenset()
 
 
 # -- Fake HTTP server for integration tests --
@@ -780,7 +805,7 @@ class TestApiNowPlaying:
         api = LyngdorfApi("127.0.0.1", LyngdorfModel.MP_60)
         received = []
         api.register_now_playing_callback(received.append)
-        np = NowPlaying("playing", "T", "A", "Al", "S", None, None)
+        np = NowPlaying(PlaybackState.PLAYING, "T", "A", "Al", "S", None, None)
         api._update_now_playing(np)
         assert received == [np]
 
@@ -788,7 +813,7 @@ class TestApiNowPlaying:
         api = LyngdorfApi("127.0.0.1", LyngdorfModel.MP_60)
         received = []
         api.register_now_playing_callback(received.append)
-        np = NowPlaying("playing", "T", "A", "Al", "S", None, None)
+        np = NowPlaying(PlaybackState.PLAYING, "T", "A", "Al", "S", None, None)
         api._update_now_playing(np)
         api._update_now_playing(np)
         assert len(received) == 1
@@ -797,8 +822,8 @@ class TestApiNowPlaying:
         api = LyngdorfApi("127.0.0.1", LyngdorfModel.MP_60)
         received = []
         api.register_now_playing_callback(received.append)
-        np1 = NowPlaying("playing", "T1", None, None, None, None, None)
-        np2 = NowPlaying("playing", "T2", None, None, None, None, None)
+        np1 = NowPlaying(PlaybackState.PLAYING, "T1", None, None, None, None, None)
+        np2 = NowPlaying(PlaybackState.PLAYING, "T2", None, None, None, None, None)
         api._update_now_playing(np1)
         api._update_now_playing(np2)
         assert received == [np1, np2]
@@ -806,7 +831,7 @@ class TestApiNowPlaying:
     def test_now_playing_property(self):
         api = LyngdorfApi("127.0.0.1", LyngdorfModel.MP_60)
         assert api.now_playing is None
-        np = NowPlaying("playing", "T", None, None, None, None, None)
+        np = NowPlaying(PlaybackState.PLAYING, "T", None, None, None, None, None)
         api._update_now_playing(np)
         assert api.now_playing == np
 
@@ -819,7 +844,7 @@ class TestApiNowPlaying:
 
         api.register_now_playing_callback(bad_cb)
         api.register_now_playing_callback(received.append)
-        np = NowPlaying("playing", "T", None, None, None, None, None)
+        np = NowPlaying(PlaybackState.PLAYING, "T", None, None, None, None, None)
         api._update_now_playing(np)
         assert received == [np]
 
@@ -873,7 +898,7 @@ class TestApiPosition:
         api = LyngdorfApi("127.0.0.1", LyngdorfModel.MP_60)
         np_events = []
         api.register_now_playing_callback(np_events.append)
-        np = NowPlaying("playing", "T", None, None, None, None, None)
+        np = NowPlaying(PlaybackState.PLAYING, "T", None, None, None, None, None)
         api._update_now_playing(np)
         for ms in (1000, 2000, 3000):
             api._update_position(ms)
@@ -909,14 +934,14 @@ class TestApiPlayMode:
     def test_update_sets_play_mode(self):
         api = LyngdorfApi("127.0.0.1", LyngdorfModel.MP_60)
         api._update_play_mode("shuffle")
-        assert api.play_mode == "shuffle"
+        assert api.play_mode == PlayMode(shuffle=True, repeat=Repeat.OFF)
 
     def test_register_callback(self):
         api = LyngdorfApi("127.0.0.1", LyngdorfModel.MP_60)
         received = []
         api.register_play_mode_callback(received.append)
         api._update_play_mode("shuffle")
-        assert received == ["shuffle"]
+        assert received == [PlayMode(shuffle=True, repeat=Repeat.OFF)]
 
     def test_repeated_value_does_not_refire_callback(self):
         api = LyngdorfApi("127.0.0.1", LyngdorfModel.MP_60)
@@ -924,7 +949,7 @@ class TestApiPlayMode:
         api.register_play_mode_callback(received.append)
         api._update_play_mode("shuffle")
         api._update_play_mode("shuffle")
-        assert received == ["shuffle"]
+        assert received == [PlayMode(shuffle=True, repeat=Repeat.OFF)]
 
     def test_callback_error_does_not_break_others(self):
         api = LyngdorfApi("127.0.0.1", LyngdorfModel.MP_60)
@@ -936,7 +961,7 @@ class TestApiPlayMode:
         api.register_play_mode_callback(bad_cb)
         api.register_play_mode_callback(received.append)
         api._update_play_mode("shuffle")
-        assert received == ["shuffle"]
+        assert received == [PlayMode(shuffle=True, repeat=Repeat.OFF)]
 
     def test_play_mode_cleared_when_idle(self):
         api = LyngdorfApi("127.0.0.1", LyngdorfModel.MP_60)
@@ -948,6 +973,14 @@ class TestApiPlayMode:
         """The model gate wins over whatever the API layer holds."""
         api = LyngdorfApi("127.0.0.1", LyngdorfModel.TDAI_2170)
         api._update_play_mode("shuffle")
+        assert api.play_mode is None
+
+    def test_bogus_wire_value_reports_none(self):
+        """The device will store and read back anything, including a mode
+        `PlayMode.from_wire` does not recognise - that must not raise, and
+        must not be silently mistaken for a known mode."""
+        api = LyngdorfApi("127.0.0.1", LyngdorfModel.MP_60)
+        api._update_play_mode("bogusMode")
         assert api.play_mode is None
 
 
@@ -978,7 +1011,7 @@ class TestPowerGating:
         """A device that is off is not still playing the last track."""
         api = LyngdorfApi("127.0.0.1", LyngdorfModel.MP_60)
         api._update_now_playing(
-            NowPlaying("playing", "T", None, None, None, None, None)
+            NowPlaying(PlaybackState.PLAYING, "T", None, None, None, None, None)
         )
         api._update_position(5000)
         api._update_play_mode("shuffle")
@@ -990,7 +1023,7 @@ class TestPowerGating:
     def test_power_off_notifies_consumers(self):
         api = LyngdorfApi("127.0.0.1", LyngdorfModel.MP_60)
         api._update_now_playing(
-            NowPlaying("playing", "T", None, None, None, None, None)
+            NowPlaying(PlaybackState.PLAYING, "T", None, None, None, None, None)
         )
         received = []
         api.register_now_playing_callback(received.append)
@@ -1241,7 +1274,7 @@ class TestPollRefetchDecision:
     ):
         api = await self._drive_one_batch(fake_server, [_play_mode_event("shuffle")])
         assert fake_server.now_playing_fetch_count == 1
-        assert api.play_mode == "shuffle"
+        assert api.play_mode == PlayMode(shuffle=True, repeat=Repeat.OFF)
 
     @pytest.mark.asyncio
     async def test_metadata_batch_causes_exactly_one_refetch(
@@ -1315,7 +1348,7 @@ class TestPositionPercent:
     def receiver_playing(self, duration_ms, position_ms):
         receiver = Receiver("127.0.0.1", LyngdorfModel.MP_60)
         receiver._now_playing = NowPlaying(
-            "playing", "T", None, None, None, None, duration_ms
+            PlaybackState.PLAYING, "T", None, None, None, None, duration_ms
         )
         receiver._api._update_position(position_ms)
         return receiver
@@ -1369,7 +1402,7 @@ class TestReceiverNowPlaying:
         r = MP60Receiver("127.0.0.1")
         notified = []
         r._notification_callbacks.append(lambda: notified.append(True))
-        np = NowPlaying("playing", "T", None, None, None, None, None)
+        np = NowPlaying(PlaybackState.PLAYING, "T", None, None, None, None, None)
         r._now_playing_changed(np)
         await asyncio.sleep(0)
         assert r.now_playing == np

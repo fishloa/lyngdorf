@@ -157,18 +157,33 @@ from that state.
 
 ### Public API
 
+**Amended by Task 8** (2026-08-17, follow-up): the signatures below were
+typed as bare `str` when this design was first written. Task 8 replaced
+every one of them with the typed values in `lyngdorf/states.py` -
+`Control`, `PlaybackState`, and `PlayMode` (a value object, not an enum -
+see the amendment under "Out of scope" below for why). `async_set_shuffle`
+and `async_set_repeat` were added at the same time. Backwards compatibility
+was explicitly waived for this change; there is no shim from the old
+string-based signatures.
+
 On `Receiver`:
 
 ```python
 can_pause / can_next / can_previous / can_seek  -> bool
-available_play_modes                 -> tuple[str, ...]
-play_mode                            -> str | None
+can_shuffle                           -> bool
+available_play_modes                  -> frozenset[PlayMode]
+available_repeat_modes                -> frozenset[Repeat]
+play_mode                             -> PlayMode | None
+shuffle                               -> bool | None
+repeat                                -> Repeat | None
 
 async_pause()          # see warning below
 async_next()
 async_previous()
 async_seek(position_ms)
-async_set_play_mode(mode)
+async_set_play_mode(mode: PlayMode)
+async_set_shuffle(shuffle: bool)
+async_set_repeat(repeat: Repeat)
 ```
 
 `can_seek` and `available_play_modes` both read from the live `controls`
@@ -182,7 +197,13 @@ controller-driven sources it instead ends the session **irrecoverably from
 the device**, since that is the most surprising behaviour here and the
 likeliest source of a confused bug report.
 
-Position, now-playing and the poll loop are untouched.
+Position, now-playing and the poll loop are untouched by this design. Task 8
+later added a play-mode change notification (a defect fix: play mode
+changes were reaching `Receiver.play_mode` silently, with no callback
+firing) and a second, discontinuity-only position callback
+(`register_position_jump_callback`) alongside the existing raw one - see
+that task's brief and report for the reasoning, since it is a distinct
+concern from this design's capability gating.
 
 ### Home Assistant integration note
 
@@ -256,6 +277,28 @@ browsing layer — a separate feature deserving its own issue.
 enum. Presenting them as two booleans would mean read-modify-write on every
 change, with a real risk of clobbering the other axis. Expose the enum
 honestly and let the caller map it.
+
+> **Superseded by Task 8** (2026-08-17). The read-modify-write risk above
+> was real for a bare `str` enum, where "change just the shuffle bit"
+> means parsing the current six-value wire string, flipping one concept
+> embedded in its spelling, and re-encoding it - exactly the kind of
+> stringly-typed manipulation that invites clobbering the other axis.
+> The fix was not to abandon the combined representation (the device still
+> only accepts one combined value on the wire) but to stop representing it
+> as a string in the library's own API: `PlayMode` is a frozen dataclass
+> with explicit `shuffle: bool` and `repeat: Repeat` fields, still
+> corresponding 1:1 with the six wire values via `PlayMode.wire` /
+> `PlayMode.from_wire`. `async_set_shuffle`/`async_set_repeat` each take
+> the current `PlayMode`, use `dataclasses.replace` to change only the one
+> field being asked for, and validate the *resulting* combination against
+> what the source advertises before sending it. The other axis is carried
+> over explicitly by the object itself, not re-derived from a string or
+> left for the device to infer - which is what makes this safe where the
+> original "two independent flags" idea was not. Home Assistant, which is
+> the actual consumer driving this requirement, models shuffle and repeat
+> as separate entity features regardless of how the device represents
+> them, so `Receiver.shuffle: bool | None` / `Receiver.repeat: Repeat |
+> None` now exist too, both derived from the same `PlayMode`.
 
 ## Open questions
 

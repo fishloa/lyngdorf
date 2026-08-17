@@ -44,13 +44,8 @@ from .const import (
     Msg,
 )
 from .exceptions import LyngdorfInvalidValueError
-from .streaming import (
-    CONTROL_NEXT,
-    CONTROL_PAUSE,
-    CONTROL_PREVIOUS,
-    CONTROL_SEEK,
-    NowPlaying,
-)
+from .states import Control, PlayMode, Repeat
+from .streaming import NowPlaying
 
 _LOGGER = logging.getLogger(__package__)
 
@@ -123,6 +118,18 @@ class Receiver:
         # `can_pause` stay live even before `async_connect` is called.
         if self._model.has_streaming_feature():
             self._api.register_now_playing_callback(self._now_playing_changed)
+            # Play mode changes only on user action (a shuffle/repeat toggle
+            # from the front panel or the controlling app), so forwarding
+            # every change to the notification callbacks is cheap and
+            # correct - unlike position, which is NOT wired this way (see
+            # `position_ms`/`register_position_jump_callback` below):
+            # position arrives about once a second while playing, and
+            # forwarding that would mean a Home Assistant entity state
+            # write every second for a value the frontend already
+            # extrapolates from `position_ms` plus `position_updated_at`.
+            # The asymmetry is deliberate, not an oversight - do not "fix"
+            # it by adding position here too.
+            self._api.register_play_mode_callback(self._play_mode_changed)
 
     def _register_callback(
         self, msg: Msg, callback: Callable
@@ -857,6 +864,32 @@ class Receiver:
         self._now_playing = np
         self._notify_notification_callbacks()
 
+    def _play_mode_changed(self, mode: PlayMode | None) -> None:
+        """Forward a play-mode change to the notification callbacks.
+
+        Fixes a defect where changing shuffle/repeat from the front panel
+        or the controlling app updated `Receiver.play_mode` silently: no
+        notification fired, so a Home Assistant entity showed stale
+        shuffle/repeat state until something unrelated triggered a write.
+        See the registration in `__init__` for why position is NOT
+        forwarded the same way.
+        """
+        self._notify_notification_callbacks()
+
+    def register_position_jump_callback(
+        self, callback: Callable[[int | None], None]
+    ) -> Callable[[], None]:
+        """Register a callback for position *discontinuities* only.
+
+        Delegates to `LyngdorfApi.register_position_jump_callback` - see
+        there for the full contract. Unlike play mode, position is never
+        forwarded to `_notify_notification_callbacks`: the consumer chooses
+        which stream it wants (this one, or the raw per-tick position via
+        `self._api.register_position_callback`), and the library does not
+        decide that for it.
+        """
+        return self._api.register_position_jump_callback(callback)
+
     @property
     def has_position(self) -> bool:
         """Whether this model can report playback position at all.
@@ -904,17 +937,17 @@ class Receiver:
         Narrows and widens as the source changes, and is False whenever
         nothing is playing.
         """
-        return CONTROL_PAUSE in self._api.available_controls
+        return Control.PAUSE in self._api.available_controls
 
     @property
     def can_next(self) -> bool:
         """Whether the current source offers skip-forward."""
-        return CONTROL_NEXT in self._api.available_controls
+        return Control.NEXT_TRACK in self._api.available_controls
 
     @property
     def can_previous(self) -> bool:
         """Whether the current source offers skip-back."""
-        return CONTROL_PREVIOUS in self._api.available_controls
+        return Control.PREVIOUS_TRACK in self._api.available_controls
 
     @property
     def can_seek(self) -> bool:
@@ -924,17 +957,41 @@ class Receiver:
         and `audioType` fields say nothing useful about this - both
         sources report `live: true`.
         """
-        return CONTROL_SEEK in self._api.available_controls
+        return Control.SEEK in self._api.available_controls
 
     @property
-    def available_play_modes(self) -> frozenset[str]:
+    def available_play_modes(self) -> frozenset[PlayMode]:
         """Shuffle/repeat modes the current source offers."""
         return self._api.available_play_modes
 
     @property
-    def play_mode(self) -> str | None:
+    def play_mode(self) -> PlayMode | None:
         """Current shuffle/repeat mode, or None if unknown/unavailable."""
         return self._api.play_mode
+
+    @property
+    def shuffle(self) -> bool | None:
+        """Current shuffle setting, or None if unknown/unavailable.
+
+        Mirrors Home Assistant's own model: shuffle as a bool, repeat as a
+        separate `Repeat` value, rather than one combined string.
+        """
+        return self._api.shuffle
+
+    @property
+    def repeat(self) -> Repeat | None:
+        """Current repeat setting, or None if unknown/unavailable."""
+        return self._api.repeat
+
+    @property
+    def can_shuffle(self) -> bool:
+        """Whether shuffle can be toggled independently of repeat."""
+        return self._api.can_shuffle
+
+    @property
+    def available_repeat_modes(self) -> frozenset[Repeat]:
+        """Repeat values reachable from the current shuffle setting."""
+        return self._api.available_repeat_modes
 
     async def async_pause(self) -> bool:
         """Toggle pause on the current source.
@@ -961,9 +1018,24 @@ class Receiver:
         """Seek to an absolute position, in milliseconds."""
         return await self._api.async_seek(position_ms)
 
-    async def async_set_play_mode(self, mode: str) -> bool:
-        """Set the combined shuffle/repeat mode, e.g. "shuffle"."""
+    async def async_set_play_mode(self, mode: PlayMode) -> bool:
+        """Set the combined shuffle/repeat mode."""
         return await self._api.async_set_play_mode(mode)
+
+    async def async_set_shuffle(self, shuffle: bool) -> bool:
+        """Set shuffle, carrying the current repeat setting over unchanged.
+
+        See `LyngdorfApi.async_set_shuffle` - the current repeat setting is
+        preserved rather than left to the device to infer.
+        """
+        return await self._api.async_set_shuffle(shuffle)
+
+    async def async_set_repeat(self, repeat: Repeat) -> bool:
+        """Set repeat, carrying the current shuffle setting over unchanged.
+
+        See `LyngdorfApi.async_set_repeat`.
+        """
+        return await self._api.async_set_repeat(repeat)
 
 
 if TYPE_CHECKING:

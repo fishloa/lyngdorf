@@ -59,6 +59,12 @@ PLAY_MODES_PATH = "settings:/mediaPlayer/playModes"
 # for a change before returning empty. Comfortably under typical HTTP
 # client/proxy idle timeouts.
 NOW_PLAYING_POLL_TIMEOUT = 25
+# How far a reported position may drift from where the clock says it should
+# be (previous position + elapsed wall-clock time) before it counts as a
+# discontinuity rather than ordinary progression. Loose enough to absorb
+# network jitter and the device's own ~1s reporting granularity, but tight
+# enough to catch a real seek. See LyngdorfApi.register_position_jump_callback.
+POSITION_DRIFT_TOLERANCE_MS = 2000
 
 # Power States
 # The MP and P families report power as a numeric parameter: `!POWER(1)`.
@@ -274,6 +280,7 @@ __all__ = [
     "PLAY_MODE_PATH",
     "PLAY_MODES_PATH",
     "NOW_PLAYING_POLL_TIMEOUT",
+    "POSITION_DRIFT_TOLERANCE_MS",
     "POWER_ON",
     "POWER_OFF",
     "STATE_ON",

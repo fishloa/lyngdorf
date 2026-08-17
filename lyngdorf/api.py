@@ -14,6 +14,7 @@ Supported Models:
 
 import asyncio
 import contextlib
+import dataclasses
 import logging
 import time
 import traceback
@@ -29,6 +30,7 @@ from .const import (
     NOW_PLAYING_POLL_TIMEOUT,
     NOW_PLAYING_POSITION_PATH,
     PLAY_MODE_PATH,
+    POSITION_DRIFT_TOLERANCE_MS,
     RECONNECT_BACKOFF,
     RECONNECT_MAX_WAIT,
     RECONNECT_SCALE,
@@ -38,11 +40,8 @@ from .const import (
     Msg,
 )
 from .exceptions import LyngdorfUnsupportedError
+from .states import Control, PlaybackState, PlayMode, Repeat
 from .streaming import (
-    CONTROL_NEXT,
-    CONTROL_PAUSE,
-    CONTROL_PREVIOUS,
-    CONTROL_SEEK,
     NowPlaying,
     StreamMagicSession,
     async_activate_control,
@@ -54,6 +53,7 @@ from .streaming import (
     async_poll_now_playing_events,
     async_subscribe_now_playing,
     parse_play_mode_events,
+    parse_play_modes,
     parse_position_events,
 )
 from .streaming import (
@@ -86,6 +86,54 @@ def _find_closing_paren(message: str, start: int) -> int:
         elif character == ")" and not in_quotes:
             return index
     return -1
+
+
+def _is_position_discontinuity(
+    position_ms: int | None,
+    previous_ms: int | None,
+    previous_at: datetime | None,
+    now: datetime,
+    current_state: PlaybackState | None,
+    previous_state: PlaybackState | None,
+    current_title: str | None,
+    previous_title: str | None,
+) -> bool:
+    """Whether a new position report is a discontinuity, not ordinary
+    once-a-second progression.
+
+    See `LyngdorfApi.register_position_jump_callback` for what this
+    distinction is for and why it matters. A report counts as a
+    discontinuity when any of the following hold:
+
+    - there was no previous position, or the new one is None (the device
+      just started reporting, or has gone idle/powered off)
+    - playback is not `PlaybackState.PLAYING` (a pause, a stop, or a
+      paused track being scrubbed) - every report while not playing counts,
+      since position has no business moving on its own outside that state
+    - the playback state changed since the previous report
+    - the track changed (compared by title - `NowPlaying` does not retain
+      a distinct track identifier such as `playId`)
+    - the observed position differs from where the clock says it should be
+      - the previous position plus wall-clock time elapsed since it was
+        recorded - by more than `POSITION_DRIFT_TOLERANCE_MS`
+
+    A steady ~1Hz progression while playing satisfies none of these, which
+    is the behaviour a consumer subscribing only to
+    `register_position_callback` (not this) must keep seeing.
+    """
+    if previous_ms is None or position_ms is None:
+        return True
+    if current_state != PlaybackState.PLAYING:
+        return True
+    if current_state != previous_state:
+        return True
+    if current_title != previous_title:
+        return True
+    if previous_at is None:
+        return True
+    elapsed_ms = (now - previous_at).total_seconds() * 1000
+    expected_ms = previous_ms + elapsed_ms
+    return abs(position_ms - expected_ms) > POSITION_DRIFT_TOLERANCE_MS
 
 
 class LyngdorfProtocol(asyncio.Protocol):
@@ -185,9 +233,17 @@ class LyngdorfApi:
         self._position_ms: int | None = None
         self._position_updated_at: datetime | None = None
         self._position_callbacks: list[Callable[[int | None], None]] = []
-        self._play_mode: str | None = None
-        self._play_mode_callbacks: list[Callable[[str | None], None]] = []
-        self._global_play_modes: frozenset[str] = frozenset()
+        self._position_jump_callbacks: list[Callable[[int | None], None]] = []
+        # Snapshot of what was true *at the previous position report*, used
+        # only to detect discontinuities - see `_update_position`. Distinct
+        # from `_now_playing`/`_play_mode`, which reflect the current state
+        # and may have already moved on by the time the next position
+        # report arrives.
+        self._position_prev_state: PlaybackState | None = None
+        self._position_prev_title: str | None = None
+        self._play_mode: PlayMode | None = None
+        self._play_mode_callbacks: list[Callable[[PlayMode | None], None]] = []
+        self._global_play_modes: frozenset[PlayMode] = frozenset()
 
     async def async_connect(self) -> None:
         """Connect to the receiver asynchronously."""
@@ -728,25 +784,68 @@ class LyngdorfApi:
     ) -> Callable[[], None]:
         """Register a callback, returning a callable that unregisters it.
 
+        Fires on every raw position change, including the ordinary
+        once-a-second progression while playing - for a consumer that
+        genuinely wants a live counter. For a consumer where each call
+        costs something (a Home Assistant entity state write, say), use
+        `register_position_jump_callback` instead.
+
         The returned unsubscribe is idempotent - calling it twice, or after
         the callback has already been removed, is a no-op rather than an
         error, because teardown paths run more than once in practice.
         """
         return register_in_list(self._position_callbacks, callback)
 
+    def register_position_jump_callback(
+        self, callback: Callable[[int | None], None]
+    ) -> Callable[[], None]:
+        """Register a callback for position *discontinuities* only.
+
+        Fires when the position does something other than advance with the
+        clock: a seek, a track change, a play or pause, or the stream
+        drifting from where it should be. It does not fire for the ordinary
+        once-a-second progression, so a consumer that writes state on every
+        call stays cheap.
+
+        Use this rather than `register_position_callback` when each call
+        costs something - a Home Assistant entity state write, say, which
+        fans out over websockets and re-evaluates every automation bound to
+        that entity.
+
+        The returned unsubscribe is idempotent - calling it twice, or after
+        the callback has already been removed, is a no-op rather than an
+        error, because teardown paths run more than once in practice.
+        """
+        return register_in_list(self._position_jump_callbacks, callback)
+
     @property
-    def play_mode(self) -> str | None:
+    def play_mode(self) -> PlayMode | None:
         """Current shuffle/repeat mode, or None if unknown/unavailable.
 
         None on a model without a streaming module, same as `now_playing`
-        and `position_ms`.
+        and `position_ms`. Also None when the device's current wire value
+        is not one `PlayMode.from_wire` recognises - forwards compatible
+        with a device that has grown a mode this library does not model,
+        by degrading to "unknown" rather than raising.
         """
         if not self._model.has_streaming_feature():
             return None
         return self._play_mode
 
+    @property
+    def shuffle(self) -> bool | None:
+        """Current shuffle setting, or None if unknown/unavailable."""
+        mode = self.play_mode
+        return mode.shuffle if mode is not None else None
+
+    @property
+    def repeat(self) -> Repeat | None:
+        """Current repeat setting, or None if unknown/unavailable."""
+        mode = self.play_mode
+        return mode.repeat if mode is not None else None
+
     def register_play_mode_callback(
-        self, callback: Callable[[str | None], None]
+        self, callback: Callable[[PlayMode | None], None]
     ) -> Callable[[], None]:
         """Register a callback, returning a callable that unregisters it.
 
@@ -757,14 +856,14 @@ class LyngdorfApi:
         return register_in_list(self._play_mode_callbacks, callback)
 
     @property
-    def available_controls(self) -> frozenset[str]:
+    def available_controls(self) -> frozenset[Control]:
         """Transport actions the current source offers, or empty."""
         if not self._model.has_streaming_feature() or self._now_playing is None:
             return frozenset()
         return self._now_playing.controls
 
     @property
-    def available_play_modes(self) -> frozenset[str]:
+    def available_play_modes(self) -> frozenset[PlayMode]:
         """Shuffle/repeat modes the current source offers, or empty.
 
         Falls back to the device's global play-mode enum
@@ -776,7 +875,35 @@ class LyngdorfApi:
             return frozenset()
         return self._now_playing.play_modes or self._global_play_modes
 
-    def _require_control(self, control: str) -> None:
+    @property
+    def can_shuffle(self) -> bool:
+        """Whether shuffle can be toggled independently of the current mode.
+
+        True when some advertised mode differs from the current one only
+        in its `shuffle` field - i.e. there is a mode to switch to that
+        keeps the current repeat setting.
+        """
+        current = self.play_mode
+        if current is None:
+            return False
+        return any(
+            mode.repeat == current.repeat and mode.shuffle != current.shuffle
+            for mode in self.available_play_modes
+        )
+
+    @property
+    def available_repeat_modes(self) -> frozenset[Repeat]:
+        """Repeat values reachable from the current shuffle setting."""
+        current = self.play_mode
+        if current is None:
+            return frozenset()
+        return frozenset(
+            mode.repeat
+            for mode in self.available_play_modes
+            if mode.shuffle == current.shuffle
+        )
+
+    def _require_control(self, control: Control) -> None:
         if control not in self.available_controls:
             raise LyngdorfUnsupportedError(
                 f"{self.host}: device does not currently offer {control!r} "
@@ -791,38 +918,83 @@ class LyngdorfApi:
         and other controller-driven sources it instead ends the session,
         which cannot be undone from the device.
         """
-        self._require_control(CONTROL_PAUSE)
+        self._require_control(Control.PAUSE)
         return await async_activate_control(
-            self.host, CONTROL_PAUSE, self.streammagic_port
+            self.host, Control.PAUSE, self.streammagic_port
         )
 
     async def async_next(self) -> bool:
         """Skip to the next track."""
-        self._require_control(CONTROL_NEXT)
+        self._require_control(Control.NEXT_TRACK)
         return await async_activate_control(
-            self.host, CONTROL_NEXT, self.streammagic_port
+            self.host, Control.NEXT_TRACK, self.streammagic_port
         )
 
     async def async_previous(self) -> bool:
         """Skip to the previous track."""
-        self._require_control(CONTROL_PREVIOUS)
+        self._require_control(Control.PREVIOUS_TRACK)
         return await async_activate_control(
-            self.host, CONTROL_PREVIOUS, self.streammagic_port
+            self.host, Control.PREVIOUS_TRACK, self.streammagic_port
         )
 
     async def async_seek(self, position_ms: int) -> bool:
         """Seek to an absolute position, in milliseconds."""
-        self._require_control(CONTROL_SEEK)
+        self._require_control(Control.SEEK)
         return await _seek(self.host, position_ms, self.streammagic_port)
 
-    async def async_set_play_mode(self, mode: str) -> bool:
+    async def async_set_play_mode(self, mode: PlayMode) -> bool:
         """Set the combined shuffle/repeat mode."""
         if mode not in self.available_play_modes:
             raise LyngdorfUnsupportedError(
                 f"{self.host}: device does not currently offer play mode {mode!r} "
-                f"(available: {sorted(self.available_play_modes) or 'none'})"
+                f"(available: {sorted(self.available_play_modes, key=lambda m: m.wire) or 'none'})"
             )
-        return await _set_play_mode(self.host, mode, self.streammagic_port)
+        return await _set_play_mode(self.host, mode.wire, self.streammagic_port)
+
+    async def async_set_shuffle(self, shuffle: bool) -> bool:
+        """Set shuffle, carrying the current repeat setting over unchanged.
+
+        Takes the current `play_mode`, replaces only its `shuffle` field,
+        and sets the resulting combination - so toggling shuffle can never
+        clobber whatever repeat mode was already in effect. Raises
+        `LyngdorfUnsupportedError` if there is no current play mode to
+        modify, or if the resulting combination is not one the current
+        source advertises.
+        """
+        current = self.play_mode
+        if current is None:
+            raise LyngdorfUnsupportedError(
+                f"{self.host}: no current play mode to modify"
+            )
+        candidate = dataclasses.replace(current, shuffle=shuffle)
+        if candidate not in self.available_play_modes:
+            raise LyngdorfUnsupportedError(
+                f"{self.host}: device does not currently offer shuffle={shuffle} "
+                f"with repeat={current.repeat} (available: "
+                f"{sorted(self.available_play_modes, key=lambda m: m.wire) or 'none'})"
+            )
+        return await self.async_set_play_mode(candidate)
+
+    async def async_set_repeat(self, repeat: Repeat) -> bool:
+        """Set repeat, carrying the current shuffle setting over unchanged.
+
+        Mirrors `async_set_shuffle`: takes the current `play_mode`,
+        replaces only its `repeat` field, and validates the resulting
+        combination before sending it.
+        """
+        current = self.play_mode
+        if current is None:
+            raise LyngdorfUnsupportedError(
+                f"{self.host}: no current play mode to modify"
+            )
+        candidate = dataclasses.replace(current, repeat=repeat)
+        if candidate not in self.available_play_modes:
+            raise LyngdorfUnsupportedError(
+                f"{self.host}: device does not currently offer repeat={repeat} "
+                f"with shuffle={current.shuffle} (available: "
+                f"{sorted(self.available_play_modes, key=lambda m: m.wire) or 'none'})"
+            )
+        return await self.async_set_play_mode(candidate)
 
     async def _poll_now_playing(self) -> None:
         """Long-poll loop for now-playing changes on the :8080 API.
@@ -859,9 +1031,10 @@ class LyngdorfApi:
                                 self.host, port, session=session
                             )
                         )
-                        self._global_play_modes = await async_fetch_play_modes(
+                        raw_global_modes = await async_fetch_play_modes(
                             self.host, port, session=session
                         )
+                        self._global_play_modes = parse_play_modes(raw_global_modes)
 
                         queue_id = await async_init_now_playing_queue(
                             self.host, port, session=session
@@ -962,33 +1135,79 @@ class LyngdorfApi:
         The timestamp is refreshed on every device report, including when
         the value repeats (a paused track reports the same millisecond
         indefinitely) - otherwise a consumer extrapolating from it would
-        drift further from reality the longer the pause lasted. Callbacks
-        still only fire on an actual change.
+        drift further from reality the longer the pause lasted. The raw
+        callback still only fires on an actual change; the jump callback
+        fires independently of that, based on whether this report is a
+        discontinuity rather than ordinary once-a-second progression - see
+        `_is_position_discontinuity` and `register_position_jump_callback`.
+        Raw callbacks fire before jump callbacks, so a consumer subscribed
+        to both sees them in a sensible order.
         """
-        self._position_updated_at = datetime.now(UTC)
-        if position_ms == self._position_ms:
-            return
+        now = datetime.now(UTC)
+        previous_ms = self._position_ms
+        previous_at = self._position_updated_at
+        previous_state = self._position_prev_state
+        previous_title = self._position_prev_title
 
-        self._position_ms = position_ms
-        for cb in self._position_callbacks:
-            try:
-                cb(position_ms)
-            except Exception:
-                _LOGGER.error(
-                    "%s: position callback error: %s",
-                    self.host,
-                    traceback.format_exc(),
-                )
+        current_state = self._now_playing.state if self._now_playing else None
+        current_title = self._now_playing.title if self._now_playing else None
+
+        is_jump = _is_position_discontinuity(
+            position_ms,
+            previous_ms,
+            previous_at,
+            now,
+            current_state,
+            previous_state,
+            current_title,
+            previous_title,
+        )
+
+        self._position_updated_at = now
+        self._position_prev_state = current_state
+        self._position_prev_title = current_title
+
+        if position_ms != previous_ms:
+            self._position_ms = position_ms
+            for cb in self._position_callbacks:
+                try:
+                    cb(position_ms)
+                except Exception:
+                    _LOGGER.error(
+                        "%s: position callback error: %s",
+                        self.host,
+                        traceback.format_exc(),
+                    )
+
+        if is_jump:
+            for cb in self._position_jump_callbacks:
+                try:
+                    cb(position_ms)
+                except Exception:
+                    _LOGGER.error(
+                        "%s: position jump callback error: %s",
+                        self.host,
+                        traceback.format_exc(),
+                    )
 
     def _update_play_mode(self, mode: str | None) -> None:
-        """Record a new play mode, firing callbacks only on an actual change."""
-        if mode == self._play_mode:
+        """Record a new play mode from its wire string.
+
+        Converted to `PlayMode` here, rather than by each caller, so the
+        poll loop's seed fetch, its per-event update, and
+        `set_power_state`'s clear-on-power-off all share one conversion
+        path. A wire value `PlayMode.from_wire` does not recognise becomes
+        None, same as "unavailable" - callbacks only fire on an actual
+        change to the parsed value.
+        """
+        parsed = PlayMode.from_wire(mode) if mode is not None else None
+        if parsed == self._play_mode:
             return
 
-        self._play_mode = mode
+        self._play_mode = parsed
         for cb in self._play_mode_callbacks:
             try:
-                cb(mode)
+                cb(parsed)
             except Exception:
                 _LOGGER.error(
                     "%s: play mode callback error: %s",
