@@ -17,6 +17,7 @@ from streaming_test import FakeStreamMagicServer, fake_server  # noqa: F401
 
 from lyngdorf.api import LyngdorfApi
 from lyngdorf.const import LyngdorfModel
+from lyngdorf.device import Receiver
 from lyngdorf.exceptions import LyngdorfUnsupportedError
 from lyngdorf.streaming import (
     CONTROL_NEXT,
@@ -211,3 +212,84 @@ class TestApiGating:
         api._update_now_playing(_np(controls=["pause"]))
         assert await api.async_pause() is True
         assert '"control": "pause"' in _unquote(fake_server.last_path)
+
+
+class TestReceiverCapabilities:
+    STREAMING = [
+        LyngdorfModel.MP_40,
+        LyngdorfModel.MP_50,
+        LyngdorfModel.MP_60,
+        LyngdorfModel.TDAI_1120,
+        LyngdorfModel.TDAI_2210,
+        LyngdorfModel.TDAI_3400,
+    ]
+    NON_STREAMING = [
+        LyngdorfModel.TDAI_2170,
+        LyngdorfModel.P_100,
+        LyngdorfModel.P_200,
+        LyngdorfModel.P_300,
+    ]
+
+    def test_every_model_is_covered(self):
+        assert set(self.STREAMING) | set(self.NON_STREAMING) == set(LyngdorfModel)
+
+    def test_capabilities_follow_the_source(self):
+        r = Receiver("127.0.0.1", LyngdorfModel.MP_60)
+        assert (r.can_pause, r.can_next, r.can_previous, r.can_seek) == (
+            False,
+            False,
+            False,
+            False,
+        )
+        # AirPlay: no seek
+        r._api._update_now_playing(_np(controls=["pause", "next_", "previous"]))
+        assert (r.can_pause, r.can_next, r.can_previous, r.can_seek) == (
+            True,
+            True,
+            True,
+            False,
+        )
+        # Spotify Connect: adds seek and play modes
+        r._api._update_now_playing(
+            _np(
+                controls=["pause", "next_", "previous", "seekTime"],
+                play_modes=["shuffle", "repeatAll"],
+            )
+        )
+        assert r.can_seek is True
+        assert r.available_play_modes == frozenset({"shuffle", "repeatAll"})
+
+    def test_capabilities_vanish_when_stopped(self):
+        r = Receiver("127.0.0.1", LyngdorfModel.MP_60)
+        r._api._update_now_playing(_np(controls=["pause", "seekTime"]))
+        r._api._update_now_playing(None)
+        assert (r.can_pause, r.can_seek) == (False, False)
+        assert r.available_play_modes == frozenset()
+
+    @pytest.mark.parametrize("model", NON_STREAMING)
+    def test_non_streaming_models_offer_nothing(self, model):
+        r = Receiver("127.0.0.1", model)
+        r._api._update_now_playing(_np(controls=["pause"], play_modes=["shuffle"]))
+        assert (r.can_pause, r.can_next, r.can_previous, r.can_seek) == (
+            False,
+            False,
+            False,
+            False,
+        )
+        assert r.available_play_modes == frozenset()
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("model", NON_STREAMING)
+    async def test_non_streaming_models_raise(self, model):
+        r = Receiver("127.0.0.1", model)
+        with pytest.raises(LyngdorfUnsupportedError):
+            await r.async_pause()
+
+    def test_capability_change_fires_the_existing_callback(self):
+        """This is how Home Assistant learns to redraw its buttons."""
+        r = Receiver("127.0.0.1", LyngdorfModel.MP_60)
+        seen = []
+        r.register_notification_callback(lambda: seen.append(r.can_seek))
+        r._api._update_now_playing(_np(controls=["pause"]))
+        r._api._update_now_playing(_np(controls=["pause", "seekTime"]))
+        assert seen == [False, True]

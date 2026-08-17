@@ -43,7 +43,13 @@ from .const import (
     Msg,
 )
 from .exceptions import LyngdorfInvalidValueError
-from .streaming import NowPlaying
+from .streaming import (
+    CONTROL_NEXT,
+    CONTROL_PAUSE,
+    CONTROL_PREVIOUS,
+    CONTROL_SEEK,
+    NowPlaying,
+)
 
 _LOGGER = logging.getLogger(__package__)
 
@@ -108,6 +114,14 @@ class Receiver:
         self._trim_surround: float | None = None
         self._trim_treble: float | None = None
         self._now_playing: NowPlaying | None = None
+
+        # Wired here rather than in async_connect: it is pure Python
+        # object plumbing (turning an api-level now-playing update into
+        # the Receiver's notification callback) with no dependency on an
+        # actual socket connection, so capability properties like
+        # `can_pause` stay live even before `async_connect` is called.
+        if self._model.has_streaming_feature():
+            self._api.register_now_playing_callback(self._now_playing_changed)
 
     def _register_callback(self, msg: Msg, callback: Callable) -> None:
         """Register a callback for a message, skipping cleanly if the
@@ -213,9 +227,6 @@ class Receiver:
         self._register_callback(Msg.LIP_SYNC, self._lipsync_callback)
         self._register_surround_trim_callbacks()
 
-        if self._model.has_streaming_feature():
-            self._api.register_now_playing_callback(self._now_playing_changed)
-
         await self._api.async_connect()
 
     @property
@@ -238,6 +249,21 @@ class Receiver:
         self._notification_callbacks.remove(callback)
 
     def _notify_notification_callbacks(self) -> None:
+        # Scheduled as a task when a loop is running (the normal case: this
+        # fires from inside async message/now-playing processing, and
+        # deferring avoids re-entrancy into that processing). Falls back to
+        # calling synchronously when there is no running loop - e.g. a bare
+        # `Receiver` driven directly from synchronous test code via
+        # `_api._update_now_playing`, with no connection ever established.
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            for callback in self._notification_callbacks:
+                try:
+                    callback()
+                except Exception:
+                    _LOGGER.exception("Event callback caused an unhandled exception")
+            return
         asyncio.create_task(self._async_notify_notification_callbacks())
 
     async def _async_notify_notification_callbacks(self) -> None:
@@ -854,6 +880,69 @@ class Receiver:
         if self.position_ms is None or not duration:
             return None
         return min(1.0, self.position_ms / duration)
+
+    @property
+    def can_pause(self) -> bool:
+        """Whether the current source offers pause.
+
+        Narrows and widens as the source changes, and is False whenever
+        nothing is playing.
+        """
+        return CONTROL_PAUSE in self._api.available_controls
+
+    @property
+    def can_next(self) -> bool:
+        """Whether the current source offers skip-forward."""
+        return CONTROL_NEXT in self._api.available_controls
+
+    @property
+    def can_previous(self) -> bool:
+        """Whether the current source offers skip-back."""
+        return CONTROL_PREVIOUS in self._api.available_controls
+
+    @property
+    def can_seek(self) -> bool:
+        """Whether the current source offers seek.
+
+        AirPlay does not; Spotify Connect does. Note the payload's `live`
+        and `audioType` fields say nothing useful about this - both
+        sources report `live: true`.
+        """
+        return CONTROL_SEEK in self._api.available_controls
+
+    @property
+    def available_play_modes(self) -> frozenset[str]:
+        """Shuffle/repeat modes the current source offers."""
+        return self._api.available_play_modes
+
+    async def async_pause(self) -> bool:
+        """Toggle pause on the current source.
+
+        There is no separate resume: on a source the device streams
+        itself this pauses a playing track and resumes a paused one.
+
+        On AirPlay and other controller-driven sources it instead ends the
+        session, and the device cannot restart it - only the controlling
+        app can. Afterwards the device reports no controls at all, so
+        `can_pause` becomes False.
+        """
+        return await self._api.async_pause()
+
+    async def async_next(self) -> bool:
+        """Skip to the next track."""
+        return await self._api.async_next()
+
+    async def async_previous(self) -> bool:
+        """Skip to the previous track."""
+        return await self._api.async_previous()
+
+    async def async_seek(self, position_ms: int) -> bool:
+        """Seek to an absolute position, in milliseconds."""
+        return await self._api.async_seek(position_ms)
+
+    async def async_set_play_mode(self, mode: str) -> bool:
+        """Set the combined shuffle/repeat mode, e.g. "shuffle"."""
+        return await self._api.async_set_play_mode(mode)
 
 
 if TYPE_CHECKING:
