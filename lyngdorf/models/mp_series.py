@@ -80,6 +80,16 @@ MP_MESSAGES: dict[Msg, str] = {
     Msg.TRIM_SURROUND: "TRIMSURRS",
     Msg.TRIM_TREBLE: "TRIMTREBLE",
     Msg.TRIM_TREBLE_SET: "TRIMTREB",
+    # !MAXVOL: a user-settable safety ceiling, not MP-only despite issue
+    # #40's original premise - the P series documents it too (see
+    # p_series.py's P_MESSAGES). docs/mp-40.md and docs/mp-60.md document
+    # -550..-200 (-55.0..-20.0 dB), but a real MP-60 on firmware 5.4.2
+    # answered !MAXVOL(0), i.e. 0.0 dB - outside that documented range -
+    # and docs/p-series.md documents yet another range for the same
+    # command (-550..240, -55.0..+24.0 dB). The vendor-documented bounds
+    # are therefore not reliable, so Receiver.max_volume (device.py)
+    # reads and surfaces this value without validating it against any
+    # range. Do not add validation.
     Msg.MAX_VOLUME: "MAXVOL",
     Msg.LOUDNESS: "LOUDNESS",
     Msg.DTS_DIALOG_AVAILABLE: "DTSDIALOGAVAILABLE",

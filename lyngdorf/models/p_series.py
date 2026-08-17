@@ -63,6 +63,11 @@ P_MESSAGES: dict[Msg, str] = {
     Msg.ZONE_B_SOURCE: "ZSRC",
     Msg.ZONE_B_SOURCES: "ZSRCS",
     Msg.ZONE_B_AUDIO_IN: "ZAUDIN",
+    # !MAXVOL: contrary to issue #40's original premise, MAXVOL is not
+    # MP-only - docs/p-series.md documents it too (see the note above
+    # Msg.MAX_VOLUME in mp_series.py's MP_MESSAGES for why its bounds
+    # aren't validated).
+    Msg.MAX_VOLUME: "MAXVOL",
 }
 
 # Shared P Series Setup Command Sequence
@@ -91,6 +96,7 @@ P_SETUP_MESSAGES: list[str] = [
     f"{P_MESSAGES[Msg.ZONE_B_VOLUME]}?",
     f"{P_MESSAGES[Msg.MUTE]}?",
     f"{P_MESSAGES[Msg.ZONE_B_MUTE]}?",
+    f"{P_MESSAGES[Msg.MAX_VOLUME]}?",
 ]
 
 # P100 Hardware Configuration

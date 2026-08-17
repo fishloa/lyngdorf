@@ -381,7 +381,20 @@ class Receiver:
     @property
     def max_volume(self) -> float | None:
         """The device's current MAXVOL setting, in dB, or None on models
-        that do not report it (only the MP series maps Msg.MAX_VOLUME).
+        that do not report it. The MP and P families both map
+        Msg.MAX_VOLUME (docs/mp-40.md, docs/mp-50.md, docs/mp-60.md,
+        docs/p-series.md all document `!MAXVOL`) - contrary to issue #40's
+        original premise that this was MP-only. The TDAI family's manuals
+        (docs/tdai-1120.md, docs/tdai-2170.md, docs/tdai-3400.md) document
+        no MAXVOL command at all, so it stays None there.
+
+        The vendor-documented bounds are not reliable enough to validate
+        against: docs/mp-40.md/docs/mp-60.md give -55.0..-20.0 dB while
+        docs/p-series.md gives -55.0..+24.0 dB for the very same command,
+        and a real MP-60 on firmware 5.4.2 answered !MAXVOL(0), i.e.
+        0.0 dB - outside the MP-40/MP-60 documented range. This value is
+        therefore read and surfaced as-is, never validated against any
+        range - do not add validation here.
 
         This is a user-settable safety ceiling, not the hardware's
         physical volume range - it can be changed at runtime from the

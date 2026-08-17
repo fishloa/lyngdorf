@@ -100,10 +100,10 @@ receiver.volume_up()      # Increase volume
 receiver.volume_down()    # Decrease volume
 receiver.mute_enabled = True  # Mute
 
-# The device's current user-settable safety ceiling, in dB (MP series only,
-# None on models that don't report it). Not a hardware maximum, and it can
-# change at runtime - see max_volume's docstring before using it as a fixed
-# slider bound.
+# The device's current user-settable safety ceiling, in dB (MP and P
+# series; None on the TDAI family, whose manuals document no MAXVOL
+# command at all). Not a hardware maximum, and it can change at runtime -
+# see max_volume's docstring before using it as a fixed slider bound.
 print(receiver.max_volume)
 ```
 

@@ -324,6 +324,34 @@ class TestLyngdorfModel:
             expected = model in lipsync_models
             assert model.has_lipsync_feature() is expected
 
+    def test_max_volume_feature_covers_every_model(self):
+        """Issue #40 originally modeled MAXVOL as MP-only; that premise
+        was wrong. docs/mp-40.md, docs/mp-50.md, docs/mp-60.md and
+        docs/p-series.md all document `!MAXVOL`, so the MP and P families
+        both map Msg.MAX_VOLUME. None of the TDAI manuals
+        (docs/tdai-1120.md, docs/tdai-2170.md, docs/tdai-3400.md) document
+        it at all, so the TDAI family - including TDAI-2210, which shares
+        TDAI-1120/3400's protocol - has no mapping."""
+        maxvol_models = {
+            LyngdorfModel.MP_40,
+            LyngdorfModel.MP_50,
+            LyngdorfModel.MP_60,
+            LyngdorfModel.P_100,
+            LyngdorfModel.P_200,
+            LyngdorfModel.P_300,
+        }
+        no_maxvol_models = {
+            LyngdorfModel.TDAI_1120,
+            LyngdorfModel.TDAI_2170,
+            LyngdorfModel.TDAI_2210,
+            LyngdorfModel.TDAI_3400,
+        }
+        assert maxvol_models | no_maxvol_models == set(supported_models())
+        assert maxvol_models & no_maxvol_models == set()
+        for model in supported_models():
+            expected = model in maxvol_models
+            assert model.supports_message(Msg.MAX_VOLUME) is expected
+
     def test_p_series_has_audio_modes_and_lipsync_despite_no_surround_flag(self):
         """P series lacks TRIM* commands entirely but still supports audio
         mode selection and lip sync - these must not be gated by
@@ -1099,14 +1127,17 @@ class TestNewMPCommands:
         assert tdai._model.lookup_command(Msg.FOCUS_POSITION_PREV) == "RPDN"
 
     def test_tdai_lacks_mp_only_commands(self):
-        """TDAI series does not have MP-only commands."""
+        """TDAI series does not have MP-only commands. Msg.MAX_VOLUME is
+        deliberately not in this list - it is mapped by the P series too
+        (see test_max_volume_feature_covers_every_model), so it is not
+        MP-only; TDAI's lack of it is covered separately by
+        test_tdai_series_never_reports_max_volume."""
         from lyngdorf.device import TDAI1120Receiver
 
         tdai = TDAI1120Receiver("192.168.1.1")
 
         for msg in (
             Msg.LOUDNESS,
-            Msg.MAX_VOLUME,
             Msg.DTS_DIALOG,
             Msg.VIDEO_OUTPUT,
             Msg.CURSOR_UP,
@@ -1695,10 +1726,14 @@ class TestVolumeAndMute:
 
     @pytest.mark.asyncio
     async def test_tdai_series_never_reports_max_volume(self):
-        """MAX_VOLUME is MP-series only - TDAI's protocol has no MAXVOL
-        mapping at all, so _register_callback's defensive KeyError catch
-        skips registration silently and max_volume stays None forever,
-        rather than raising during async_connect."""
+        """None of the TDAI manuals (docs/tdai-1120.md, docs/tdai-2170.md,
+        docs/tdai-3400.md) document a MAXVOL command, so TDAI's protocol
+        has no MAX_VOLUME mapping at all - unlike the MP and P families,
+        which both document it (see
+        test_max_volume_feature_covers_every_model). _register_callback's
+        defensive KeyError catch skips registration silently and
+        max_volume stays None forever, rather than raising during
+        async_connect."""
         assert LyngdorfModel.TDAI_1120.supports_message(Msg.MAX_VOLUME) is False
 
         transport = mock.Mock()
@@ -1719,6 +1754,41 @@ class TestVolumeAndMute:
             await client.async_connect()
             assert "MAXVOL" not in client._api._callbacks
             assert client.max_volume is None
+            await client.async_disconnect()
+
+    @pytest.mark.asyncio
+    async def test_p_series_reports_max_volume(self):
+        """#40 follow-up: MAXVOL is not MP-only - docs/p-series.md
+        documents `!MAXVOL` just like docs/mp-40.md/docs/mp-60.md do, so
+        the P series must map and query Msg.MAX_VOLUME exactly the way
+        the MP series already did (see p_series.py's P_MESSAGES/
+        P_SETUP_MESSAGES). Mirrors test_max_volume_reading, but for a P
+        model, since MP_60 is hardcoded into this class's
+        _test_receiving_commands helper."""
+        assert LyngdorfModel.P_300.supports_message(Msg.MAX_VOLUME) is True
+
+        transport = mock.Mock()
+        protocol = LyngdorfProtocol(None, None)
+
+        def create_conn(proto_lambda, host, port):
+            proto = proto_lambda()
+            protocol._on_connection_lost = proto._on_connection_lost
+            protocol._on_message = proto._on_message
+            return [transport, proto]
+
+        client = await async_create_receiver(FAKE_IP, LyngdorfModel.P_300)
+
+        with mock.patch("asyncio.get_event_loop", new_callable=mock.Mock) as debug_mock:
+            debug_mock.return_value.create_connection = AsyncMock(
+                side_effect=create_conn
+            )
+            await client.async_connect()
+            assert "MAXVOL" in client._api._callbacks
+            self.future = asyncio.Future()
+            client._api.register_callback("MAXVOL", self._callback)
+            protocol.data_received(b"!MAXVOL(0)\r")
+            await self.future
+            assert client.max_volume == 0.0
             await client.async_disconnect()
 
     @pytest.mark.asyncio
