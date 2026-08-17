@@ -11,7 +11,7 @@ import contextlib
 import json
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
-from threading import Thread
+from threading import Event, Thread
 from urllib.parse import unquote
 
 import pytest
@@ -399,6 +399,10 @@ class _NowPlayingHandler(BaseHTTPRequestHandler):
         elif "/api/getData" in self.path and "playMode" in self.path:
             self._respond(json.dumps(self.server.play_mode_response).encode())
         elif "/api/getData" in self.path:
+            # The full-payload now-playing fetch. Counted separately because
+            # it is the expensive request the poll loop must NOT make on
+            # every position/play-mode tick - see TestPollRefetchDecision.
+            self.server.now_playing_fetch_count += 1
             self._respond(json.dumps(self.server.get_data_response).encode())
         elif "/api/getRows" in self.path:
             self._respond(json.dumps(self.server.play_modes_response).encode())
@@ -407,7 +411,22 @@ class _NowPlayingHandler(BaseHTTPRequestHandler):
         elif "/api/event/modifyQueue" in self.path and "subscribe=" in self.path:
             self._respond(b"true")
         elif "/api/event/pollQueue" in self.path:
-            self._respond(json.dumps(self.server.poll_response).encode())
+            self.server.poll_calls += 1
+            # Signal at a caller-chosen call count - e.g. "2" means the
+            # second long-poll request has landed, which can only happen
+            # once the loop has fully finished processing the first
+            # response (including any refetch it triggered).
+            if (
+                self.server.poll_signal is not None
+                and self.server.poll_calls == self.server.poll_signal_at
+            ):
+                self.server.poll_signal.set()
+            if self.server.poll_batches is not None:
+                idx = min(self.server.poll_calls - 1, len(self.server.poll_batches) - 1)
+                body = self.server.poll_batches[idx] if self.server.poll_batches else []
+            else:
+                body = self.server.poll_response
+            self._respond(json.dumps(body).encode())
         else:
             self.send_response(404)
             self.send_header("Content-Length", "0")
@@ -430,6 +449,17 @@ class FakeStreamMagicServer(HTTPServer):
     poll_response: list = []
     last_path: str = ""
     fail_writes: bool = False
+
+    # -- scripted pollQueue sequence, for TestPollRefetchDecision --
+    # `poll_batches`, when set, overrides `poll_response`: call N of
+    # pollQueue returns `poll_batches[N-1]` (the last entry repeats once
+    # exhausted). `poll_signal` lets a test wait, without sleeping, for a
+    # specific call count to be reached.
+    poll_batches: list | None = None
+    poll_calls: int = 0
+    poll_signal: Event | None = None
+    poll_signal_at: int = 0
+    now_playing_fetch_count: int = 0
 
 
 @pytest.fixture()
@@ -1110,6 +1140,127 @@ class TestSinglePollTask:
         api = LyngdorfApi("127.0.0.1", LyngdorfModel.MP_60)
         api.set_power_state(True)
         assert api._now_playing_task is None
+
+
+def _position_event(ms: int) -> dict:
+    return {
+        "itemType": "update",
+        "rowsEvents": [],
+        "path": "player:player/data/playTime",
+        "itemValue": {"type": "i64_", "i64_": ms},
+    }
+
+
+def _play_mode_event(mode: str) -> dict:
+    return {
+        "itemType": "update",
+        "rowsEvents": [],
+        "path": "settings:/mediaPlayer/playMode",
+        "itemValue": {"type": "playerPlayMode", "playerPlayMode": mode},
+    }
+
+
+def _metadata_event() -> dict:
+    return {"itemType": "update", "rowsEvents": [], "path": "player:player/data"}
+
+
+class TestPollRefetchDecision:
+    """Regression guard for the poll loop's full-payload refetch decision.
+
+    `LyngdorfApi._poll_now_playing` subscribes to three paths: metadata
+    (`player:player/data`), position (`.../playTime`, ~1/sec while
+    playing) and play mode (changes on user action). Position and play
+    mode arrive inline in the event itself, so only a metadata event needs
+    a follow-up `getData?path=player:player/data` for the full payload.
+    That decision is a single `any(...)` condition checking each event's
+    path against a tuple of the two inline paths. If it ever regresses -
+    a third subscribed path added without updating the tuple, or the
+    logic inverted - every position tick would trigger an extra HTTP
+    round-trip against embedded hardware with very few connection slots:
+    roughly 86,400 superfluous requests a day, invisible in any test that
+    only checks parsing or connection reuse.
+
+    These tests drive `_poll_now_playing` itself against the fake server,
+    scripting the pollQueue response so a single batch of events can be
+    fed through and the resulting `getData` (non playTime/playMode)
+    request count inspected. The queue-establishment phase (queue_id is
+    None) always performs exactly one such fetch before any event batch
+    is processed; that seed fetch is accounted for explicitly in each
+    assertion below rather than ignored.
+    """
+
+    async def _drive_one_batch(
+        self, fake_server: FakeStreamMagicServer, batch: list
+    ) -> LyngdorfApi:
+        """Run the poll loop through exactly one event batch, then stop it.
+
+        `batch` is served as the first pollQueue response; an empty batch
+        follows. Waits - via a `threading.Event` set the instant the
+        *second* pollQueue request lands, never a sleep - because that
+        second request cannot be sent until every `await` triggered by
+        processing the first batch (including any refetch) has finished.
+        """
+        host, port = fake_server.server_address
+        fake_server.poll_batches = [batch, []]
+        fake_server.poll_calls = 0
+        fake_server.poll_signal = Event()
+        fake_server.poll_signal_at = 2
+        fake_server.now_playing_fetch_count = 0
+
+        api = LyngdorfApi(str(host), LyngdorfModel.MP_60)
+        api.streammagic_port = port
+        api._connection_enabled = True
+
+        task = asyncio.ensure_future(api._poll_now_playing())
+        try:
+            loop = asyncio.get_running_loop()
+            await loop.run_in_executor(None, fake_server.poll_signal.wait, 5.0)
+            assert (
+                fake_server.poll_signal.is_set()
+            ), "poll loop never reached a second cycle"
+        finally:
+            api._connection_enabled = False
+            task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await task
+        return api
+
+    @pytest.mark.asyncio
+    async def test_position_only_batch_causes_no_refetch(
+        self, fake_server: FakeStreamMagicServer
+    ):
+        api = await self._drive_one_batch(fake_server, [_position_event(28650)])
+        # 1 == the seed fetch made while establishing the queue; the
+        # position-only batch must add none.
+        assert fake_server.now_playing_fetch_count == 1
+        assert api.position_ms == 28650
+
+    @pytest.mark.asyncio
+    async def test_play_mode_only_batch_causes_no_refetch(
+        self, fake_server: FakeStreamMagicServer
+    ):
+        api = await self._drive_one_batch(fake_server, [_play_mode_event("shuffle")])
+        assert fake_server.now_playing_fetch_count == 1
+        assert api.play_mode == "shuffle"
+
+    @pytest.mark.asyncio
+    async def test_metadata_batch_causes_exactly_one_refetch(
+        self, fake_server: FakeStreamMagicServer
+    ):
+        await self._drive_one_batch(fake_server, [_metadata_event()])
+        # 2 == the seed fetch, plus exactly one refetch for the metadata
+        # event - not zero (missed refetch) and not more than one.
+        assert fake_server.now_playing_fetch_count == 2
+
+    @pytest.mark.asyncio
+    async def test_mixed_batch_causes_exactly_one_refetch_not_two(
+        self, fake_server: FakeStreamMagicServer
+    ):
+        api = await self._drive_one_batch(
+            fake_server, [_position_event(1234), _metadata_event()]
+        )
+        assert fake_server.now_playing_fetch_count == 2
+        assert api.position_ms == 1234
 
 
 class TestPositionModelGating:
