@@ -4,13 +4,13 @@
 
 **Goal:** Let a consumer pause, skip, seek and set shuffle/repeat on streaming-capable Lyngdorf models, gated on what the device currently advertises.
 
-**Architecture:** A new `lyngdorf/transport.py` holds the write helpers, mirroring the existing read helpers in `nowplaying.py` and reusing their `StreamMagicSession` so writes share the poll loop's kept-alive connection. Capabilities are captured onto the existing frozen `NowPlaying` from the payload's `controls` dict, so capability changes propagate through the callback that already exists. `LyngdorfApi` and `Receiver` expose gated methods that raise rather than sending a request the device would answer `200` to and ignore.
+**Architecture:** `streaming.py` becomes `streaming.py` and gains the write helpers, so one module owns everything spoken to the streaming module on `:8080` — session, parsing, now-playing, position and transport — as against the `:84` RIO protocol in `api.py`. Splitting reads from writes would have divided a single responsibility along a technical seam; both halves share the connection, the URL shapes and the error conventions. Capabilities are captured onto the existing frozen `NowPlaying` from the payload's `controls` dict, so capability changes propagate through the callback that already exists. `LyngdorfApi` and `Receiver` expose gated methods that raise rather than sending a request the device would answer `200` to and ignore.
 
 **Tech Stack:** Python 3.11+, stdlib `http.client` (no new dependencies), pytest, `HTTPServer`-based fake device.
 
 ## Global Constraints
 
-- Python 3.11+; no new runtime dependencies — stdlib `http.client` only, matching `nowplaying.py`.
+- Python 3.11+; no new runtime dependencies — stdlib `http.client` only, matching `streaming.py`.
 - All quality gates must pass before each commit: `poetry run pytest`, `poetry run mypy lyngdorf/`, `poetry run ruff check .`, `poetry run black --check .`. In this checkout the venv binary is `.venv/bin/python -m <tool>`.
 - No test may require a real device. Fixtures live in `tests/fixtures/` and are verbatim device captures.
 - Transport is gated on `has_streaming_feature()`: MP-40/50/60, TDAI-1120/2210/3400 have it; TDAI-2170 and P-100/200/300 do not.
@@ -28,22 +28,114 @@
 
 | File | Responsibility |
 |---|---|
+| `lyngdorf/streaming.py` | **Renamed from `streaming.py`.** Everything spoken to the `:8080` streaming module: session, parsing, now-playing, position, and the new transport writes |
 | `lyngdorf/const.py` | Add `PLAY_MODE_PATH`, `CONTROL_PATH` |
 | `lyngdorf/exceptions.py` | Add `LyngdorfUnsupportedError` |
-| `lyngdorf/nowplaying.py` | Capture `controls`/`play_modes` onto `NowPlaying`; add status-returning request helpers |
-| `lyngdorf/transport.py` | **New.** Write helpers: activate control, seek, set play mode |
 | `lyngdorf/api.py` | Gated async methods on `LyngdorfApi` |
 | `lyngdorf/device.py` | `can_*` properties and async methods on `Receiver`, model-gated |
-| `tests/transport_test.py` | **New.** All transport tests |
-| `tests/nowplaying_test.py` | Extend for capability parsing |
+| `tests/streaming_test.py` | **Renamed from `nowplaying_test.py`.** Parsing, session, position |
+| `tests/streaming_transport_test.py` | **New.** The transport writes. Split from the above for size, not responsibility — both exercise `streaming.py` |
 
 ---
 
-### Task 1: Capture capabilities onto NowPlaying
+### Task 1: Rename nowplaying.py to streaming.py
+
+Pure refactor: no behaviour change, no new tests. Doing it first means every
+later task lands in its final home and no commit has to be rewritten.
 
 **Files:**
-- Modify: `lyngdorf/nowplaying.py` (the `NowPlaying` dataclass and `parse_now_playing`)
-- Test: `tests/nowplaying_test.py`
+- Rename: `lyngdorf/nowplaying.py` → `lyngdorf/streaming.py`
+- Rename: `tests/nowplaying_test.py` → `tests/streaming_test.py`
+- Modify: `lyngdorf/__init__.py`, `lyngdorf/api.py`, `lyngdorf/device.py`, `examples/monitor.py`
+
+**Interfaces:**
+- Consumes: nothing.
+- Produces: every public name previously importable from `lyngdorf.nowplaying`
+  — `NowPlaying`, `StreamMagicSession`, `parse_now_playing`,
+  `parse_position_events`, `async_fetch_now_playing`, `async_fetch_position`,
+  `async_init_now_playing_queue`, `async_subscribe_now_playing`,
+  `async_poll_now_playing_events` — importable from `lyngdorf.streaming`
+  instead, unchanged.
+
+- [ ] **Step 1: Move both files with history preserved**
+
+```bash
+git mv lyngdorf/nowplaying.py lyngdorf/streaming.py
+git mv tests/nowplaying_test.py tests/streaming_test.py
+```
+
+Use `git mv`, not delete-and-create: it keeps `git log --follow` and `git
+blame` working, which matters for a file carrying this much
+reverse-engineering commentary.
+
+- [ ] **Step 2: Update the import sites**
+
+There are five, all `from .nowplaying import` or `from lyngdorf.nowplaying
+import`. Find them:
+
+```bash
+grep -rn "nowplaying" lyngdorf tests examples
+```
+
+Change each to `streaming`. Do not alter the imported names — only the module
+path. `lyngdorf/const.py` and `lyngdorf/models/base.py` mention the word in
+prose comments; update those to say `streaming.py` too, so the comments keep
+pointing at a file that exists.
+
+- [ ] **Step 3: Widen the module docstring**
+
+`streaming.py` now owns more than now-playing, so replace the opening line of
+its docstring:
+
+```python
+"""The streaming module's HTTP API.
+
+Streaming-capable Lyngdorf models (see ``ModelConfig.has_streaming``) embed a
+StreamUnlimited streaming module that exposes its own HTTP JSON API on port
+8080 - unrelated to the ``:84`` RIO protocol the rest of this library speaks.
+This module owns everything spoken to it: the connection, now-playing
+metadata, playback position, and transport control.
+```
+
+Keep the remainder of the existing docstring — the long-poll mechanism, the
+websocket findings and the no-vendor-documentation caveat all still apply.
+
+- [ ] **Step 4: Verify nothing changed**
+
+Run: `.venv/bin/python -m pytest -q`
+Expected: PASS, the same count as before the rename (341).
+
+Run: `.venv/bin/python -m mypy lyngdorf/` — Expected: Success.
+
+Run: `grep -rn "nowplaying" lyngdorf tests examples` — Expected: no output.
+
+- [ ] **Step 5: Commit**
+
+```bash
+.venv/bin/python -m ruff check .
+.venv/bin/python -m black --check .
+git add -A
+git commit -m "Rename nowplaying.py to streaming.py
+
+The module is about to gain transport control, and a file called
+nowplaying.py holding pause and seek would undersell it. Splitting reads
+from writes was the alternative and it is the wrong seam: both halves talk
+to the same streaming module on :8080, share its connection, URL shapes and
+error conventions, and differ only in direction.
+
+One module now owns everything spoken to that module, as against the :84
+RIO protocol in api.py - a boundary that matches the hardware.
+
+Pure rename via git mv, so history and blame follow. No behaviour change."
+```
+
+---
+
+### Task 2: Capture capabilities onto NowPlaying
+
+**Files:**
+- Modify: `lyngdorf/streaming.py` (the `NowPlaying` dataclass and `parse_now_playing`)
+- Test: `tests/streaming_test.py`
 
 **Interfaces:**
 - Consumes: nothing.
@@ -51,7 +143,7 @@
 
 - [ ] **Step 1: Write the failing tests**
 
-Add to `tests/nowplaying_test.py`, inside `class TestRealCaptures`:
+Add to `tests/streaming_test.py`, inside `class TestRealCaptures`:
 
 ```python
     def test_spotify_connect_capabilities(self):
@@ -95,12 +187,12 @@ Add to `tests/nowplaying_test.py`, inside `class TestRealCaptures`:
 
 - [ ] **Step 2: Run the tests to verify they fail**
 
-Run: `.venv/bin/python -m pytest tests/nowplaying_test.py -k "capabilit or false_controls or airplay_has_no or play_mode_key" -v`
+Run: `.venv/bin/python -m pytest tests/streaming_test.py -k "capabilit or false_controls or airplay_has_no or play_mode_key" -v`
 Expected: FAIL with `AttributeError: 'NowPlaying' object has no attribute 'controls'`
 
 - [ ] **Step 3: Add the fields and parse them**
 
-In `lyngdorf/nowplaying.py`, extend the dataclass docstring's `Attributes:` block with:
+In `lyngdorf/streaming.py`, extend the dataclass docstring's `Attributes:` block with:
 
 ```
         controls: Transport actions the device currently offers, e.g.
@@ -165,7 +257,7 @@ Expected: PASS, all tests including the 341 that existed before.
 .venv/bin/python -m black .
 .venv/bin/python -m mypy lyngdorf/
 .venv/bin/python -m pytest -q
-git add lyngdorf/nowplaying.py tests/nowplaying_test.py
+git add lyngdorf/streaming.py tests/streaming_test.py
 git commit -m "Capture the device's advertised capabilities on NowPlaying
 
 The payload's controls dict was parsed and discarded. It is the only
@@ -183,14 +275,14 @@ through the path metadata already uses."
 
 ---
 
-### Task 2: Status-returning request helpers
+### Task 3: Status-returning request helpers
 
 **Files:**
-- Modify: `lyngdorf/nowplaying.py`
-- Test: `tests/transport_test.py` (create)
+- Modify: `lyngdorf/streaming.py`
+- Test: `tests/streaming_transport_test.py` (create)
 
 **Interfaces:**
-- Consumes: `StreamMagicSession` from Task 0 (already exists on `main`).
+- Consumes: `StreamMagicSession`, already on `main`.
 - Produces:
   - `StreamMagicSession.get_status(path_and_query: str, timeout: float) -> int | None`
   - `async def _smoip_status(host: str, port: int, path_and_query: str, timeout: float) -> int | None`
@@ -200,21 +292,21 @@ through the path metadata already uses."
 
 - [ ] **Step 1: Write the failing test**
 
-Create `tests/transport_test.py`:
+Create `tests/streaming_transport_test.py`:
 
 ```python
 """Tests for transport control (writes to the :8080 API).
 
-No device required: the fake server from nowplaying_test stands in.
+No device required: the fake server from streaming_test stands in.
 """
 
 import json
 
 import pytest
 
-from lyngdorf.nowplaying import StreamMagicSession, _smoip_status
+from lyngdorf.streaming import StreamMagicSession, _smoip_status
 
-from .nowplaying_test import FakeStreamMagicServer, fake_server  # noqa: F401
+from .streaming_test import FakeStreamMagicServer, fake_server  # noqa: F401
 
 
 @pytest.mark.asyncio
@@ -247,16 +339,16 @@ async def test_session_status_reuses_connection(fake_server: FakeStreamMagicServ
     assert fake_server.connections == 1
 ```
 
-`tests/` has no `__init__.py`; if the relative import fails, use `from nowplaying_test import ...` instead — pytest puts the test directory on `sys.path`.
+`tests/` has no `__init__.py`; if the relative import fails, use `from streaming_test import ...` instead — pytest puts the test directory on `sys.path`.
 
 - [ ] **Step 2: Run to verify it fails**
 
-Run: `.venv/bin/python -m pytest tests/transport_test.py -v`
+Run: `.venv/bin/python -m pytest tests/streaming_transport_test.py -v`
 Expected: FAIL with `ImportError: cannot import name '_smoip_status'`
 
 - [ ] **Step 3: Implement the helpers**
 
-In `lyngdorf/nowplaying.py`, add this method to `StreamMagicSession`, directly after `get`:
+In `lyngdorf/streaming.py`, add this method to `StreamMagicSession`, directly after `get`:
 
 ```python
     async def get_status(self, path_and_query: str, timeout: float) -> int | None:
@@ -358,7 +450,7 @@ async def _get_status(
 
 - [ ] **Step 4: Run the tests**
 
-Run: `.venv/bin/python -m pytest tests/transport_test.py -q`
+Run: `.venv/bin/python -m pytest tests/streaming_transport_test.py -q`
 Expected: PASS (4 tests)
 
 - [ ] **Step 5: Quality gates and commit**
@@ -368,7 +460,7 @@ Expected: PASS (4 tests)
 .venv/bin/python -m black .
 .venv/bin/python -m mypy lyngdorf/
 .venv/bin/python -m pytest -q
-git add lyngdorf/nowplaying.py tests/transport_test.py
+git add lyngdorf/streaming.py tests/streaming_transport_test.py
 git commit -m "Add status-returning request helpers
 
 Writes cannot use the existing helpers to detect success. A successful
@@ -383,15 +475,15 @@ opening their own."
 
 ---
 
-### Task 3: The transport module
+### Task 4: Transport writes
 
 **Files:**
 - Modify: `lyngdorf/const.py`
-- Create: `lyngdorf/transport.py`
-- Test: `tests/transport_test.py`
+- Modify: `lyngdorf/streaming.py`
+- Test: `tests/streaming_transport_test.py`
 
 **Interfaces:**
-- Consumes: `_get_status`, `StreamMagicSession` from Task 2.
+- Consumes: `_get_status`, `StreamMagicSession` from Task 3.
 - Produces:
   - `async def async_activate_control(host, control, port=STREAMMAGIC_PORT, timeout=8.0, session=None) -> bool`
   - `async def async_seek(host, position_ms, port=STREAMMAGIC_PORT, timeout=8.0, session=None) -> bool`
@@ -400,10 +492,10 @@ opening their own."
 
 - [ ] **Step 1: Write the failing tests**
 
-Append to `tests/transport_test.py`:
+Append to `tests/streaming_transport_test.py`:
 
 ```python
-from lyngdorf.transport import (
+from lyngdorf.streaming import (
     CONTROL_NEXT,
     CONTROL_PAUSE,
     CONTROL_PREVIOUS,
@@ -479,7 +571,7 @@ class TestTransportWireFormat:
         assert fake_server.connections == 1
 ```
 
-Add this helper near the top of `tests/transport_test.py`, below the imports:
+Add this helper near the top of `tests/streaming_transport_test.py`, below the imports:
 
 ```python
 from urllib.parse import unquote
@@ -489,7 +581,7 @@ def _unquote(path: str) -> str:
     return unquote(path)
 ```
 
-The fake server needs to record the last path and be able to fail writes. In `tests/nowplaying_test.py`, add to `FakeStreamMagicServer`:
+The fake server needs to record the last path and be able to fail writes. In `tests/streaming_test.py`, add to `FakeStreamMagicServer`:
 
 ```python
     last_path: str = ""
@@ -515,8 +607,8 @@ and at the very top of `_NowPlayingHandler.do_GET`, before the existing branches
 
 - [ ] **Step 2: Run to verify they fail**
 
-Run: `.venv/bin/python -m pytest tests/transport_test.py -q`
-Expected: FAIL with `ModuleNotFoundError: No module named 'lyngdorf.transport'`
+Run: `.venv/bin/python -m pytest tests/streaming_transport_test.py -q`
+Expected: FAIL with `ImportError: cannot import name 'async_activate_control'`
 
 - [ ] **Step 3: Add the constants**
 
@@ -524,7 +616,7 @@ In `lyngdorf/const.py`, directly below `NOW_PLAYING_POSITION_PATH`:
 
 ```python
 # Transport control. `activate` rather than `value`: this node is an action,
-# not a setting. Confirmed against a real MP-60 - see lyngdorf/transport.py.
+# not a setting. Confirmed against a real MP-60 - see lyngdorf/streaming.py.
 CONTROL_PATH = "player:player/control"
 # Combined shuffle/repeat mode. One enum, not two independent flags.
 PLAY_MODE_PATH = "settings:/mediaPlayer/playMode"
@@ -537,19 +629,16 @@ and add both names to `__all__`, next to `"NOW_PLAYING_POSITION_PATH",`:
     "PLAY_MODE_PATH",
 ```
 
-- [ ] **Step 4: Write the module**
+- [ ] **Step 4: Add the transport section**
 
-Create `lyngdorf/transport.py`:
+Append to `lyngdorf/streaming.py`, below the read helpers, under a section
+comment:
 
 ```python
-"""Playback transport control via the streaming module's HTTP API.
-
-Writes, where `nowplaying.py` reads. Same undocumented, reverse-engineered
-`:8080` API, and the same caveat: a firmware update could change any of
-this without notice.
-
-Everything here was confirmed against a real MP-60. Two behaviours are
-worth knowing before calling any of it.
+# -- Transport control (writes) ------------------------------------------
+#
+# Everything below writes to the device. Two behaviours are worth knowing
+# before calling any of it.
 
 **The device validates nothing.** Setting the play mode `bogusMode`
 returns HTTP 200 and reads back as `bogusMode`; so do modes the device
@@ -670,7 +759,7 @@ async def async_set_play_mode(
 
 - [ ] **Step 5: Run the tests**
 
-Run: `.venv/bin/python -m pytest tests/transport_test.py -q`
+Run: `.venv/bin/python -m pytest tests/streaming_transport_test.py -q`
 Expected: PASS
 
 - [ ] **Step 6: Quality gates and commit**
@@ -680,7 +769,7 @@ Expected: PASS
 .venv/bin/python -m black .
 .venv/bin/python -m mypy lyngdorf/
 .venv/bin/python -m pytest -q
-git add lyngdorf/transport.py lyngdorf/const.py tests/
+git add lyngdorf/streaming.py lyngdorf/const.py tests/
 git commit -m "Add transport write helpers for the :8080 API
 
 pause, next, previous, seek and play mode, in the style of the read
@@ -697,25 +786,25 @@ with HTTP 500; the wire format here is the one that actually seeks."
 
 ---
 
-### Task 4: Gated methods on LyngdorfApi
+### Task 5: Gated methods on LyngdorfApi
 
 **Files:**
 - Modify: `lyngdorf/exceptions.py`, `lyngdorf/api.py`
-- Test: `tests/transport_test.py`
+- Test: `tests/streaming_transport_test.py`
 
 **Interfaces:**
-- Consumes: `NowPlaying.controls`/`play_modes` (Task 1), the `lyngdorf.transport` helpers (Task 3).
+- Consumes: `NowPlaying.controls`/`play_modes` (Task 2), the transport helpers (Task 4).
 - Produces on `LyngdorfApi`: `available_controls -> frozenset[str]`, `available_play_modes -> frozenset[str]`, and `async_pause()`, `async_next()`, `async_previous()`, `async_seek(position_ms)`, `async_set_play_mode(mode)`, each returning `bool` and raising `LyngdorfUnsupportedError` when the capability is absent.
 
 - [ ] **Step 1: Write the failing tests**
 
-Append to `tests/transport_test.py`:
+Append to `tests/streaming_transport_test.py`:
 
 ```python
 from lyngdorf.api import LyngdorfApi
 from lyngdorf.const import LyngdorfModel
 from lyngdorf.exceptions import LyngdorfUnsupportedError
-from lyngdorf.nowplaying import NowPlaying
+from lyngdorf.streaming import NowPlaying
 
 
 def _np(controls=(), play_modes=()):
@@ -794,7 +883,7 @@ class TestApiGating:
 
 - [ ] **Step 2: Run to verify they fail**
 
-Run: `.venv/bin/python -m pytest tests/transport_test.py -k Gating -q`
+Run: `.venv/bin/python -m pytest tests/streaming_transport_test.py -k Gating -q`
 Expected: FAIL with `ImportError: cannot import name 'LyngdorfUnsupportedError'`
 
 - [ ] **Step 3: Add the exception**
@@ -899,7 +988,7 @@ Note `streammagic_port` is a class attribute, so the test assigning `api.streamm
 
 - [ ] **Step 5: Run the tests**
 
-Run: `.venv/bin/python -m pytest tests/transport_test.py -q`
+Run: `.venv/bin/python -m pytest tests/streaming_transport_test.py -q`
 Expected: PASS
 
 - [ ] **Step 6: Quality gates and commit**
@@ -909,7 +998,7 @@ Expected: PASS
 .venv/bin/python -m black .
 .venv/bin/python -m mypy lyngdorf/
 .venv/bin/python -m pytest -q
-git add lyngdorf/api.py lyngdorf/exceptions.py tests/transport_test.py
+git add lyngdorf/api.py lyngdorf/exceptions.py tests/streaming_transport_test.py
 git commit -m "Gate transport calls on what the device advertises
 
 The streaming module validates nothing: an unknown play mode returns HTTP
@@ -926,19 +1015,19 @@ is correct, since there is genuinely nothing it can do from that state."
 
 ---
 
-### Task 5: Receiver surface and hardware verification
+### Task 6: Receiver surface and hardware verification
 
 **Files:**
 - Modify: `lyngdorf/device.py`
-- Test: `tests/transport_test.py`
+- Test: `tests/streaming_transport_test.py`
 
 **Interfaces:**
-- Consumes: everything from Task 4.
+- Consumes: everything from Task 5.
 - Produces on `Receiver`: `can_pause`, `can_next`, `can_previous`, `can_seek` (all `bool`), `available_play_modes -> frozenset[str]`, and `async_pause()`, `async_next()`, `async_previous()`, `async_seek(position_ms)`, `async_set_play_mode(mode)`.
 
 - [ ] **Step 1: Write the failing tests**
 
-Append to `tests/transport_test.py`:
+Append to `tests/streaming_transport_test.py`:
 
 ```python
 from lyngdorf.device import Receiver
@@ -1010,7 +1099,7 @@ class TestReceiverCapabilities:
 
 - [ ] **Step 2: Run to verify they fail**
 
-Run: `.venv/bin/python -m pytest tests/transport_test.py -k Receiver -q`
+Run: `.venv/bin/python -m pytest tests/streaming_transport_test.py -k Receiver -q`
 Expected: FAIL with `AttributeError: 'MP60Receiver' object has no attribute 'can_pause'`
 
 - [ ] **Step 3: Implement the Receiver surface**
@@ -1100,7 +1189,7 @@ Expected: PASS
 .venv/bin/python -m black .
 .venv/bin/python -m mypy lyngdorf/
 .venv/bin/python -m pytest -q
-git add lyngdorf/device.py tests/transport_test.py
+git add lyngdorf/device.py tests/streaming_transport_test.py
 git commit -m "Expose transport capabilities and controls on Receiver
 
 can_pause/can_next/can_previous/can_seek narrow and widen with the source
