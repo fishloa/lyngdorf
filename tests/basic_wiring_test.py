@@ -2125,6 +2125,73 @@ class TestAudioVideoInputs:
             await client.async_disconnect()
 
 
+class TestAvailableInputAndStreamTypeTables:
+    """Tests for the public accessors over the private audio input,
+    video input and stream type lookup tables (issue #39). These tables
+    are populated per-model at construction time (see MP60Receiver etc.
+    in device.py), so no connection or wire traffic is needed to
+    exercise them."""
+
+    def test_mp60_available_audio_inputs(self):
+        from lyngdorf.device import MP60Receiver
+
+        receiver = MP60Receiver("192.168.1.1")
+        assert receiver.available_audio_inputs == list(MP60_AUDIO_INPUTS.values())
+
+    def test_mp60_available_video_inputs(self):
+        from lyngdorf.device import MP60Receiver
+
+        receiver = MP60Receiver("192.168.1.1")
+        assert receiver.available_video_inputs == list(MP60_VIDEO_INPUTS.values())
+
+    def test_mp60_available_stream_types(self):
+        from lyngdorf.device import MP60Receiver
+
+        receiver = MP60Receiver("192.168.1.1")
+        assert receiver.available_stream_types == list(MP60_STREAM_TYPES.values())
+
+    def test_mp40_available_tables(self):
+        from lyngdorf.device import MP40Receiver
+
+        receiver = MP40Receiver("192.168.1.1")
+        assert receiver.available_audio_inputs == list(MP40_AUDIO_INPUTS.values())
+        assert receiver.available_video_inputs == list(MP40_VIDEO_INPUTS.values())
+        assert receiver.available_stream_types == list(MP40_STREAM_TYPES.values())
+
+    def test_tdai1120_has_no_video_inputs_but_has_stream_types(self):
+        """TDAI-1120 has no video input table at all (audio inputs are a
+        dynamic SRC list, not this static table either), but does have a
+        static stream type table."""
+        from lyngdorf.device import TDAI1120Receiver
+
+        receiver = TDAI1120Receiver("192.168.1.1")
+        assert receiver.available_audio_inputs == []
+        assert receiver.available_video_inputs == []
+        assert receiver.available_stream_types != []
+
+    def test_p_series_has_no_stream_types_table(self):
+        """The P series has no streaming source at all (has_streaming
+        is False), so its stream type table is empty."""
+        from lyngdorf.device import P200Receiver
+
+        receiver = P200Receiver("192.168.1.1")
+        assert receiver.available_stream_types == []
+        assert receiver.available_audio_inputs == list(P_AUDIO_INPUTS.values())
+
+    def test_unrecognised_audio_input_value_is_not_added_to_the_table(self):
+        """Regression guard for the documented unknown-value fallback
+        (#39): an out-of-table AUDIN reply must not silently grow
+        available_audio_inputs - the table stays exactly what the model
+        config defines."""
+        from lyngdorf.device import MP60Receiver
+
+        receiver = MP60Receiver("192.168.1.1")
+        before = receiver.available_audio_inputs
+        receiver._audio_input_callback("999", "")
+        assert receiver.audio_input == "audio-999"
+        assert receiver.available_audio_inputs == before
+
+
 class TestStreamingAndVideoInfo:
     """Tests for streaming source and video information."""
 

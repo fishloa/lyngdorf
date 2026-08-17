@@ -110,6 +110,22 @@ print(receiver.available_sources)
 receiver.source = "HDMI 1"
 ```
 
+### Audio/Video Inputs & Stream Types
+```python
+# Enumerate the possible values before building a closed-option UI
+print(receiver.available_audio_inputs)
+print(receiver.available_video_inputs)
+print(receiver.available_stream_types)
+
+# Current values
+print(receiver.audio_input, receiver.video_input, receiver.streaming_source)
+```
+
+Empty for a model with no such table at all (e.g. a TDAI has no video inputs).
+An unrecognised wire value deliberately escapes the table rather than being
+added to it - see `available_audio_inputs`'s docstring - so a current value is
+not guaranteed to appear in its corresponding `available_*` list.
+
 ### RoomPerfect™ & Voicing
 ```python
 # List available positions

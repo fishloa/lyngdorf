@@ -482,6 +482,21 @@ class Receiver:
         self._notify_notification_callbacks()
 
     @property
+    def available_audio_inputs(self) -> list[str]:
+        """Every audio input name this model's protocol defines.
+
+        Empty for a model with no audio input table at all (e.g. a TDAI).
+
+        Unrecognised wire values deliberately escape this table (see
+        `audio_input`/`_audio_input_callback`), so the current
+        `audio_input` value is not guaranteed to be a member of this
+        list - a consumer building a closed-option enum (e.g. Home
+        Assistant's `SensorDeviceClass.ENUM`) must treat a value outside
+        this list as unknown/unmapped rather than invalid.
+        """
+        return list(self._audio_inputs.values())
+
+    @property
     def zone_b_audio_input(self):
         return self._zone_b_audio_input
 
@@ -506,6 +521,22 @@ class Receiver:
         self._notify_notification_callbacks()
 
     @property
+    def available_video_inputs(self) -> list[str]:
+        """Every video input name this model's protocol defines.
+
+        Empty for a model with no video input table at all (e.g. a TDAI,
+        which has no video inputs).
+
+        Unrecognised wire values deliberately escape this table (see
+        `video_input`/`_video_input_callback`), so the current
+        `video_input` value is not guaranteed to be a member of this
+        list - a consumer building a closed-option enum (e.g. Home
+        Assistant's `SensorDeviceClass.ENUM`) must treat a value outside
+        this list as unknown/unmapped rather than invalid.
+        """
+        return list(self._video_inputs.values())
+
+    @property
     def streaming_source(self):
         return self._streaming_source
 
@@ -528,6 +559,22 @@ class Receiver:
             self._zone_b_streaming_source = f"video-{param1}"
             _LOGGER.warning(f"zone_b_stream_type({param1}) is not known, so ignoring")
         self._notify_notification_callbacks()
+
+    @property
+    def available_stream_types(self) -> list[str]:
+        """Every streaming source type name this model's protocol
+        defines.
+
+        Empty for a model with no stream type table at all.
+
+        Unrecognised wire values deliberately escape this table (see
+        `streaming_source`/`_stream_type_callback`), so the current
+        `streaming_source` value is not guaranteed to be a member of
+        this list - a consumer building a closed-option enum (e.g. Home
+        Assistant's `SensorDeviceClass.ENUM`) must treat a value outside
+        this list as unknown/unmapped rather than invalid.
+        """
+        return list(self._stream_types.values())
 
     @property
     def audio_information(self):
