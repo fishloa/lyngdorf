@@ -3,7 +3,7 @@
     "contextPath": "spotify:/ui/context",
     "matchingMediaRoles": [],
     "trackRoles": {
-      "icon": "https://i.scdn.co/image/ab67616d0000b273ebc918cfb51e9ced7349f436",
+      "icon": "https://i.scdn.co/image/ab67616d0000b273649e2c0c6baeae5b212262ed",
       "mediaData": {
         "resources": [
           {
@@ -17,41 +17,41 @@
           }
         ],
         "metaData": {
-          "album": "Atomic/Atomix",
+          "album": "The Road to Hell (Deluxe Edition, 2019 Remaster)",
           "contentPlayContextPath": "spotify:/ui/context",
-          "artist": "Blondie",
+          "artist": "Chris Rea",
           "live": true,
           "playLogicPath": "spotify:playlogic",
           "serviceID": "spotify"
         }
       },
       "containerType": "none",
-      "title": "Sunday Girl",
+      "title": "The Road to Hell, Pt. II - 2019 Remaster",
       "doNotTrack": true,
       "type": "audio",
       "audioType": "audioBroadcast"
     },
-    "streamId": 1,
+    "streamId": 2,
     "status": {
       "byteSeek": true,
-      "duration": 195133,
+      "duration": 272507,
       "timeSeek": true
     },
     "mediaRoles": {
-      "icon": "https://i.scdn.co/image/ab67616d0000b273ebc918cfb51e9ced7349f436",
+      "icon": "https://i.scdn.co/image/ab67616d0000b273649e2c0c6baeae5b212262ed",
       "mediaData": {
         "resources": [
           {
             "codec": "Vorbis (container: Ogg)",
-            "mimeType": "audio/unknown",
-            "uri": "spotify://?preset=%7B%22title%22:%22Liked%20Songs%22,%22trackUri%22:%22spotify:track:1e1rq2wEC9hOro9YhHmL2B%22,%22srcUri%22:%22spotify:user:fishloa:collection%22%7D",
+            "mimeType": "audio/ogg",
+            "uri": "spotify://?preset=%7B%22title%22:%22Liked%20Songs%22,%22trackUri%22:%22spotify:track:4EnKWWf3YhlQc4J1iENf4c%22,%22srcUri%22:%22spotify:user:fishloa:collection%22%7D",
             "bitRate": 320000
           }
         ],
         "metaData": {
-          "album": "Atomic/Atomix",
+          "album": "The Road to Hell (Deluxe Edition, 2019 Remaster)",
           "contentPlayContextPath": "spotify:/ui/context",
-          "artist": "Blondie",
+          "artist": "Chris Rea",
           "live": true,
           "playLogicPath": "spotify:playlogic",
           "serviceID": "spotify"
@@ -66,7 +66,7 @@
     "state": "playing",
     "playId": {
       "systemMemberId": "Solar",
-      "timestamp": 795830
+      "timestamp": 1169800
     },
     "error": "",
     "controls": {

@@ -52,8 +52,16 @@ therefore proves nothing about whether the device will honour the value, and
 no amount of error handling around the request can tell us otherwise. The
 library has to be the gatekeeper, because the device will not be.
 
-**Pause is destructive on controller-driven sources.** On AirPlay, sending
-`pause` does not pause. Measured:
+**Pause means two different things depending on the source.** On Spotify
+Connect it is a proper toggle:
+
+```
+playing : state='playing'  controls={... pause:true ...}
+pause   : state='paused'   controls unchanged
+pause   : state='playing'  ← resumes
+```
+
+On AirPlay the same command tears the session down instead. Measured:
 
 ```
 before : state='playing'  controls={"next_":true,"previous":true,"pause":true}
@@ -61,10 +69,16 @@ pause  : state='stopped'  controls={}     ← track metadata gone
 pause  : state='stopped'  controls={}     ← does not resume
 ```
 
-It tears the session down, and the device cannot re-establish it — the
-`controls` dict goes empty, so there is nothing left to send. Resume has to
-come from the controlling app. This is inherent to AirPlay and the Connect
-protocols: the phone is the source, and the device is only a sink.
+The session ends and the device cannot re-establish it — the `controls` dict
+goes empty, so there is nothing left to send. Resume has to come from the
+phone, because on AirPlay the phone is the source and the device only a sink.
+Where the device does its own streaming, as with Spotify Connect, it owns the
+session and can genuinely pause it.
+
+Usefully, this needs no source detection to handle. The two cases are
+distinguished by what the device reports afterwards: a real pause leaves
+`controls` populated and `state` at `paused`, while a teardown empties
+`controls`. A capability-gated design follows both automatically.
 
 This also explains the vendor UI's play/pause button, which sends `pause`
 when available and `stop` otherwise, but never a `play` command. There *is*
@@ -161,11 +175,12 @@ async_set_play_mode(mode)
 payload, so they narrow and widen as the source changes - AirPlay reports no
 seek and no play modes, Spotify Connect reports both.
 
-`async_pause()` carries an explicit docstring warning that on
-controller-driven sources it ends the session and **cannot be undone from
-the device**. This is the most surprising behaviour in the feature and the
-likeliest source of a confused bug report, so it belongs in the API
-documentation rather than a footnote.
+`async_pause()` toggles: it pauses a playing source and resumes a paused
+one, which is how the device models it — there is no separate resume
+command. Its docstring must warn that on AirPlay and other
+controller-driven sources it instead ends the session **irrecoverably from
+the device**, since that is the most surprising behaviour here and the
+likeliest source of a confused bug report.
 
 Position, now-playing and the poll loop are untouched.
 
@@ -244,15 +259,16 @@ honestly and let the caller map it.
 
 ## Open questions
 
-**The seek command name.** `controls` advertises the capability as
-`seekTime`, the device's own web client sends `{"control":"seek","time":…}`,
-and `jsoutter/ha-lyngdorf` sends `seekTime` with `time`. Confirm against
-hardware before shipping; the capability flag is not proof of the wire name.
+None outstanding. Seek and pause were both settled against the hardware:
 
-**Whether pause tears down Spotify Connect too.** Measured only on AirPlay,
-where it ends the session irrecoverably. Connect is controller-driven in the
-same way, so the same behaviour is likely, but it is worth confirming
-directly - it determines whether HA can offer `PLAY` on any source at all.
+**Seek** is `{"control":"seekTime","time":<milliseconds>}`, confirmed by
+seeking a Spotify Connect track from 26144 ms to 62026 ms against a 60000 ms
+target. The device's own web client sends `{"control":"seek",…}`, which is
+wrong - it returns HTTP 500 "Directory is empty. No playable items found.",
+i.e. it is parsed as the browse-and-play control instead.
+
+**Pause** toggles on Spotify Connect and tears down on AirPlay, as described
+above.
 
 ## Home Assistant mapping
 
@@ -260,8 +276,8 @@ directly - it determines whether HA can offer `PLAY` on any source at all.
 |---|---|
 | `PAUSE` | Supported, with the teardown caveat |
 | `NEXT_TRACK` / `PREVIOUS_TRACK` | Supported when advertised |
-| `PLAY` | Not supported — no resume command exists |
-| `STOP` | What `pause` effectively does on Connect sources |
+| `PLAY` | Supported where the source pauses rather than tears down — same `pause` command, which toggles |
+| `STOP` | Not exposed; `pause` is what ends an AirPlay session, and not by choice |
 | `SHUFFLE_SET` | Supported where `controls.playMode` offers `shuffle` |
 | `REPEAT_SET` | Full off/one/all on Spotify Connect; unavailable on AirPlay |
 | `SEEK` | Supported where `controls` offers `seekTime` |
