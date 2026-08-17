@@ -302,6 +302,18 @@ class StreamMagicSession:
 
     Requests are serialized: one `http.client` connection cannot carry
     two in flight, and the poll loop is sequential anyway.
+
+    Independently verified on a real TDAI-3400 by @svwhisper: 20
+    sequential position fetches through this exact class reused a single
+    open connection for 19 of the 20 (`keep_alive_disabled` stayed False
+    throughout, zero reuse failures), with one steady ESTABLISHED socket
+    and no TIME_WAIT, and `playTime` ticking cleanly in ~1000ms steps.
+    That walks back #31's original report that the 3400 "dislikes
+    keep-alive" - with plain `http.client` reuse and no forced
+    `Connection: close`, it holds one socket open without complaint. The
+    chunked/no-`Content-Length` framing #31 also reported still stands as
+    a real observation, though, so the detect-and-latch fallback below
+    remains as defensive cover - it is simply unexercised on that unit.
     """
 
     #: Reuse failures tolerated before giving up on keep-alive entirely.
@@ -321,9 +333,13 @@ class StreamMagicSession:
 
         #31 reports a TDAI-3400 that replies chunked and "dislikes
         keep-alive", so a device declining it is expected, not
-        exceptional. Latching means one connection-per-request from then
-        on - the behaviour this class replaced - rather than a failed
-        reuse plus a retry on every single request.
+        exceptional - though see the class docstring: a subsequent field
+        test against a real TDAI-3400 (@svwhisper) held keep-alive open
+        for 20 sequential requests with zero reuse failures, so this
+        latch has not actually been observed to trigger on that model.
+        Latching means one connection-per-request from then on - the
+        behaviour this class replaced - rather than a failed reuse plus a
+        retry on every single request.
         """
         self.reused_connection = False
         """Whether the last request went down an already-open connection.
@@ -663,11 +679,14 @@ async def async_fetch_play_modes(
 ) -> frozenset[str]:
     """One-shot fetch of the device's global play-mode enum.
 
-    Fallback only: a source's own `NowPlaying.play_modes` is per-source
-    and authoritative when non-empty - see `LyngdorfApi.available_play_modes`.
-    `settings:/mediaPlayer/playModes` is a list rather than a single value,
-    so this uses `getRows` rather than `getData`. Real response shape,
-    confirmed against an MP-60::
+    Feeds `LyngdorfApi.available_play_modes`, which takes the *union* of
+    this and a source's own per-source `NowPlaying.play_modes` rather than
+    preferring one over the other: each is a partial view of the device's
+    six-value 2x3 grid (this global list omits the `repeatAll` variants;
+    the per-source list separately omits `normal`), so neither is
+    authoritative alone. `settings:/mediaPlayer/playModes` is a list rather
+    than a single value, so this uses `getRows` rather than `getData`.
+    Real response shape, confirmed against an MP-60::
 
         {"rowsCount": 4, "rows": [
             ["Normal", {"type": "playerPlayMode", "playerPlayMode": "normal"}],

@@ -53,9 +53,11 @@ CONTROL_PATH = "player:player/control"
 PLAY_MODE_PATH = "settings:/mediaPlayer/playMode"
 # The device's global play-mode enum (e.g. normal/shuffle/repeatOne on an
 # MP-60), fetched via `getRows` rather than `getData` since this node is a
-# list. Fallback only: a source's own `controls.playMode` in the
-# now-playing payload is per-source and authoritative when present - this
-# global list is what to offer when that payload omits `playMode` entirely.
+# list. Unioned with a source's own per-source `controls.playMode` in the
+# now-playing payload rather than preferred over it - each list is a
+# partial view of the device's six-value 2x3 grid (this global list omits
+# the repeatAll variants; the per-source list separately omits `normal`) -
+# see `LyngdorfApi.available_play_modes`.
 PLAY_MODES_PATH = "settings:/mediaPlayer/playModes"
 # How long a single long-poll (`pollQueue`) call blocks server-side waiting
 # for a change before returning empty. Comfortably under typical HTTP

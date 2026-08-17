@@ -894,14 +894,29 @@ class LyngdorfApi:
     def available_play_modes(self) -> frozenset[PlayMode]:
         """Shuffle/repeat modes the current source offers, or empty.
 
-        Falls back to the device's global play-mode enum
-        (`_global_play_modes`) when the current source's own payload omits
-        `playMode` entirely - the per-source list is authoritative when
-        non-empty, but some sources report none at all.
+        The union of the current source's own advertised set
+        (`NowPlaying.play_modes`) and the device's global play-mode enum
+        (`_global_play_modes`) - not a preference between one and the
+        other. Measured against a real MP-60 (firmware 5.4.2): both of the
+        device's own lists are partial views of the same six-value 2x3
+        grid. The per-source `controls.playMode` in the now-playing
+        payload omits `normal` entirely - it lists only `shuffle`,
+        `repeatOne`, `repeatAll`, `shuffleRepeatOne`, `shuffleRepeatAll` -
+        while the global `settings:/mediaPlayer/playModes` enum includes
+        `normal` but omits the `repeatAll` variants. This method used to
+        prefer the per-source list whenever it was non-empty, falling back
+        to the global enum only when the per-source list was empty
+        outright; that made `normal` (shuffle=False, repeat=Repeat.OFF -
+        the device's own default/null state) permanently unreachable on
+        any source that advertises per-source modes at all, which broke
+        turning shuffle or repeat back off (`async_set_shuffle(False)` /
+        `async_set_repeat(Repeat.OFF)` from a non-normal mode). Taking the
+        union instead is not a guess: every member of it comes from
+        something the device itself declared.
         """
         if not self._model.has_streaming_feature() or self._now_playing is None:
             return frozenset()
-        return self._now_playing.play_modes or self._global_play_modes
+        return self._now_playing.play_modes | self._global_play_modes
 
     @property
     def can_shuffle(self) -> bool:

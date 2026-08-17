@@ -17,7 +17,11 @@ from datetime import UTC, datetime, timedelta
 from urllib.parse import unquote
 
 import pytest
-from streaming_test import FakeStreamMagicServer, fake_server  # noqa: F401
+from streaming_test import (
+    FakeStreamMagicServer,
+    fake_server,  # noqa: F401
+    load_fixture,
+)
 
 from lyngdorf.api import LyngdorfApi
 from lyngdorf.const import LyngdorfModel
@@ -28,9 +32,13 @@ from lyngdorf.streaming import (
     NowPlaying,
     StreamMagicSession,
     _smoip_status,
+    _unwrap_value,
     async_activate_control,
+    async_fetch_play_modes,
     async_seek,
     async_set_play_mode,
+    parse_now_playing,
+    parse_play_modes,
 )
 
 
@@ -322,16 +330,27 @@ class TestApiGating:
             {PlayMode(shuffle=False, repeat=Repeat.OFF), PlayMode(True, Repeat.OFF)}
         )
 
-    def test_available_play_modes_prefers_per_source_list(self):
-        """The per-source list is authoritative when non-empty, even if it
-        disagrees with the device's global enum."""
+    def test_available_play_modes_is_the_union_of_both_lists(self):
+        """`available_play_modes` used to prefer the per-source list
+        whenever it was non-empty, ignoring the global enum entirely. That
+        encoded the bug this test now guards against: on a real MP-60, the
+        per-source list omits `normal` and the global enum omits the
+        `repeatAll` variants, so preferring either one alone makes some
+        genuinely-supported mode unreachable. The correct behaviour is the
+        union of both - see `TestAvailablePlayModesUnion` below for the
+        fixture-driven regression covering the real device payloads."""
         api = LyngdorfApi("127.0.0.1", LyngdorfModel.MP_60)
         api._global_play_modes = frozenset(
             {PlayMode(shuffle=False, repeat=Repeat.OFF), PlayMode(True, Repeat.OFF)}
         )
         api._update_now_playing(_np(play_modes=["repeatAll", "shuffleRepeatAll"]))
         assert api.available_play_modes == frozenset(
-            {PlayMode(False, Repeat.ALL), PlayMode(True, Repeat.ALL)}
+            {
+                PlayMode(False, Repeat.OFF),
+                PlayMode(True, Repeat.OFF),
+                PlayMode(False, Repeat.ALL),
+                PlayMode(True, Repeat.ALL),
+            }
         )
 
     def test_available_play_modes_empty_when_nothing_playing(self):
@@ -882,6 +901,131 @@ class TestShuffleRepeat:
 
         assert await r.async_set_repeat(Repeat.ALL) is True
         assert '"playerPlayMode": "shuffleRepeatAll"' in _unquote(fake_server.last_path)
+
+
+class TestAvailablePlayModesUnion:
+    """Regression coverage for the null play mode being unreachable,
+    built from the real device captures that produced the bug rather than
+    synthetic data - `now_playing_spotify_connect.json` (a real per-source
+    payload) omits `normal`, and `play_modes.json` (the real global enum,
+    `fake_server`'s default response to `getRows` on
+    `settings:/mediaPlayer/playModes`) omits the `repeatAll` variants.
+
+    `available_play_modes` used to prefer the per-source list whenever it
+    was non-empty, which made `normal` unreachable and
+    `async_set_shuffle(False)` raise `LyngdorfUnsupportedError` from a
+    shuffling source - confirmed against a real MP-60 on firmware 5.4.2.
+    """
+
+    @staticmethod
+    async def _api_with_real_payloads(
+        fake_server: FakeStreamMagicServer,
+        model: LyngdorfModel = LyngdorfModel.MP_60,
+    ) -> LyngdorfApi:
+        """An `LyngdorfApi` seeded exactly the way the real poll loop
+        seeds it: `NowPlaying` (and its `play_modes`) parsed from the real
+        Spotify Connect capture, `_global_play_modes` populated by
+        actually fetching+parsing `fake_server`'s (real) global enum
+        response, not by hand-building either set."""
+        host, port = fake_server.server_address
+        api = LyngdorfApi(str(host), model)
+        api.streammagic_port = port
+        now_playing_payload = _unwrap_value(
+            load_fixture("now_playing_spotify_connect.json")
+        )
+        np = parse_now_playing(now_playing_payload)
+        assert np is not None
+        api._update_now_playing(np)
+        raw_global_modes = await async_fetch_play_modes(str(host), port)
+        api._global_play_modes = parse_play_modes(raw_global_modes)
+        return api
+
+    @pytest.mark.asyncio
+    async def test_union_covers_the_full_six_value_grid(
+        self, fake_server: FakeStreamMagicServer
+    ):
+        api = await self._api_with_real_payloads(fake_server)
+        assert api.available_play_modes == frozenset(
+            {
+                PlayMode(False, Repeat.OFF),
+                PlayMode(False, Repeat.ONE),
+                PlayMode(False, Repeat.ALL),
+                PlayMode(True, Repeat.OFF),
+                PlayMode(True, Repeat.ONE),
+                PlayMode(True, Repeat.ALL),
+            }
+        )
+
+    @pytest.mark.asyncio
+    async def test_set_shuffle_false_from_shuffle_true_repeat_off_succeeds(
+        self, fake_server: FakeStreamMagicServer
+    ):
+        """The bug itself. Before the fix this raised
+        `LyngdorfUnsupportedError`, because the candidate combination
+        (shuffle=False, repeat=OFF, i.e. `normal`) was reachable through
+        neither list alone."""
+        api = await self._api_with_real_payloads(fake_server)
+        api._update_play_mode("shuffle")  # shuffle=True, repeat=OFF
+
+        assert await api.async_set_shuffle(False) is True
+        assert '"playerPlayMode": "normal"' in _unquote(fake_server.last_path)
+
+    @pytest.mark.asyncio
+    async def test_set_repeat_off_from_shuffle_false_repeat_one_succeeds(
+        self, fake_server: FakeStreamMagicServer
+    ):
+        """Symmetric case on the other axis: repeat back to OFF from
+        (shuffle=False, repeat=ONE)."""
+        api = await self._api_with_real_payloads(fake_server)
+        api._update_play_mode("repeatOne")  # shuffle=False, repeat=ONE
+
+        assert await api.async_set_repeat(Repeat.OFF) is True
+        assert '"playerPlayMode": "normal"' in _unquote(fake_server.last_path)
+
+    @pytest.mark.asyncio
+    async def test_model_gate_still_returns_empty(
+        self, fake_server: FakeStreamMagicServer
+    ):
+        api = await self._api_with_real_payloads(
+            fake_server, model=LyngdorfModel.TDAI_2170
+        )
+        assert api.available_play_modes == frozenset()
+
+    @pytest.mark.asyncio
+    async def test_nothing_playing_gate_still_returns_empty(
+        self, fake_server: FakeStreamMagicServer
+    ):
+        host, port = fake_server.server_address
+        api = LyngdorfApi(str(host), LyngdorfModel.MP_60)
+        raw_global_modes = await async_fetch_play_modes(str(host), port)
+        api._global_play_modes = parse_play_modes(raw_global_modes)
+        assert api._now_playing is None
+        assert api.available_play_modes == frozenset()
+
+    @pytest.mark.asyncio
+    async def test_mode_in_neither_list_still_raises(
+        self, fake_server: FakeStreamMagicServer
+    ):
+        """The union must not become "anything goes". With the global
+        enum never fetched (`_global_play_modes` stays at its default
+        empty frozenset), the real per-source fixture alone still omits
+        `normal` - so a caller asking for it is still refused. The device
+        itself validates nothing (an unrecognised mode still returns
+        HTTP 200 and is stored), so this refusal is the only protection
+        there is."""
+        host, port = fake_server.server_address
+        api = LyngdorfApi(str(host), LyngdorfModel.MP_60)
+        api.streammagic_port = port
+        now_playing_payload = _unwrap_value(
+            load_fixture("now_playing_spotify_connect.json")
+        )
+        np = parse_now_playing(now_playing_payload)
+        assert np is not None
+        api._update_now_playing(np)
+        api._update_play_mode("shuffle")  # shuffle=True, repeat=OFF
+
+        with pytest.raises(LyngdorfUnsupportedError):
+            await api.async_set_shuffle(False)
 
 
 class TestPlayModeForwardedToNotifications:

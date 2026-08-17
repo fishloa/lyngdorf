@@ -328,6 +328,11 @@ from lyngdorf import Control, PlaybackState, PlayMode, Repeat
 - Network connectivity (Ethernet + Wi-Fi)
 - Media playback (Spotify, TIDAL, Roon, etc.)
 - 3-band equalizer + balance control
+- Streaming module connection reuse (keep-alive) confirmed working in the
+  field on a real unit by @svwhisper - 20 sequential requests, one steady
+  connection, zero reuse failures; see `lyngdorf/streaming.py`'s
+  `StreamMagicSession` for details and the still-unexercised chunked-response
+  fallback it walks back
 
 ## Development
 
