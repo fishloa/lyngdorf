@@ -22,6 +22,7 @@ from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import cast
 
+from .base import register_in_list
 from .const import (
     DEFAULT_LYNGDORF_PORT,
     MONITOR_INTERVAL,
@@ -610,11 +611,20 @@ class LyngdorfApi:
             asyncio.create_task(self._async_run_callbacks(cmd, first, second))
             asyncio.create_task(self._notify_notification_callbacks())
 
-    def register_notification_callback(self, callback: Callable[[], None]) -> None:
-        self._notification_callbacks.append(callback)
+    def register_notification_callback(
+        self, callback: Callable[[], None]
+    ) -> Callable[[], None]:
+        """Register a callback, returning a callable that unregisters it.
+
+        The returned unsubscribe is idempotent - calling it twice, or after
+        the callback has already been removed, is a no-op rather than an
+        error, because teardown paths run more than once in practice.
+        """
+        return register_in_list(self._notification_callbacks, callback)
 
     def un_register_notification_callback(self, callback: Callable[[], None]) -> None:
-        self._notification_callbacks.remove(callback)
+        with contextlib.suppress(ValueError):
+            self._notification_callbacks.remove(callback)
 
     async def _notify_notification_callbacks(self) -> None:
         for callback in self._notification_callbacks:
@@ -633,12 +643,16 @@ class LyngdorfApi:
 
     def register_callback(
         self, command: str, callback: Callable[[str, str], None]
-    ) -> None:
-        """Register a callback handler for an event type."""
+    ) -> Callable[[], None]:
+        """Register a callback handler for an event type.
 
+        Returns an idempotent unsubscribe that removes only this callback
+        from this command's list, leaving other commands' callbacks (and
+        other callbacks on the same command) untouched.
+        """
         if command not in self._callbacks.keys():
             self._callbacks[command] = []
-        self._callbacks[command].append(callback)
+        return register_in_list(self._callbacks[command], callback)
 
     async def _async_run_callbacks(
         self, command: str, param1: str, param2: str
@@ -671,8 +685,14 @@ class LyngdorfApi:
 
     def register_now_playing_callback(
         self, callback: Callable[[NowPlaying | None], None]
-    ) -> None:
-        self._now_playing_callbacks.append(callback)
+    ) -> Callable[[], None]:
+        """Register a callback, returning a callable that unregisters it.
+
+        The returned unsubscribe is idempotent - calling it twice, or after
+        the callback has already been removed, is a no-op rather than an
+        error, because teardown paths run more than once in practice.
+        """
+        return register_in_list(self._now_playing_callbacks, callback)
 
     @property
     def position_ms(self) -> int | None:
@@ -696,8 +716,14 @@ class LyngdorfApi:
 
     def register_position_callback(
         self, callback: Callable[[int | None], None]
-    ) -> None:
-        self._position_callbacks.append(callback)
+    ) -> Callable[[], None]:
+        """Register a callback, returning a callable that unregisters it.
+
+        The returned unsubscribe is idempotent - calling it twice, or after
+        the callback has already been removed, is a no-op rather than an
+        error, because teardown paths run more than once in practice.
+        """
+        return register_in_list(self._position_callbacks, callback)
 
     @property
     def available_controls(self) -> frozenset[str]:

@@ -12,13 +12,14 @@ All communication via TCP/IP on port 84 (no serial port support).
 """
 
 import asyncio
+import contextlib
 import logging
 from collections.abc import Callable
 from datetime import datetime
 from typing import TYPE_CHECKING
 
 from .api import LyngdorfApi
-from .base import CountingNumberDict
+from .base import CountingNumberDict, register_in_list
 from .const import (
     DEFAULT_LYNGDORF_PORT,
     MP40_AUDIO_INPUTS,
@@ -123,7 +124,9 @@ class Receiver:
         if self._model.has_streaming_feature():
             self._api.register_now_playing_callback(self._now_playing_changed)
 
-    def _register_callback(self, msg: Msg, callback: Callable) -> None:
+    def _register_callback(
+        self, msg: Msg, callback: Callable
+    ) -> Callable[[], None] | None:
         """Register a callback for a message, skipping cleanly if the
         connected model's protocol doesn't define that message.
 
@@ -133,6 +136,10 @@ class Receiver:
         subclass. This catch is a safety net for anything not covered by
         those hooks - so an unexpected protocol gap degrades a single
         feature instead of breaking connection setup entirely.
+
+        Returns the unsubscribe from the underlying `LyngdorfApi.register_callback`,
+        or None when the model doesn't support the message (nothing was
+        registered, so there is nothing to unsubscribe).
         """
         try:
             command = self.lookup_command(msg)
@@ -142,8 +149,8 @@ class Receiver:
                 self._model,
                 msg,
             )
-            return
-        self._api.register_callback(command, callback)
+            return None
+        return self._api.register_callback(command, callback)
 
     @staticmethod
     def _populate_fixed_list(
@@ -242,11 +249,20 @@ class Receiver:
         return self._model.lookup_command(key)
 
     # Notifications Support
-    def register_notification_callback(self, callback: Callable[[], None]) -> None:
-        self._notification_callbacks.append(callback)
+    def register_notification_callback(
+        self, callback: Callable[[], None]
+    ) -> Callable[[], None]:
+        """Register a callback, returning a callable that unregisters it.
+
+        The returned unsubscribe is idempotent - calling it twice, or after
+        the callback has already been removed, is a no-op rather than an
+        error, because teardown paths run more than once in practice.
+        """
+        return register_in_list(self._notification_callbacks, callback)
 
     def un_register_notification_callback(self, callback: Callable[[], None]) -> None:
-        self._notification_callbacks.remove(callback)
+        with contextlib.suppress(ValueError):
+            self._notification_callbacks.remove(callback)
 
     def _notify_notification_callbacks(self) -> None:
         # Scheduled as a task when a loop is running (the normal case: this

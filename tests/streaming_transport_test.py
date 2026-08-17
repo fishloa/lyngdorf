@@ -293,3 +293,232 @@ class TestReceiverCapabilities:
         r._api._update_now_playing(_np(controls=["pause"]))
         r._api._update_now_playing(_np(controls=["pause", "seekTime"]))
         assert seen == [False, True]
+
+
+class TestCallbackRegistration:
+    """All five register_* methods share one rule: return an idempotent
+    unsubscribe, and collapse a duplicate registration to a single entry.
+
+    Each of the four common assertions (detach stops firing, double
+    unsubscribe is a no-op, duplicate registration fires once, unregistering
+    one leaves others firing) is covered for every registration point.
+    """
+
+    # -- LyngdorfApi.register_notification_callback --------------------
+
+    @pytest.mark.asyncio
+    async def test_api_notification_unsubscribe_stops_firing(self):
+        api = LyngdorfApi("127.0.0.1", LyngdorfModel.MP_60)
+        seen = []
+        unsub = api.register_notification_callback(lambda: seen.append(1))
+        await api._notify_notification_callbacks()
+        unsub()
+        await api._notify_notification_callbacks()
+        assert seen == [1]
+
+    @pytest.mark.asyncio
+    async def test_api_notification_double_unsubscribe_is_noop(self):
+        api = LyngdorfApi("127.0.0.1", LyngdorfModel.MP_60)
+        unsub = api.register_notification_callback(lambda: None)
+        unsub()
+        unsub()  # must not raise
+
+    @pytest.mark.asyncio
+    async def test_api_notification_duplicate_registration_fires_once(self):
+        api = LyngdorfApi("127.0.0.1", LyngdorfModel.MP_60)
+        seen = []
+
+        def cb():
+            seen.append(1)
+
+        api.register_notification_callback(cb)
+        api.register_notification_callback(cb)
+        await api._notify_notification_callbacks()
+        assert seen == [1]
+
+    @pytest.mark.asyncio
+    async def test_api_notification_unregister_one_leaves_others(self):
+        api = LyngdorfApi("127.0.0.1", LyngdorfModel.MP_60)
+        seen = []
+        unsub_a = api.register_notification_callback(lambda: seen.append("a"))
+        api.register_notification_callback(lambda: seen.append("b"))
+        unsub_a()
+        await api._notify_notification_callbacks()
+        assert seen == ["b"]
+
+    def test_api_un_register_notification_callback_never_registered_is_noop(self):
+        api = LyngdorfApi("127.0.0.1", LyngdorfModel.MP_60)
+        api.un_register_notification_callback(lambda: None)  # must not raise
+
+    # -- LyngdorfApi.register_callback(command, cb) ---------------------
+
+    @pytest.mark.asyncio
+    async def test_api_command_callback_unsubscribe_stops_firing(self):
+        api = LyngdorfApi("127.0.0.1", LyngdorfModel.MP_60)
+        seen = []
+        unsub = api.register_callback("CMD", lambda p1, p2: seen.append((p1, p2)))
+        await api._async_run_callbacks("CMD", "1", "2")
+        unsub()
+        await api._async_run_callbacks("CMD", "3", "4")
+        assert seen == [("1", "2")]
+
+    @pytest.mark.asyncio
+    async def test_api_command_callback_double_unsubscribe_is_noop(self):
+        api = LyngdorfApi("127.0.0.1", LyngdorfModel.MP_60)
+        unsub = api.register_callback("CMD", lambda p1, p2: None)
+        unsub()
+        unsub()  # must not raise
+
+    @pytest.mark.asyncio
+    async def test_api_command_callback_duplicate_registration_fires_once(self):
+        api = LyngdorfApi("127.0.0.1", LyngdorfModel.MP_60)
+        seen = []
+
+        def cb(p1, p2):
+            seen.append((p1, p2))
+
+        api.register_callback("CMD", cb)
+        api.register_callback("CMD", cb)
+        await api._async_run_callbacks("CMD", "1", "2")
+        assert seen == [("1", "2")]
+
+    @pytest.mark.asyncio
+    async def test_api_command_callback_unregister_one_leaves_others(self):
+        api = LyngdorfApi("127.0.0.1", LyngdorfModel.MP_60)
+        seen = []
+        unsub_a = api.register_callback("CMD", lambda p1, p2: seen.append("a"))
+        api.register_callback("CMD", lambda p1, p2: seen.append("b"))
+        unsub_a()
+        await api._async_run_callbacks("CMD", "1", "2")
+        assert seen == ["b"]
+
+    @pytest.mark.asyncio
+    async def test_api_command_callback_unsubscribe_does_not_affect_other_command(
+        self,
+    ):
+        api = LyngdorfApi("127.0.0.1", LyngdorfModel.MP_60)
+        seen = []
+        unsub_a = api.register_callback("CMD_A", lambda p1, p2: seen.append("a"))
+        api.register_callback("CMD_B", lambda p1, p2: seen.append("b"))
+        unsub_a()
+        await api._async_run_callbacks("CMD_A", "1", "2")
+        await api._async_run_callbacks("CMD_B", "1", "2")
+        assert seen == ["b"]
+
+    # -- LyngdorfApi.register_now_playing_callback ----------------------
+
+    def test_api_now_playing_unsubscribe_stops_firing(self):
+        api = LyngdorfApi("127.0.0.1", LyngdorfModel.MP_60)
+        seen = []
+        unsub = api.register_now_playing_callback(lambda np: seen.append(np))
+        api._update_now_playing(_np(controls=["pause"]))
+        unsub()
+        api._update_now_playing(_np(controls=["pause", "seekTime"]))
+        assert len(seen) == 1
+
+    def test_api_now_playing_double_unsubscribe_is_noop(self):
+        api = LyngdorfApi("127.0.0.1", LyngdorfModel.MP_60)
+        unsub = api.register_now_playing_callback(lambda np: None)
+        unsub()
+        unsub()  # must not raise
+
+    def test_api_now_playing_duplicate_registration_fires_once(self):
+        api = LyngdorfApi("127.0.0.1", LyngdorfModel.MP_60)
+        seen = []
+
+        def cb(np):
+            seen.append(np)
+
+        api.register_now_playing_callback(cb)
+        api.register_now_playing_callback(cb)
+        api._update_now_playing(_np(controls=["pause"]))
+        assert len(seen) == 1
+
+    def test_api_now_playing_unregister_one_leaves_others(self):
+        api = LyngdorfApi("127.0.0.1", LyngdorfModel.MP_60)
+        seen = []
+        unsub_a = api.register_now_playing_callback(lambda np: seen.append("a"))
+        api.register_now_playing_callback(lambda np: seen.append("b"))
+        unsub_a()
+        api._update_now_playing(_np(controls=["pause"]))
+        assert seen == ["b"]
+
+    # -- LyngdorfApi.register_position_callback -------------------------
+
+    def test_api_position_unsubscribe_stops_firing(self):
+        api = LyngdorfApi("127.0.0.1", LyngdorfModel.MP_60)
+        seen = []
+        unsub = api.register_position_callback(lambda pos: seen.append(pos))
+        api._update_position(1000)
+        unsub()
+        api._update_position(2000)
+        assert seen == [1000]
+
+    def test_api_position_double_unsubscribe_is_noop(self):
+        api = LyngdorfApi("127.0.0.1", LyngdorfModel.MP_60)
+        unsub = api.register_position_callback(lambda pos: None)
+        unsub()
+        unsub()  # must not raise
+
+    def test_api_position_duplicate_registration_fires_once(self):
+        api = LyngdorfApi("127.0.0.1", LyngdorfModel.MP_60)
+        seen = []
+
+        def cb(pos):
+            seen.append(pos)
+
+        api.register_position_callback(cb)
+        api.register_position_callback(cb)
+        api._update_position(1000)
+        assert seen == [1000]
+
+    def test_api_position_unregister_one_leaves_others(self):
+        api = LyngdorfApi("127.0.0.1", LyngdorfModel.MP_60)
+        seen = []
+        unsub_a = api.register_position_callback(lambda pos: seen.append("a"))
+        api.register_position_callback(lambda pos: seen.append("b"))
+        unsub_a()
+        api._update_position(1000)
+        assert seen == ["b"]
+
+    # -- Receiver.register_notification_callback -------------------------
+
+    def test_receiver_notification_unsubscribe_stops_firing(self):
+        r = Receiver("127.0.0.1", LyngdorfModel.MP_60)
+        seen = []
+        unsub = r.register_notification_callback(lambda: seen.append(1))
+        r._api._update_now_playing(_np(controls=["pause"]))
+        unsub()
+        r._api._update_now_playing(_np(controls=["pause", "seekTime"]))
+        assert seen == [1]
+
+    def test_receiver_notification_double_unsubscribe_is_noop(self):
+        r = Receiver("127.0.0.1", LyngdorfModel.MP_60)
+        unsub = r.register_notification_callback(lambda: None)
+        unsub()
+        unsub()  # must not raise
+
+    def test_receiver_notification_duplicate_registration_fires_once(self):
+        r = Receiver("127.0.0.1", LyngdorfModel.MP_60)
+        seen = []
+
+        def cb():
+            seen.append(1)
+
+        r.register_notification_callback(cb)
+        r.register_notification_callback(cb)
+        r._api._update_now_playing(_np(controls=["pause"]))
+        assert seen == [1]
+
+    def test_receiver_notification_unregister_one_leaves_others(self):
+        r = Receiver("127.0.0.1", LyngdorfModel.MP_60)
+        seen = []
+        unsub_a = r.register_notification_callback(lambda: seen.append("a"))
+        r.register_notification_callback(lambda: seen.append("b"))
+        unsub_a()
+        r._api._update_now_playing(_np(controls=["pause"]))
+        assert seen == ["b"]
+
+    def test_receiver_un_register_notification_callback_never_registered_is_noop(self):
+        r = Receiver("127.0.0.1", LyngdorfModel.MP_60)
+        r.un_register_notification_callback(lambda: None)  # must not raise

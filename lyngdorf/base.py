@@ -5,11 +5,38 @@ This module implements the handler for volume of Lyngdorf receivers.
 :license: MIT, see LICENSE for more details.
 """
 
+import contextlib
 import logging
+from collections.abc import Callable
+from typing import TypeVar
 
 from attr import s
 
 _LOGGER = logging.getLogger(__package__)
+
+_T = TypeVar("_T")
+
+
+def register_in_list(registry: list[_T], callback: _T) -> Callable[[], None]:
+    """Add `callback` to `registry`, returning an idempotent unsubscribe.
+
+    Registering the same callback twice collapses to a single entry (so it
+    fires once, not twice) and both calls get back a working unsubscribe for
+    that shared entry. The returned unsubscribe is safe to call more than
+    once, or after the callback has already been removed some other way -
+    teardown paths run more than once in practice, so it is a no-op rather
+    than an error.
+
+    Pure list operations only: no I/O, no tasks, no awaits.
+    """
+    if callback not in registry:
+        registry.append(callback)
+
+    def unsubscribe() -> None:
+        with contextlib.suppress(ValueError):
+            registry.remove(callback)
+
+    return unsubscribe
 
 
 @s(auto_attribs=True, init=False)
