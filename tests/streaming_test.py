@@ -12,6 +12,7 @@ import json
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from threading import Thread
+from urllib.parse import unquote
 
 import pytest
 
@@ -22,13 +23,17 @@ from lyngdorf.streaming import (
     NowPlaying,
     StreamMagicSession,
     _coerce_ms,
+    _coerce_play_mode,
     _unwrap_value,
     async_fetch_now_playing,
+    async_fetch_play_mode,
+    async_fetch_play_modes,
     async_fetch_position,
     async_init_now_playing_queue,
     async_poll_now_playing_events,
     async_subscribe_now_playing,
     parse_now_playing,
+    parse_play_mode_events,
     parse_position_events,
 )
 
@@ -270,6 +275,82 @@ class TestParsePositionEvents:
         assert parse_position_events(["junk", None, 42]) is None
 
 
+class TestCoercePlayMode:
+    def test_extracts_value(self):
+        assert (
+            _coerce_play_mode({"type": "playerPlayMode", "playerPlayMode": "shuffle"})
+            == "shuffle"
+        )
+
+    def test_non_dict_returns_none(self):
+        assert _coerce_play_mode("nope") is None
+
+    def test_missing_key_returns_none(self):
+        assert _coerce_play_mode({"type": "playerPlayMode"}) is None
+
+    def test_non_string_value_returns_none(self):
+        assert _coerce_play_mode({"playerPlayMode": 5}) is None
+
+
+class TestParsePlayModeEvents:
+    """Play mode events carry their value inline too, mirroring position -
+    see `TestParsePositionEvents`.
+
+    Payload shape confirmed live against an MP-60::
+
+        {"itemType":"update","path":"settings:/mediaPlayer/playMode",
+         "itemValue":{"type":"playerPlayMode","playerPlayMode":"shuffle"}}
+    """
+
+    def event(self, mode: str) -> dict:
+        return {
+            "itemType": "update",
+            "rowsEvents": [],
+            "path": "settings:/mediaPlayer/playMode",
+            "itemValue": {"type": "playerPlayMode", "playerPlayMode": mode},
+        }
+
+    def test_single_event(self):
+        assert parse_play_mode_events([self.event("shuffle")]) == "shuffle"
+
+    def test_latest_wins_when_batched(self):
+        events = [self.event("normal"), self.event("shuffle"), self.event("repeatAll")]
+        assert parse_play_mode_events(events) == "repeatAll"
+
+    def test_ignores_other_paths(self):
+        other = {"itemType": "update", "path": "player:player/data", "itemValue": {}}
+        assert parse_play_mode_events([other]) is None
+
+    def test_play_mode_extracted_from_mixed_batch(self):
+        other = {
+            "itemType": "update",
+            "path": "player:player/data/playTime",
+            "itemValue": {"type": "i64_", "i64_": 1000},
+        }
+        assert parse_play_mode_events([other, self.event("shuffle")]) == "shuffle"
+
+    def test_empty_list(self):
+        assert parse_play_mode_events([]) is None
+
+    def test_missing_item_value(self):
+        assert (
+            parse_play_mode_events([{"path": "settings:/mediaPlayer/playMode"}]) is None
+        )
+
+    def test_non_string_value_ignored(self):
+        bad = {
+            "path": "settings:/mediaPlayer/playMode",
+            "itemValue": {"type": "playerPlayMode", "playerPlayMode": 5},
+        }
+        assert parse_play_mode_events([bad]) is None
+
+    def test_malformed_entries_ignored(self):
+        assert parse_play_mode_events(["junk", None, 42]) is None
+
+    def test_not_a_list_returns_none(self):
+        assert parse_play_mode_events(None) is None
+
+
 # -- Fake HTTP server for integration tests --
 
 
@@ -315,8 +396,12 @@ class _NowPlayingHandler(BaseHTTPRequestHandler):
             return
         if "/api/getData" in self.path and "playTime" in self.path:
             self._respond(json.dumps(self.server.position_response).encode())
+        elif "/api/getData" in self.path and "playMode" in self.path:
+            self._respond(json.dumps(self.server.play_mode_response).encode())
         elif "/api/getData" in self.path:
             self._respond(json.dumps(self.server.get_data_response).encode())
+        elif "/api/getRows" in self.path:
+            self._respond(json.dumps(self.server.play_modes_response).encode())
         elif "/api/event/modifyQueue" in self.path and "queueId=&" in self.path:
             self._respond(json.dumps(self.server.queue_id).encode())
         elif "/api/event/modifyQueue" in self.path and "subscribe=" in self.path:
@@ -338,6 +423,10 @@ class FakeStreamMagicServer(HTTPServer):
     queue_id: str = "{test-queue-123}"
     get_data_response: object = [TestParseNowPlaying.PLAYING_PAYLOAD]
     position_response: object = load_fixture("play_time.json")
+    play_mode_response: object = [
+        {"type": "playerPlayMode", "playerPlayMode": "normal"}
+    ]
+    play_modes_response: object = load_fixture("play_modes.json")
     poll_response: list = []
     last_path: str = ""
     fail_writes: bool = False
@@ -386,6 +475,27 @@ async def test_subscribe(fake_server: FakeStreamMagicServer):
 
 
 @pytest.mark.asyncio
+async def test_subscribe_includes_play_mode(fake_server: FakeStreamMagicServer):
+    """Play mode is always subscribed, not just when position is."""
+    host, port = fake_server.server_address
+    await async_subscribe_now_playing(str(host), "test-queue-123", port)
+    assert "settings:/mediaPlayer/playMode" in unquote(fake_server.last_path)
+
+
+@pytest.mark.asyncio
+async def test_subscribe_includes_play_mode_without_position(
+    fake_server: FakeStreamMagicServer,
+):
+    host, port = fake_server.server_address
+    await async_subscribe_now_playing(
+        str(host), "test-queue-123", port, include_position=False
+    )
+    body = unquote(fake_server.last_path)
+    assert "settings:/mediaPlayer/playMode" in body
+    assert "player:player/data/playTime" not in body
+
+
+@pytest.mark.asyncio
 async def test_poll_empty(fake_server: FakeStreamMagicServer):
     fake_server.poll_response = []
     host, port = fake_server.server_address
@@ -418,6 +528,59 @@ async def test_fetch_position_non_numeric(fake_server: FakeStreamMagicServer):
 @pytest.mark.asyncio
 async def test_fetch_position_connection_error():
     assert await async_fetch_position("127.0.0.1", port=1, timeout=0.5) is None
+
+
+@pytest.mark.asyncio
+async def test_fetch_play_mode(fake_server: FakeStreamMagicServer):
+    host, port = fake_server.server_address
+    assert await async_fetch_play_mode(str(host), port) == "normal"
+
+
+@pytest.mark.asyncio
+async def test_fetch_play_mode_non_string(fake_server: FakeStreamMagicServer):
+    fake_server.play_mode_response = [{"type": "playerPlayMode", "playerPlayMode": 5}]
+    host, port = fake_server.server_address
+    assert await async_fetch_play_mode(str(host), port) is None
+
+
+@pytest.mark.asyncio
+async def test_fetch_play_mode_connection_error():
+    assert await async_fetch_play_mode("127.0.0.1", port=1, timeout=0.5) is None
+
+
+@pytest.mark.asyncio
+async def test_fetch_play_modes(fake_server: FakeStreamMagicServer):
+    """The global enum fallback, read via `getRows` rather than `getData`."""
+    host, port = fake_server.server_address
+    modes = await async_fetch_play_modes(str(host), port)
+    assert modes == frozenset({"normal", "shuffle", "repeatOne", "shuffleRepeatOne"})
+
+
+@pytest.mark.asyncio
+async def test_fetch_play_modes_malformed_rows_are_skipped(
+    fake_server: FakeStreamMagicServer,
+):
+    fake_server.play_modes_response = {
+        "rowsCount": 2,
+        "rows": [
+            ["Normal", {"type": "playerPlayMode", "playerPlayMode": "normal"}],
+            "junk",
+        ],
+    }
+    host, port = fake_server.server_address
+    assert await async_fetch_play_modes(str(host), port) == frozenset({"normal"})
+
+
+@pytest.mark.asyncio
+async def test_fetch_play_modes_not_a_dict(fake_server: FakeStreamMagicServer):
+    fake_server.play_modes_response = "nope"
+    host, port = fake_server.server_address
+    assert await async_fetch_play_modes(str(host), port) == frozenset()
+
+
+@pytest.mark.asyncio
+async def test_fetch_play_modes_connection_error():
+    assert await async_fetch_play_modes("127.0.0.1", port=1, timeout=0.5) == frozenset()
 
 
 class TestStreamMagicSession:
@@ -705,6 +868,59 @@ class TestApiPosition:
         assert api.position_ms is None
 
 
+class TestApiPlayMode:
+    """The active play mode, tracked the same way as position - see
+    `TestApiPosition`."""
+
+    def test_play_mode_starts_none(self):
+        api = LyngdorfApi("127.0.0.1", LyngdorfModel.MP_60)
+        assert api.play_mode is None
+
+    def test_update_sets_play_mode(self):
+        api = LyngdorfApi("127.0.0.1", LyngdorfModel.MP_60)
+        api._update_play_mode("shuffle")
+        assert api.play_mode == "shuffle"
+
+    def test_register_callback(self):
+        api = LyngdorfApi("127.0.0.1", LyngdorfModel.MP_60)
+        received = []
+        api.register_play_mode_callback(received.append)
+        api._update_play_mode("shuffle")
+        assert received == ["shuffle"]
+
+    def test_repeated_value_does_not_refire_callback(self):
+        api = LyngdorfApi("127.0.0.1", LyngdorfModel.MP_60)
+        received = []
+        api.register_play_mode_callback(received.append)
+        api._update_play_mode("shuffle")
+        api._update_play_mode("shuffle")
+        assert received == ["shuffle"]
+
+    def test_callback_error_does_not_break_others(self):
+        api = LyngdorfApi("127.0.0.1", LyngdorfModel.MP_60)
+        received = []
+
+        def bad_cb(mode):
+            raise RuntimeError("boom")
+
+        api.register_play_mode_callback(bad_cb)
+        api.register_play_mode_callback(received.append)
+        api._update_play_mode("shuffle")
+        assert received == ["shuffle"]
+
+    def test_play_mode_cleared_when_idle(self):
+        api = LyngdorfApi("127.0.0.1", LyngdorfModel.MP_60)
+        api._update_play_mode("shuffle")
+        api._update_play_mode(None)
+        assert api.play_mode is None
+
+    def test_non_streaming_model_reports_no_play_mode(self):
+        """The model gate wins over whatever the API layer holds."""
+        api = LyngdorfApi("127.0.0.1", LyngdorfModel.TDAI_2170)
+        api._update_play_mode("shuffle")
+        assert api.play_mode is None
+
+
 class TestPowerGating:
     """The poll only runs while the device is on.
 
@@ -735,9 +951,11 @@ class TestPowerGating:
             NowPlaying("playing", "T", None, None, None, None, None)
         )
         api._update_position(5000)
+        api._update_play_mode("shuffle")
         api.set_power_state(False)
         assert api.now_playing is None
         assert api.position_ms is None
+        assert api.play_mode is None
 
     def test_power_off_notifies_consumers(self):
         api = LyngdorfApi("127.0.0.1", LyngdorfModel.MP_60)
@@ -746,6 +964,14 @@ class TestPowerGating:
         )
         received = []
         api.register_now_playing_callback(received.append)
+        api.set_power_state(False)
+        assert received == [None]
+
+    def test_power_off_notifies_play_mode_consumers(self):
+        api = LyngdorfApi("127.0.0.1", LyngdorfModel.MP_60)
+        api._update_play_mode("shuffle")
+        received = []
+        api.register_play_mode_callback(received.append)
         api.set_power_state(False)
         assert received == [None]
 

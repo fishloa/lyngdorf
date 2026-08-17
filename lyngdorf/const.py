@@ -49,6 +49,12 @@ NOW_PLAYING_POSITION_PATH = "player:player/data/playTime"
 CONTROL_PATH = "player:player/control"
 # Combined shuffle/repeat mode. One enum, not two independent flags.
 PLAY_MODE_PATH = "settings:/mediaPlayer/playMode"
+# The device's global play-mode enum (e.g. normal/shuffle/repeatOne on an
+# MP-60), fetched via `getRows` rather than `getData` since this node is a
+# list. Fallback only: a source's own `controls.playMode` in the
+# now-playing payload is per-source and authoritative when present - this
+# global list is what to offer when that payload omits `playMode` entirely.
+PLAY_MODES_PATH = "settings:/mediaPlayer/playModes"
 # How long a single long-poll (`pollQueue`) call blocks server-side waiting
 # for a change before returning empty. Comfortably under typical HTTP
 # client/proxy idle timeouts.
@@ -266,6 +272,7 @@ __all__ = [
     "NOW_PLAYING_POSITION_PATH",
     "CONTROL_PATH",
     "PLAY_MODE_PATH",
+    "PLAY_MODES_PATH",
     "NOW_PLAYING_POLL_TIMEOUT",
     "POWER_ON",
     "POWER_OFF",

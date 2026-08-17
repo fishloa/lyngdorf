@@ -71,6 +71,7 @@ from .const import (
     NOW_PLAYING_PATH,
     NOW_PLAYING_POSITION_PATH,
     PLAY_MODE_PATH,
+    PLAY_MODES_PATH,
     STREAMMAGIC_PORT,
 )
 
@@ -211,6 +212,40 @@ def parse_position_events(events: object) -> int | None:
     return position
 
 
+def _coerce_play_mode(raw: object) -> str | None:
+    """Pull the play-mode string out of a typed-value wrapper.
+
+    Values arrive wrapped as ``{"type": "playerPlayMode", "playerPlayMode":
+    "shuffle"}``.
+    """
+    if not isinstance(raw, dict):
+        return None
+    value = raw.get("playerPlayMode")
+    return value if isinstance(value, str) else None
+
+
+def parse_play_mode_events(events: object) -> str | None:
+    """Extract the newest play mode from a batch of queue events.
+
+    Returns None if the batch contains no play-mode event, so the caller
+    can distinguish "unchanged" from a real value. Malformed entries are
+    skipped rather than raising, matching `parse_position_events`.
+    """
+    if not isinstance(events, list):
+        return None
+
+    mode: str | None = None
+    for event in events:
+        if not isinstance(event, dict):
+            continue
+        if event.get("path") != PLAY_MODE_PATH:
+            continue
+        value = _coerce_play_mode(event.get("itemValue"))
+        if value is not None:
+            mode = value
+    return mode
+
+
 def _unwrap_value(raw: object) -> object:
     """Unwrap the single-element array a `roles=value` `getData` request
     returns the value inside."""
@@ -301,7 +336,7 @@ class StreamMagicSession:
                 loop.run_in_executor(None, fetch, path_and_query, timeout),
                 timeout=timeout + 1,
             )
-        except (TimeoutError, OSError):
+        except (TimeoutError, OSError, http.client.HTTPException):
             _LOGGER.debug(
                 "%s: StreamMagic request to %s failed", self._host, path_and_query
             )
@@ -450,7 +485,7 @@ async def _smoip_get(
         text = await asyncio.wait_for(
             loop.run_in_executor(None, _fetch), timeout=timeout + 1
         )
-    except (TimeoutError, OSError):
+    except (TimeoutError, OSError, http.client.HTTPException):
         _LOGGER.debug("%s: StreamMagic request to %s failed", host, path_and_query)
         return None
 
@@ -482,7 +517,7 @@ async def _smoip_status(
         return await asyncio.wait_for(
             loop.run_in_executor(None, _fetch), timeout=timeout + 1
         )
-    except (TimeoutError, OSError):
+    except (TimeoutError, OSError, http.client.HTTPException):
         _LOGGER.debug("%s: StreamMagic request to %s failed", host, path_and_query)
         return None
 
@@ -566,6 +601,76 @@ async def async_fetch_position(
     return _coerce_ms(_unwrap_value(data))
 
 
+async def async_fetch_play_mode(
+    host: str,
+    port: int = STREAMMAGIC_PORT,
+    timeout: float = 8.0,
+    session: StreamMagicSession | None = None,
+) -> str | None:
+    """One-shot fetch of the current shuffle/repeat mode.
+
+    Used to seed a starting value before the first queue event arrives.
+    Returns None on any network/parse failure - never raises.
+    """
+    data = await _get(
+        session,
+        host,
+        port,
+        f"/api/getData?path={quote(PLAY_MODE_PATH)}&roles=value",
+        timeout,
+    )
+    if data is None:
+        return None
+    return _coerce_play_mode(_unwrap_value(data))
+
+
+async def async_fetch_play_modes(
+    host: str,
+    port: int = STREAMMAGIC_PORT,
+    timeout: float = 8.0,
+    session: StreamMagicSession | None = None,
+) -> frozenset[str]:
+    """One-shot fetch of the device's global play-mode enum.
+
+    Fallback only: a source's own `NowPlaying.play_modes` is per-source
+    and authoritative when non-empty - see `LyngdorfApi.available_play_modes`.
+    `settings:/mediaPlayer/playModes` is a list rather than a single value,
+    so this uses `getRows` rather than `getData`. Real response shape,
+    confirmed against an MP-60::
+
+        {"rowsCount": 4, "rows": [
+            ["Normal", {"type": "playerPlayMode", "playerPlayMode": "normal"}],
+            ["Shuffle", {"type": "playerPlayMode", "playerPlayMode": "shuffle"}],
+            ...
+        ]}
+
+    Each row is `[title, value]`; only `value["playerPlayMode"]` is kept.
+    Returns an empty set on any failure or unexpected shape, never raises -
+    a fallback that itself needs troubleshooting has failed at its one job.
+    """
+    data = await _get(
+        session,
+        host,
+        port,
+        f"/api/getRows?path={quote(PLAY_MODES_PATH)}&roles=value&from=0&to=99",
+        timeout,
+    )
+    if not isinstance(data, dict):
+        return frozenset()
+    rows = data.get("rows")
+    if not isinstance(rows, list):
+        return frozenset()
+
+    modes: set[str] = set()
+    for row in rows:
+        if not isinstance(row, list) or len(row) != 2:
+            continue
+        mode = _coerce_play_mode(row[1])
+        if mode is not None:
+            modes.add(mode)
+    return frozenset(modes)
+
+
 async def async_init_now_playing_queue(
     host: str,
     port: int = STREAMMAGIC_PORT,
@@ -598,12 +703,15 @@ async def async_subscribe_now_playing(
 ) -> bool:
     """Subscribe an existing queue to now-playing changes.
 
-    Position is subscribed on the same queue by default, so both arrive
-    over a single long-poll connection. Pass `include_position=False` to
-    subscribe to track metadata only, which drops the update rate from
-    roughly once a second to once per track/state change.
+    Play mode is always subscribed alongside track metadata - it changes
+    only on user action, not at position's roughly-once-a-second rate, so
+    there is no equivalent reason to make it optional. Position is
+    subscribed on the same queue by default, so all three arrive over a
+    single long-poll connection. Pass `include_position=False` to omit
+    position, which drops the update rate from roughly once a second to
+    once per track/state/play-mode change.
     """
-    paths = [NOW_PLAYING_PATH]
+    paths = [NOW_PLAYING_PATH, PLAY_MODE_PATH]
     if include_position:
         paths.append(NOW_PLAYING_POSITION_PATH)
     subscribe = quote(

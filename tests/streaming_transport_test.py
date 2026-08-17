@@ -9,7 +9,10 @@ No device required: the fake server from streaming_test stands in.
 # the blanket suppression rather than per-line noqa comments.
 # ruff: noqa: F811
 
+import contextlib
 import json
+import socket
+import threading
 from urllib.parse import unquote
 
 import pytest
@@ -30,6 +33,35 @@ from lyngdorf.streaming import (
     async_seek,
     async_set_play_mode,
 )
+
+
+def _garbage_response_server() -> tuple[str, int, socket.socket]:
+    """A raw one-shot TCP server that answers with a non-HTTP response.
+
+    Forces `http.client` to raise `http.client.BadStatusLine` (an
+    `HTTPException` subclass) out of `getresponse()`, on what is - from
+    `StreamMagicSession`'s point of view - a brand-new connection. This is
+    the exact "fresh connection" shape #37's fix wave requires writes to
+    survive: a device replying with garbage (or a truncated/odd response)
+    must not escape as an unhandled exception.
+    """
+    srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    srv.bind(("127.0.0.1", 0))
+    srv.listen(1)
+    host, port = srv.getsockname()
+
+    def serve() -> None:
+        try:
+            conn, _ = srv.accept()
+        except OSError:
+            return
+        with conn:
+            with contextlib.suppress(OSError):
+                conn.recv(4096)
+                conn.sendall(b"not a valid http status line\r\n\r\n")
+
+    threading.Thread(target=serve, daemon=True).start()
+    return str(host), port, srv
 
 
 def _unquote(path: str) -> str:
@@ -133,6 +165,65 @@ class TestTransportWireFormat:
         assert fake_server.connections == 1
 
 
+class TestWritesSurviveHttpException:
+    """`http.client.HTTPException` (e.g. `BadStatusLine`) on a fresh
+    connection must not escape any write path - `async_activate_control`,
+    `async_seek` and `async_set_play_mode` all document "returns False on
+    rejection or network failure rather than raising", and that promise
+    held for `OSError`/`TimeoutError` but not for a malformed HTTP response.
+    """
+
+    @pytest.mark.asyncio
+    async def test_smoip_status_returns_none(self):
+        """The module-level one-shot helper, used when no session is given."""
+        host, port, srv = _garbage_response_server()
+        try:
+            assert await _smoip_status(host, port, "/api/getData?path=x", 2.0) is None
+        finally:
+            srv.close()
+
+    @pytest.mark.asyncio
+    async def test_session_get_status_returns_none_on_fresh_connection(self):
+        """The session path: `_conn` is None going in, so this is exactly
+        the fresh-connection case - no reused-connection retry applies."""
+        host, port, srv = _garbage_response_server()
+        session = StreamMagicSession(host, port)
+        try:
+            assert await session.get_status("/api/getData?path=x", 2.0) is None
+        finally:
+            session.close()
+            srv.close()
+
+    @pytest.mark.asyncio
+    async def test_activate_control_returns_false(self):
+        host, port, srv = _garbage_response_server()
+        try:
+            assert (
+                await async_activate_control(host, CONTROL_PAUSE, port, timeout=2.0)
+                is False
+            )
+        finally:
+            srv.close()
+
+    @pytest.mark.asyncio
+    async def test_seek_returns_false(self):
+        host, port, srv = _garbage_response_server()
+        try:
+            assert await async_seek(host, 1000, port, timeout=2.0) is False
+        finally:
+            srv.close()
+
+    @pytest.mark.asyncio
+    async def test_set_play_mode_returns_false(self):
+        host, port, srv = _garbage_response_server()
+        try:
+            assert (
+                await async_set_play_mode(host, "shuffle", port, timeout=2.0) is False
+            )
+        finally:
+            srv.close()
+
+
 def _np(controls=(), play_modes=()):
     return NowPlaying(
         "playing",
@@ -202,6 +293,29 @@ class TestApiGating:
         assert api.available_controls == frozenset({"pause"})
         assert api.available_play_modes == frozenset({"shuffle"})
 
+    def test_available_play_modes_falls_back_to_global_enum(self):
+        """A source that reports no `playMode` key at all still needs
+        something to offer, or every play-mode call raises (issue #32 fix
+        wave)."""
+        api = LyngdorfApi("127.0.0.1", LyngdorfModel.MP_60)
+        api._global_play_modes = frozenset({"normal", "shuffle"})
+        api._update_now_playing(_np(controls=["pause"]))  # no play_modes
+        assert api.available_play_modes == frozenset({"normal", "shuffle"})
+
+    def test_available_play_modes_prefers_per_source_list(self):
+        """The per-source list is authoritative when non-empty, even if it
+        disagrees with the device's global enum."""
+        api = LyngdorfApi("127.0.0.1", LyngdorfModel.MP_60)
+        api._global_play_modes = frozenset({"normal", "shuffle"})
+        api._update_now_playing(_np(play_modes=["repeatAll", "shuffleRepeatAll"]))
+        assert api.available_play_modes == frozenset({"repeatAll", "shuffleRepeatAll"})
+
+    def test_available_play_modes_empty_when_nothing_playing(self):
+        """The global fallback only applies while something is playing."""
+        api = LyngdorfApi("127.0.0.1", LyngdorfModel.MP_60)
+        api._global_play_modes = frozenset({"normal", "shuffle"})
+        assert api.available_play_modes == frozenset()
+
     @pytest.mark.asyncio
     async def test_supported_call_reaches_the_device(
         self, fake_server: FakeStreamMagicServer
@@ -265,6 +379,26 @@ class TestReceiverCapabilities:
         r._api._update_now_playing(None)
         assert (r.can_pause, r.can_seek) == (False, False)
         assert r.available_play_modes == frozenset()
+
+    def test_play_mode_delegates_to_api(self):
+        r = Receiver("127.0.0.1", LyngdorfModel.MP_60)
+        assert r.play_mode is None
+        r._api._update_play_mode("shuffle")
+        assert r.play_mode == "shuffle"
+
+    @pytest.mark.parametrize(
+        "model",
+        [
+            LyngdorfModel.TDAI_2170,
+            LyngdorfModel.P_100,
+            LyngdorfModel.P_200,
+            LyngdorfModel.P_300,
+        ],
+    )
+    def test_play_mode_none_on_non_streaming_models(self, model):
+        r = Receiver("127.0.0.1", model)
+        r._api._update_play_mode("shuffle")
+        assert r.play_mode is None
 
     @pytest.mark.parametrize("model", NON_STREAMING)
     def test_non_streaming_models_offer_nothing(self, model):
@@ -522,3 +656,58 @@ class TestCallbackRegistration:
     def test_receiver_un_register_notification_callback_never_registered_is_noop(self):
         r = Receiver("127.0.0.1", LyngdorfModel.MP_60)
         r.un_register_notification_callback(lambda: None)  # must not raise
+
+
+class TestMultiDeviceIsolation:
+    """Several Lyngdorf devices may be controlled at once, each with its own
+    `Receiver`/`LyngdorfApi`. Nothing here shares state on purpose - every
+    callback list and cached value is an instance attribute - but that had
+    no regression guard before this test (see the project ledger's Task 6
+    finding). Driving one device's api must never be visible on another's.
+    """
+
+    def test_now_playing_update_does_not_cross_devices(self):
+        a = Receiver("127.0.0.1", LyngdorfModel.MP_60)
+        b = Receiver("127.0.0.2", LyngdorfModel.MP_60)
+        b_seen = []
+        b.register_notification_callback(lambda: b_seen.append(1))
+
+        a._api._update_now_playing(
+            _np(controls=["pause", "next_", "previous", "seekTime"])
+        )
+
+        assert b_seen == []
+        assert (b.can_pause, b.can_next, b.can_previous, b.can_seek) == (
+            False,
+            False,
+            False,
+            False,
+        )
+        assert b.available_play_modes == frozenset()
+        assert b.now_playing is None
+        # The driven device did see it, confirming the test setup is valid.
+        assert a.can_pause is True
+
+    def test_position_update_does_not_cross_devices(self):
+        a = Receiver("127.0.0.1", LyngdorfModel.MP_60)
+        b = Receiver("127.0.0.2", LyngdorfModel.MP_60)
+        b_seen = []
+        b._api.register_position_callback(b_seen.append)
+
+        a._api._update_position(28650)
+
+        assert b_seen == []
+        assert b.position_ms is None
+        assert a.position_ms == 28650
+
+    def test_play_mode_update_does_not_cross_devices(self):
+        a = Receiver("127.0.0.1", LyngdorfModel.MP_60)
+        b = Receiver("127.0.0.2", LyngdorfModel.MP_60)
+        b_seen = []
+        b._api.register_play_mode_callback(b_seen.append)
+
+        a._api._update_play_mode("shuffle")
+
+        assert b_seen == []
+        assert b.play_mode is None
+        assert a.play_mode == "shuffle"

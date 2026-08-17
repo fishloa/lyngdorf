@@ -931,6 +931,11 @@ class Receiver:
         """Shuffle/repeat modes the current source offers."""
         return self._api.available_play_modes
 
+    @property
+    def play_mode(self) -> str | None:
+        """Current shuffle/repeat mode, or None if unknown/unavailable."""
+        return self._api.play_mode
+
     async def async_pause(self) -> bool:
         """Toggle pause on the current source.
 

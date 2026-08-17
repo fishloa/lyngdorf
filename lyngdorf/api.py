@@ -28,6 +28,7 @@ from .const import (
     MONITOR_INTERVAL,
     NOW_PLAYING_POLL_TIMEOUT,
     NOW_PLAYING_POSITION_PATH,
+    PLAY_MODE_PATH,
     RECONNECT_BACKOFF,
     RECONNECT_MAX_WAIT,
     RECONNECT_SCALE,
@@ -46,10 +47,13 @@ from .streaming import (
     StreamMagicSession,
     async_activate_control,
     async_fetch_now_playing,
+    async_fetch_play_mode,
+    async_fetch_play_modes,
     async_fetch_position,
     async_init_now_playing_queue,
     async_poll_now_playing_events,
     async_subscribe_now_playing,
+    parse_play_mode_events,
     parse_position_events,
 )
 from .streaming import (
@@ -181,6 +185,9 @@ class LyngdorfApi:
         self._position_ms: int | None = None
         self._position_updated_at: datetime | None = None
         self._position_callbacks: list[Callable[[int | None], None]] = []
+        self._play_mode: str | None = None
+        self._play_mode_callbacks: list[Callable[[str | None], None]] = []
+        self._global_play_modes: frozenset[str] = frozenset()
 
     async def async_connect(self) -> None:
         """Connect to the receiver asynchronously."""
@@ -365,6 +372,7 @@ class LyngdorfApi:
         # for as long as it stayed off.
         self._update_now_playing(None)
         self._update_position(None)
+        self._update_play_mode(None)
 
     async def async_disconnect(self) -> None:
         """Close the connection to the receiver asynchronously."""
@@ -639,6 +647,7 @@ class LyngdorfApi:
                     "%s: Event callback caused an unhandled exception '%s' (%s)",
                     self.host,
                     traceback.format_exc(),
+                    callback,
                 )
 
     def register_callback(
@@ -726,6 +735,28 @@ class LyngdorfApi:
         return register_in_list(self._position_callbacks, callback)
 
     @property
+    def play_mode(self) -> str | None:
+        """Current shuffle/repeat mode, or None if unknown/unavailable.
+
+        None on a model without a streaming module, same as `now_playing`
+        and `position_ms`.
+        """
+        if not self._model.has_streaming_feature():
+            return None
+        return self._play_mode
+
+    def register_play_mode_callback(
+        self, callback: Callable[[str | None], None]
+    ) -> Callable[[], None]:
+        """Register a callback, returning a callable that unregisters it.
+
+        The returned unsubscribe is idempotent - calling it twice, or after
+        the callback has already been removed, is a no-op rather than an
+        error, because teardown paths run more than once in practice.
+        """
+        return register_in_list(self._play_mode_callbacks, callback)
+
+    @property
     def available_controls(self) -> frozenset[str]:
         """Transport actions the current source offers, or empty."""
         if not self._model.has_streaming_feature() or self._now_playing is None:
@@ -734,10 +765,16 @@ class LyngdorfApi:
 
     @property
     def available_play_modes(self) -> frozenset[str]:
-        """Shuffle/repeat modes the current source offers, or empty."""
+        """Shuffle/repeat modes the current source offers, or empty.
+
+        Falls back to the device's global play-mode enum
+        (`_global_play_modes`) when the current source's own payload omits
+        `playMode` entirely - the per-source list is authoritative when
+        non-empty, but some sources report none at all.
+        """
         if not self._model.has_streaming_feature() or self._now_playing is None:
             return frozenset()
-        return self._now_playing.play_modes
+        return self._now_playing.play_modes or self._global_play_modes
 
     def _require_control(self, control: str) -> None:
         if control not in self.available_controls:
@@ -817,6 +854,14 @@ class LyngdorfApi:
                         self._update_position(
                             await async_fetch_position(self.host, port, session=session)
                         )
+                        self._update_play_mode(
+                            await async_fetch_play_mode(
+                                self.host, port, session=session
+                            )
+                        )
+                        self._global_play_modes = await async_fetch_play_modes(
+                            self.host, port, session=session
+                        )
 
                         queue_id = await async_init_now_playing_queue(
                             self.host, port, session=session
@@ -863,13 +908,18 @@ class LyngdorfApi:
                         if position is not None:
                             self._update_position(position)
 
-                        # Position ticks about once a second; refetching
-                        # the full payload for those would mean an HTTP
-                        # request per second for one integer we already
-                        # have inline.
+                        play_mode = parse_play_mode_events(events)
+                        if play_mode is not None:
+                            self._update_play_mode(play_mode)
+
+                        # Position ticks about once a second and play mode
+                        # arrives inline too; refetching the full payload
+                        # for either would mean an HTTP request per change
+                        # for a value we already have inline.
                         if any(
                             not isinstance(event, dict)
-                            or event.get("path") != NOW_PLAYING_POSITION_PATH
+                            or event.get("path")
+                            not in (NOW_PLAYING_POSITION_PATH, PLAY_MODE_PATH)
                             for event in events
                         ):
                             np = await async_fetch_now_playing(
@@ -926,6 +976,22 @@ class LyngdorfApi:
             except Exception:
                 _LOGGER.error(
                     "%s: position callback error: %s",
+                    self.host,
+                    traceback.format_exc(),
+                )
+
+    def _update_play_mode(self, mode: str | None) -> None:
+        """Record a new play mode, firing callbacks only on an actual change."""
+        if mode == self._play_mode:
+            return
+
+        self._play_mode = mode
+        for cb in self._play_mode_callbacks:
+            try:
+                cb(mode)
+            except Exception:
+                _LOGGER.error(
+                    "%s: play mode callback error: %s",
                     self.host,
                     traceback.format_exc(),
                 )

@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "lyngdorf"
-version = "1.4.9"
+version = "1.5.0"
 description = "Library to control a Lyngdorf A/V processor"
 authors = ["Alex Fishlock <alex.fishlock@racingjag.com>"]
 license = "MIT"
