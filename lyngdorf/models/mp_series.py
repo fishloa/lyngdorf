@@ -20,6 +20,19 @@ from .base import ModelConfig, NumericRange
 # docs/mp-60.md, which all document identical bounds and "10 = 1dB"
 # encoding (hence the 0.1 dB step) for every MP model - not assumed, each
 # was checked individually. !TRIMBASS/!TRIMTREB: -120..120 (-12..+12 dB).
+#
+# Confirmed on a real MP-60 (firmware 5.4.2) rather than taken on trust:
+# every one of the six trims accepts its documented bound exactly and
+# silently clamps beyond it - sending 150 stores 120, sending -150 stores
+# -120, with no error either way. That silent clamping is why the setters
+# raise rather than clamp: the device already swallows an out-of-range
+# value without telling anyone, so a library that did the same would
+# leave a caller no way at all to discover the mistake.
+#
+# Worth checking rather than assuming, because this manual is not reliable
+# in general - the same document was wrong about stream-type names, about
+# `seek`, and about MAXVOL's range (it gives -550..-200, while a real
+# MP-60 reports 0).
 MP_BASS_TREBLE_TRIM_RANGE = NumericRange(min=-12.0, max=12.0, step=0.1)
 # !TRIMCENTER/!TRIMHEIGHT/!TRIMLFE/!TRIMSURRS: -100..100 (-10..+10 dB).
 MP_CHANNEL_TRIM_RANGE = NumericRange(min=-10.0, max=10.0, step=0.1)
