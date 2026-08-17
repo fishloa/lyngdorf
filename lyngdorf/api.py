@@ -107,10 +107,21 @@ def _is_position_discontinuity(
 
     - there was no previous position, or the new one is None (the device
       just started reporting, or has gone idle/powered off)
-    - playback is not `PlaybackState.PLAYING` (a pause, a stop, or a
-      paused track being scrubbed) - every report while not playing counts,
-      since position has no business moving on its own outside that state
-    - the playback state changed since the previous report
+    - playback is a *known* state other than `PlaybackState.PLAYING` (a
+      pause, a stop, or a paused track being scrubbed) - every report in a
+      known non-playing state counts, since position has no business moving
+      on its own outside that state. An *unknown* state (`None` - a
+      transient metadata-fetch failure leaves `_now_playing` unset) does
+      NOT by itself count: treating "unknown" the same as "not playing"
+      would classify every report as a discontinuity for as long as the
+      fetch stays broken, which is precisely the 1Hz storm this callback
+      exists to prevent. The remaining checks below still apply while the
+      state is unknown, so a real seek during that window is still caught
+      by drift.
+    - the playback state changed since the previous report (this still
+      fires once on the transition into/out of an unknown state, since
+      `None` compares unequal to a known state - just not on every report
+      thereafter, because the state then stops changing)
     - the track changed (compared by title - `NowPlaying` does not retain
       a distinct track identifier such as `playId`)
     - the observed position differs from where the clock says it should be
@@ -119,11 +130,25 @@ def _is_position_discontinuity(
 
     A steady ~1Hz progression while playing satisfies none of these, which
     is the behaviour a consumer subscribing only to
-    `register_position_callback` (not this) must keep seeing.
+    `register_position_callback` (not this) must keep seeing - including
+    while the playback state happens to be unknown.
+
+    `current_state`/`current_title` can be one report stale relative to
+    the device: the poll loop calls `_update_position` with the position
+    from the same queue event, then only *afterwards* re-fetches
+    now-playing metadata to catch a state/track change (position arrives
+    inline; metadata needs a round trip - see `_poll_now_playing`, and do
+    not reorder that for this function's sake). So a pause or track change
+    is compared here against the pre-change state on the report it
+    happens, and detected as a discontinuity one report later, once the
+    metadata refetch has landed and this function next runs. That is a
+    one-report delay in detection, not a missed discontinuity - it still
+    fires exactly once, just deferred - and is covered by
+    `test_poll_loop_order_defers_pause_detection_by_one_report`.
     """
     if previous_ms is None or position_ms is None:
         return True
-    if current_state != PlaybackState.PLAYING:
+    if current_state is not None and current_state != PlaybackState.PLAYING:
         return True
     if current_state != previous_state:
         return True

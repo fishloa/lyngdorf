@@ -1012,6 +1012,52 @@ class TestPositionJumpCallback:
         assert raw_seen == []  # unchanged value: the raw callback is silent
         assert jump_seen == [1000]  # but pausing is still a discontinuity
 
+    def test_poll_loop_order_defers_pause_detection_by_one_report(self, monkeypatch):
+        """`test_pause_fires_both` above drives events in the convenient
+        order (`_update_now_playing` then `_update_position`), but that is
+        NOT what the poll loop actually does: it updates position first,
+        inline from the queue event, and only afterwards refetches
+        now-playing metadata over HTTP - see the ordering in
+        `_poll_now_playing` and the comment on `_is_position_discontinuity`.
+        Production ordering is correct and must not change; this test
+        drives events in that true order instead and asserts what actually
+        happens: the pause is detected one position report late, not
+        missed. If a HA integration reads `position_ms` optimistically
+        between the deferred report and the next one, it would briefly see
+        a position frozen while paused without having been told so via the
+        jump callback - a cosmetic one-tick lag, not data loss, since the
+        very next report corrects it."""
+        api, clock = self._api_with_clock()
+        monkeypatch.setattr("lyngdorf.api.datetime", clock)
+        api._update_now_playing(_now_playing(state=PlaybackState.PLAYING))
+
+        raw_seen: list[int | None] = []
+        jump_seen: list[int | None] = []
+        api.register_position_callback(raw_seen.append)
+        api.register_position_jump_callback(jump_seen.append)
+
+        api._update_position(1000)
+        clock.advance(1.0)
+        raw_seen.clear()
+        jump_seen.clear()
+
+        # True poll-loop order: the position event lands first, evaluated
+        # against the still-stale `playing` state (the device paused, but
+        # `_now_playing` has not been refetched yet).
+        api._update_position(1000)  # unchanged - a paused track repeats it
+        assert raw_seen == []  # value unchanged
+        assert jump_seen == []  # deferred: state here is still stale-PLAYING
+
+        # The metadata refetch lands next. It alone never touches position.
+        api._update_now_playing(_now_playing(state=PlaybackState.PAUSED))
+        assert jump_seen == []
+
+        # The following poll's position report is now compared against the
+        # correctly-updated PAUSED state, and the discontinuity fires.
+        clock.advance(1.0)
+        api._update_position(1000)
+        assert jump_seen == [1000]
+
     def test_track_change_fires_both(self, monkeypatch):
         api, clock = self._api_with_clock()
         monkeypatch.setattr("lyngdorf.api.datetime", clock)
@@ -1117,6 +1163,18 @@ class TestPositionJumpCallback:
         r._api._update_position(5000)
         assert seen == [5000]
 
+    def test_receiver_register_position_callback_delegates(self):
+        """The raw callback is exposed publicly too, symmetrically with
+        `register_position_jump_callback` - previously only the jump one
+        was, so a consumer had no public way to get the raw stream and the
+        docstring on the jump callback pointed at a private attribute
+        (`self._api.register_position_callback`) as the alternative."""
+        r = Receiver("127.0.0.1", LyngdorfModel.MP_60)
+        seen = []
+        r.register_position_callback(seen.append)
+        r._api._update_position(5000)
+        assert seen == [5000]
+
     def test_registration_is_idempotent(self):
         """Same contract as every other register_* method - see
         `TestCallbackRegistration`."""
@@ -1154,3 +1212,77 @@ class TestPositionJumpCallback:
         api._update_position(1000)  # first call: both fire
 
         assert order == ["raw", "jump"]
+
+    def test_repeated_identical_position_refreshes_timestamp_silently(
+        self, monkeypatch
+    ):
+        """`_position_updated_at` is refreshed on every report, even when
+        the value repeats (a paused track reports the same millisecond
+        indefinitely) - a consumer extrapolating from a stale anchor would
+        otherwise drift further from reality the longer the pause lasted.
+        Neither callback should fire for the repeat itself, and a later
+        resumption must be judged against the *refreshed* anchor rather
+        than the original one, so it is not mistaken for a false
+        discontinuity."""
+        api, clock = self._api_with_clock()
+        monkeypatch.setattr("lyngdorf.api.datetime", clock)
+        api._update_now_playing(_now_playing(state=PlaybackState.PLAYING))
+
+        raw_seen: list[int | None] = []
+        jump_seen: list[int | None] = []
+        api.register_position_callback(raw_seen.append)
+        api.register_position_jump_callback(jump_seen.append)
+
+        api._update_position(1000)
+        raw_seen.clear()
+        jump_seen.clear()
+
+        # The device repeats the same millisecond three times, 1s apart -
+        # each individual gap is within POSITION_DRIFT_TOLERANCE_MS, so none
+        # of these should be a jump. But if `_position_updated_at` were NOT
+        # refreshed on the unchanged reports (only on an actual value
+        # change), the *next* comparison would measure elapsed time from the
+        # original, stale anchor - 3 seconds by the third repeat - and
+        # 1000ms of real position against a ~4000ms expectation would
+        # exceed tolerance and wrongly fire a jump for ordinary repetition.
+        for _ in range(3):
+            clock.advance(1.0)
+            api._update_position(1000)
+            assert api.position_updated_at == clock.current  # anchor refreshed
+        assert raw_seen == []  # unchanged value throughout: raw stays silent
+        assert jump_seen == []  # each gap measured from the refreshed anchor
+
+        # Playback resumes exactly on schedule from the *refreshed* anchor.
+        clock.advance(1.0)
+        api._update_position(2000)  # expected 1000 + 1000ms elapsed = 2000
+        assert raw_seen == [2000]
+        assert jump_seen == []  # not a false discontinuity
+
+    def test_unknown_state_does_not_storm_the_jump_callback(self, monkeypatch):
+        """Regression guard: `_now_playing` goes to `None` (an unknown
+        playback state) whenever a metadata fetch transiently fails - see
+        the poll loop. Before the fix, `_is_position_discontinuity` treated
+        an unknown state the same as "known and not playing", so every
+        subsequent 1Hz report was classified as a jump until the next
+        successful refetch: exactly the storm this callback exists to
+        prevent. With `_now_playing` left `None` throughout, a steady 1Hz
+        progression must still fire only the raw callback."""
+        api, clock = self._api_with_clock()
+        monkeypatch.setattr("lyngdorf.api.datetime", clock)
+        # `_now_playing` is never set - `current_state` is None on every call.
+
+        raw_seen: list[int | None] = []
+        jump_seen: list[int | None] = []
+        api.register_position_callback(raw_seen.append)
+        api.register_position_jump_callback(jump_seen.append)
+
+        api._update_position(0)  # priming call, establishes "previous"
+        raw_seen.clear()
+        jump_seen.clear()
+
+        for ms in range(1000, 6000, 1000):
+            clock.advance(1.0)
+            api._update_position(ms)
+
+        assert raw_seen == [1000, 2000, 3000, 4000, 5000]
+        assert jump_seen == []

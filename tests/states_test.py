@@ -79,6 +79,13 @@ class TestControlLeniency:
     def test_unknown_value_is_a_control_instance(self):
         assert isinstance(Control("someFutureControl"), Control)
 
+    def test_non_string_value_raises(self):
+        """`_missing_` only copes with strings - the device's wire format.
+        A non-string is a caller error, not an unrecognised control, and
+        must raise like a normal enum rather than fabricate a member."""
+        with pytest.raises(ValueError):
+            Control(123)
+
 
 class TestPlaybackStateLeniency:
     def test_known_member(self):
@@ -90,6 +97,11 @@ class TestPlaybackStateLeniency:
 
     def test_unknown_value_is_a_playback_state_instance(self):
         assert isinstance(PlaybackState("buffering"), PlaybackState)
+
+    def test_non_string_value_raises(self):
+        """Same contract as `Control._missing_` - see its test above."""
+        with pytest.raises(ValueError):
+            PlaybackState(123)
 
 
 class TestRepeatValues:

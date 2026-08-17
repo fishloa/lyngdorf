@@ -876,6 +876,18 @@ class Receiver:
         """
         self._notify_notification_callbacks()
 
+    def register_position_callback(
+        self, callback: Callable[[int | None], None]
+    ) -> Callable[[], None]:
+        """Register a callback for every raw position change.
+
+        Delegates to `LyngdorfApi.register_position_callback` - see there
+        for the full contract, including the once-a-second firing rate
+        while playing. For a consumer where each call costs something, use
+        `register_position_jump_callback` instead.
+        """
+        return self._api.register_position_callback(callback)
+
     def register_position_jump_callback(
         self, callback: Callable[[int | None], None]
     ) -> Callable[[], None]:
@@ -885,8 +897,8 @@ class Receiver:
         there for the full contract. Unlike play mode, position is never
         forwarded to `_notify_notification_callbacks`: the consumer chooses
         which stream it wants (this one, or the raw per-tick position via
-        `self._api.register_position_callback`), and the library does not
-        decide that for it.
+        `register_position_callback`), and the library does not decide
+        that for it.
         """
         return self._api.register_position_jump_callback(callback)
 

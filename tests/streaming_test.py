@@ -138,6 +138,33 @@ class TestParseNowPlaying:
         with pytest.raises(AttributeError):
             np.title = "nope"  # type: ignore[misc]
 
+    def test_unmodelled_control_key_parses_leniently(self):
+        """Integration test for `Control`'s leniency, through the actual
+        path a real device payload takes rather than in isolation (see
+        `tests/states_test.py::TestControlLeniency` for the isolated
+        version). This path is where a leniency regression would be
+        catastrophic: a strict `Control` here would raise inside
+        `parse_now_playing` and take out the ENTIRE now-playing parse the
+        first time the device ships a control this library does not yet
+        model, not merely lose that one capability."""
+        payload = {
+            **self.PLAYING_PAYLOAD,
+            "controls": {
+                "pause": True,
+                "next_": True,
+                "someFutureControl": True,
+                "backward15sec": False,  # not enabled - must be excluded
+            },
+        }
+        np = parse_now_playing(payload)
+        assert np is not None
+        assert Control.PAUSE in np.controls
+        assert Control.NEXT_TRACK in np.controls
+        assert Control.SKIP_BACKWARD_15_SECONDS not in np.controls
+        unmodelled = Control("someFutureControl")
+        assert unmodelled in np.controls
+        assert isinstance(unmodelled, Control)
+
 
 class TestUnwrapValue:
     def test_single_element_list(self):
