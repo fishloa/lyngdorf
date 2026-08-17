@@ -183,6 +183,42 @@ class TestRealCaptures:
         assert np is not None and np.duration_ms is not None
         assert round(position / np.duration_ms, 2) == 0.67
 
+    def test_spotify_connect_capabilities(self):
+        """The native source advertises far more than AirPlay."""
+        np = parse_now_playing(
+            _unwrap_value(load_fixture("now_playing_spotify_connect.json"))
+        )
+        assert np is not None
+        assert "pause" in np.controls
+        assert "next_" in np.controls
+        assert "previous" in np.controls
+        assert "seekTime" in np.controls
+        assert "repeatAll" in np.play_modes
+        assert "shuffle" in np.play_modes
+
+    def test_false_controls_are_not_capabilities(self):
+        """The device advertises unavailable controls as false."""
+        np = parse_now_playing(
+            _unwrap_value(load_fixture("now_playing_spotify_connect.json"))
+        )
+        assert np is not None
+        assert "backward15sec" not in np.controls
+        assert "forward15sec" not in np.controls
+
+    def test_airplay_has_no_seek_or_play_modes(self):
+        np = parse_now_playing(_unwrap_value(load_fixture("now_playing_airplay.json")))
+        assert np is not None
+        assert np.controls == frozenset({"pause", "next_", "previous"})
+        assert np.play_modes == frozenset()
+
+    def test_play_mode_key_is_not_itself_a_control(self):
+        """`playMode` is a nested dict, not a transport action."""
+        np = parse_now_playing(
+            _unwrap_value(load_fixture("now_playing_spotify_connect.json"))
+        )
+        assert np is not None
+        assert "playMode" not in np.controls
+
 
 class TestParsePositionEvents:
     """Position events carry their value inline, so no refetch is needed.

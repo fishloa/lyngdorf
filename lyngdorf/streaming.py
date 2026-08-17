@@ -84,6 +84,11 @@ class NowPlaying:
         art_url: Album art URL, if any.
         duration_ms: Track duration in milliseconds, if known. No elapsed/
             position is available from this endpoint.
+        controls: Transport actions the device currently offers, e.g.
+            {"pause", "next_", "previous", "seekTime"}. Source-dependent
+            and empty when nothing is playing.
+        play_modes: Shuffle/repeat modes the current source offers, e.g.
+            {"shuffle", "repeatAll"}. Empty on sources that offer none.
     """
 
     state: str | None
@@ -93,6 +98,19 @@ class NowPlaying:
     source: str | None
     art_url: str | None
     duration_ms: int | None
+    controls: frozenset[str] = frozenset()
+    play_modes: frozenset[str] = frozenset()
+
+
+def _enabled_keys(payload: object) -> frozenset[str]:
+    """Keys whose value is exactly True.
+
+    The device lists unavailable controls as `false` rather than omitting
+    them, so presence is not permission.
+    """
+    if not isinstance(payload, dict):
+        return frozenset()
+    return frozenset(k for k, v in payload.items() if v is True)
 
 
 def parse_now_playing(payload: object) -> NowPlaying | None:
@@ -124,6 +142,14 @@ def parse_now_playing(payload: object) -> NowPlaying | None:
     status = status if isinstance(status, dict) else {}
     duration = status.get("duration")
 
+    controls_payload = payload.get("controls")
+    controls_payload = controls_payload if isinstance(controls_payload, dict) else {}
+    # `playMode` is a nested capability dict, not a transport action.
+    controls = _enabled_keys(
+        {k: v for k, v in controls_payload.items() if k != "playMode"}
+    )
+    play_modes = _enabled_keys(controls_payload.get("playMode"))
+
     return NowPlaying(
         state=payload.get("state"),
         title=title,
@@ -132,6 +158,8 @@ def parse_now_playing(payload: object) -> NowPlaying | None:
         source=media_roles.get("title"),
         art_url=track_roles.get("icon"),
         duration_ms=int(duration) if isinstance(duration, (int, float)) else None,
+        controls=controls,
+        play_modes=play_modes,
     )
 
 
