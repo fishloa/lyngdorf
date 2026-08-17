@@ -669,6 +669,39 @@ CONTROL_PREVIOUS = "previous"
 CONTROL_SEEK = "seekTime"
 
 
+async def _write(
+    host: str,
+    port: int,
+    timeout: float,
+    session: StreamMagicSession | None,
+    path: str,
+    role: str,
+    value: dict,
+    log_context: str,
+) -> bool:
+    """Shared GET-as-write for `/api/setData`, reporting HTTP success.
+
+    Every write below funnels through here so there is exactly one place
+    that decides success. Success is read from the status, never the
+    body: the device answers a successful write with literal `null`,
+    which parses to None exactly as a failure does.
+
+    `path` is encoded the same way as the read helpers above, so every
+    `path=` query in this module is built consistently.
+    """
+    status = await _get_status(
+        session,
+        host,
+        port,
+        f"/api/setData?path={quote(path)}"
+        f"&role={role}&value={quote(json.dumps(value))}",
+        timeout,
+    )
+    if status != 200:
+        _LOGGER.debug("%s: %s rejected (status %s)", host, log_context, status)
+    return status == 200
+
+
 async def _activate(
     host: str,
     payload: dict,
@@ -676,23 +709,17 @@ async def _activate(
     timeout: float,
     session: StreamMagicSession | None,
 ) -> bool:
-    """POST-less write to the control node, reporting HTTP success.
-
-    Success is read from the status, never the body: the device answers a
-    successful activate with literal `null`, which parses to None exactly
-    as a failure does.
-    """
-    status = await _get_status(
-        session,
+    """Send one control-node action payload."""
+    return await _write(
         host,
         port,
-        f"/api/setData?path={quote(CONTROL_PATH, safe='')}"
-        f"&role=activate&value={quote(json.dumps(payload))}",
         timeout,
+        session,
+        CONTROL_PATH,
+        "activate",
+        payload,
+        f"control {payload}",
     )
-    if status != 200:
-        _LOGGER.debug("%s: control %s rejected (status %s)", host, payload, status)
-    return status == 200
 
 
 async def async_activate_control(
@@ -743,14 +770,14 @@ async def async_set_play_mode(
     One enum rather than two flags, so setting it replaces both axes at
     once.
     """
-    value = json.dumps({"type": "playerPlayMode", "playerPlayMode": mode})
-    status = await _get_status(
-        session,
+    value = {"type": "playerPlayMode", "playerPlayMode": mode}
+    return await _write(
         host,
         port,
-        f"/api/setData?path={quote(PLAY_MODE_PATH)}&role=value&value={quote(value)}",
         timeout,
+        session,
+        PLAY_MODE_PATH,
+        "value",
+        value,
+        f"play mode {mode!r}",
     )
-    if status != 200:
-        _LOGGER.debug("%s: play mode %r rejected (status %s)", host, mode, status)
-    return status == 200
