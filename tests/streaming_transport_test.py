@@ -15,10 +15,14 @@ from urllib.parse import unquote
 import pytest
 from streaming_test import FakeStreamMagicServer, fake_server  # noqa: F401
 
+from lyngdorf.api import LyngdorfApi
+from lyngdorf.const import LyngdorfModel
+from lyngdorf.exceptions import LyngdorfUnsupportedError
 from lyngdorf.streaming import (
     CONTROL_NEXT,
     CONTROL_PAUSE,
     CONTROL_PREVIOUS,
+    NowPlaying,
     StreamMagicSession,
     _smoip_status,
     async_activate_control,
@@ -70,7 +74,7 @@ class TestTransportWireFormat:
         assert await async_activate_control(str(host), CONTROL_PAUSE, port) is True
         path = fake_server.last_path
         assert "/api/setData" in path
-        assert "path=player%3Aplayer%2Fcontrol" in path
+        assert "path=player:player/control" in _unquote(path)
         assert "role=activate" in path
         assert json.dumps({"control": "pause"}) in _unquote(path)
 
@@ -126,3 +130,84 @@ class TestTransportWireFormat:
         finally:
             session.close()
         assert fake_server.connections == 1
+
+
+def _np(controls=(), play_modes=()):
+    return NowPlaying(
+        "playing",
+        "T",
+        None,
+        None,
+        None,
+        None,
+        None,
+        frozenset(controls),
+        frozenset(play_modes),
+    )
+
+
+class TestApiGating:
+    """The device accepts anything, so the library must refuse."""
+
+    @pytest.mark.asyncio
+    async def test_pause_raises_when_not_advertised(self):
+        api = LyngdorfApi("127.0.0.1", LyngdorfModel.MP_60)
+        api._update_now_playing(_np(controls=["next_"]))
+        with pytest.raises(LyngdorfUnsupportedError):
+            await api.async_pause()
+
+    @pytest.mark.asyncio
+    async def test_seek_raises_when_not_advertised(self):
+        api = LyngdorfApi("127.0.0.1", LyngdorfModel.MP_60)
+        api._update_now_playing(_np(controls=["pause"]))
+        with pytest.raises(LyngdorfUnsupportedError):
+            await api.async_seek(1000)
+
+    @pytest.mark.asyncio
+    async def test_everything_raises_when_stopped(self):
+        """Stopped devices report no controls at all."""
+        api = LyngdorfApi("127.0.0.1", LyngdorfModel.MP_60)
+        api._update_now_playing(None)
+        for call in (api.async_pause(), api.async_next(), api.async_previous()):
+            with pytest.raises(LyngdorfUnsupportedError):
+                await call
+
+    @pytest.mark.asyncio
+    async def test_play_mode_raises_when_not_offered(self):
+        api = LyngdorfApi("127.0.0.1", LyngdorfModel.MP_60)
+        api._update_now_playing(_np(play_modes=["shuffle"]))
+        with pytest.raises(LyngdorfUnsupportedError):
+            await api.async_set_play_mode("repeatAll")
+
+    @pytest.mark.asyncio
+    async def test_bogus_play_mode_never_reaches_the_device(self):
+        """The device would answer 200 and store it."""
+        api = LyngdorfApi("127.0.0.1", LyngdorfModel.MP_60)
+        api._update_now_playing(_np(play_modes=["shuffle"]))
+        with pytest.raises(LyngdorfUnsupportedError):
+            await api.async_set_play_mode("bogusMode")
+
+    @pytest.mark.asyncio
+    async def test_non_streaming_model_raises(self):
+        api = LyngdorfApi("127.0.0.1", LyngdorfModel.TDAI_2170)
+        api._update_now_playing(_np(controls=["pause"]))
+        with pytest.raises(LyngdorfUnsupportedError):
+            await api.async_pause()
+
+    def test_available_sets_reflect_now_playing(self):
+        api = LyngdorfApi("127.0.0.1", LyngdorfModel.MP_60)
+        assert api.available_controls == frozenset()
+        api._update_now_playing(_np(controls=["pause"], play_modes=["shuffle"]))
+        assert api.available_controls == frozenset({"pause"})
+        assert api.available_play_modes == frozenset({"shuffle"})
+
+    @pytest.mark.asyncio
+    async def test_supported_call_reaches_the_device(
+        self, fake_server: FakeStreamMagicServer
+    ):
+        host, port = fake_server.server_address
+        api = LyngdorfApi(str(host), LyngdorfModel.MP_60)
+        api.streammagic_port = port
+        api._update_now_playing(_np(controls=["pause"]))
+        assert await api.async_pause() is True
+        assert '"control": "pause"' in _unquote(fake_server.last_path)

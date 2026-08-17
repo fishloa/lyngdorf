@@ -35,15 +35,27 @@ from .const import (
     LyngdorfModel,
     Msg,
 )
+from .exceptions import LyngdorfUnsupportedError
 from .streaming import (
+    CONTROL_NEXT,
+    CONTROL_PAUSE,
+    CONTROL_PREVIOUS,
+    CONTROL_SEEK,
     NowPlaying,
     StreamMagicSession,
+    async_activate_control,
     async_fetch_now_playing,
     async_fetch_position,
     async_init_now_playing_queue,
     async_poll_now_playing_events,
     async_subscribe_now_playing,
     parse_position_events,
+)
+from .streaming import (
+    async_seek as _seek,
+)
+from .streaming import (
+    async_set_play_mode as _set_play_mode,
 )
 
 _LOGGER = logging.getLogger(__package__)
@@ -686,6 +698,68 @@ class LyngdorfApi:
         self, callback: Callable[[int | None], None]
     ) -> None:
         self._position_callbacks.append(callback)
+
+    @property
+    def available_controls(self) -> frozenset[str]:
+        """Transport actions the current source offers, or empty."""
+        if not self._model.has_streaming_feature() or self._now_playing is None:
+            return frozenset()
+        return self._now_playing.controls
+
+    @property
+    def available_play_modes(self) -> frozenset[str]:
+        """Shuffle/repeat modes the current source offers, or empty."""
+        if not self._model.has_streaming_feature() or self._now_playing is None:
+            return frozenset()
+        return self._now_playing.play_modes
+
+    def _require_control(self, control: str) -> None:
+        if control not in self.available_controls:
+            raise LyngdorfUnsupportedError(
+                f"{self.host}: device does not currently offer {control!r} "
+                f"(available: {sorted(self.available_controls) or 'none'})"
+            )
+
+    async def async_pause(self) -> bool:
+        """Toggle pause on the current source.
+
+        The device has no separate resume: on a source it streams itself
+        this pauses a playing track and resumes a paused one. On AirPlay
+        and other controller-driven sources it instead ends the session,
+        which cannot be undone from the device.
+        """
+        self._require_control(CONTROL_PAUSE)
+        return await async_activate_control(
+            self.host, CONTROL_PAUSE, self.streammagic_port
+        )
+
+    async def async_next(self) -> bool:
+        """Skip to the next track."""
+        self._require_control(CONTROL_NEXT)
+        return await async_activate_control(
+            self.host, CONTROL_NEXT, self.streammagic_port
+        )
+
+    async def async_previous(self) -> bool:
+        """Skip to the previous track."""
+        self._require_control(CONTROL_PREVIOUS)
+        return await async_activate_control(
+            self.host, CONTROL_PREVIOUS, self.streammagic_port
+        )
+
+    async def async_seek(self, position_ms: int) -> bool:
+        """Seek to an absolute position, in milliseconds."""
+        self._require_control(CONTROL_SEEK)
+        return await _seek(self.host, position_ms, self.streammagic_port)
+
+    async def async_set_play_mode(self, mode: str) -> bool:
+        """Set the combined shuffle/repeat mode."""
+        if mode not in self.available_play_modes:
+            raise LyngdorfUnsupportedError(
+                f"{self.host}: device does not currently offer play mode {mode!r} "
+                f"(available: {sorted(self.available_play_modes) or 'none'})"
+            )
+        return await _set_play_mode(self.host, mode, self.streammagic_port)
 
     async def _poll_now_playing(self) -> None:
         """Long-poll loop for now-playing changes on the :8080 API.
