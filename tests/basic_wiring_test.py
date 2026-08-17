@@ -1,6 +1,8 @@
 import asyncio
 import logging
+import re
 import time
+from pathlib import Path
 from unittest import mock
 
 import pytest
@@ -289,6 +291,39 @@ class TestLyngdorfModel:
             assert model.supports_message(Msg.TRIM_CENTRE) is False
             assert model.supports_message(Msg.TRIM_BASS) is False
             assert model.supports_message(Msg.STREAM_TYPE) is False
+
+    def test_readme_supported_models_matches_enum(self):
+        """The README's "## Supported Models" section is the single
+        human-readable list of supported models (see api.py/device.py/
+        __init__.py, which now just point at it instead of duplicating
+        it). This test is what stops that list drifting out of sync with
+        LyngdorfModel again, the way it did for TDAI-2210."""
+        readme_path = Path(__file__).resolve().parent.parent / "README.md"
+        readme_text = readme_path.read_text(encoding="utf-8")
+
+        section_match = re.search(
+            r"^## Supported Models\n(.*?)(?=^## )",
+            readme_text,
+            re.DOTALL | re.MULTILINE,
+        )
+        assert (
+            section_match is not None
+        ), "README.md has no '## Supported Models' section"
+        section = section_match.group(1)
+
+        # Model names appear bolded, e.g. "**MP-40**" or "**TDAI-2210**".
+        readme_models = {
+            name.lower()
+            for name in re.findall(r"\*\*([A-Z][A-Za-z0-9-]*)\*\*", section)
+        }
+
+        enum_models = {model.model_name for model in LyngdorfModel}
+
+        assert readme_models == enum_models, (
+            f"README supported-models list has drifted from LyngdorfModel: "
+            f"missing from README={enum_models - readme_models}, "
+            f"in README but not in enum={readme_models - enum_models}"
+        )
 
 
 # =============================================================================

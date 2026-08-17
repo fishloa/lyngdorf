@@ -15,8 +15,17 @@ Python library to control Lyngdorf A/V processors and integrated amplifiers over
 
 ### TDAI Series (Integrated Amplifiers)
 - **TDAI-1120** - Entry-level integrated amplifier
-- **TDAI-2170** - Older integrated amplifier model
+- **TDAI-2170** - Older integrated amplifier model, with a more limited protocol
+- **TDAI-2210** - Integrated amplifier sharing the TDAI-1120/3400 protocol
 - **TDAI-3400** - Top-of-line networked integrated amplifier
+
+### P Series (Cinema Processors)
+- **P100** - Entry-level cinema processor (4 HDMI inputs, no video output routing)
+- **P200** - Mid-level cinema processor (9 HDMI inputs, up to 5 HDMI outputs)
+- **P300** - Flagship cinema processor (9 HDMI inputs, up to 5 HDMI outputs)
+
+The P series are cinema/multichannel processors with no built-in streaming
+module and no discrete channel trim controls.
 
 All models support:
 - Power control
@@ -24,8 +33,8 @@ All models support:
 - Source selection
 - RoomPerfect™ room correction
 - Voicing selection
-- Trim controls (bass, treble, center, height, LFE, surround)
-- Zone B control (MP series)
+- Trim controls (bass, treble, center, height, LFE, surround) - MP and TDAI series
+- Zone B control (MP and P series)
 
 ## Installation
 

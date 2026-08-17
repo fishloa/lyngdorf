@@ -5,12 +5,14 @@ Lyngdorf Audio Control Library - Constants Module.
 Shared constants and protocol definitions for all supported Lyngdorf
 receiver models.
 
-Protocol Families:
-- MP Family: MP-40, MP-50, MP-60 (shared protocol)
-- TDAI Family: TDAI-1120, TDAI-2210, and TDAI-3400 (shared protocol),
-  TDAI-2170 (older, more limited protocol - see models/tdai_series.py)
-- P Family: P100, P200, P300 (MP-like protocol, no channel trims, no
-  streaming source - see models/p_series.py)
+Protocol Families (member models are enumerated in the per-family modules,
+not repeated here):
+- MP Family: shared protocol - see models/mp_series.py
+- TDAI Family: TDAI-1120/TDAI-2210/TDAI-3400 share one protocol; TDAI-2170
+  is the odd one out, with an older, more limited protocol - see
+  models/tdai_series.py
+- P Family: MP-like protocol, no channel trims, no streaming source - see
+  models/p_series.py
 
 :license: MIT, see LICENSE for more details.
 """

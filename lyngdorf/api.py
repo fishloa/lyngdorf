@@ -5,9 +5,8 @@ Lyngdorf Audio Control Library - API Module.
 Handles TCP/IP communication with Lyngdorf receivers on port 84.
 Implements asyncio protocol for command/response handling.
 
-Supported Models:
-- MP-40, MP-50, MP-60 (Processors)
-- TDAI-1120, TDAI-2170, TDAI-3400 (Integrated Amplifiers)
+Supported models are defined by `LyngdorfModel` (see `lyngdorf/models/`);
+the README carries the human-readable list.
 
 :license: MIT, see LICENSE for more details.
 """

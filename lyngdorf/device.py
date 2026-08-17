@@ -3,10 +3,8 @@ Lyngdorf Audio Control Library - Device Module.
 
 Main receiver classes and factory functions for all supported models.
 
-Supported Models:
-- MP-40, MP-50, MP-60 (Multichannel Processors)
-- TDAI-1120, TDAI-2170, TDAI-3400 (Integrated Amplifiers)
-- P100, P200, P300 (Multichannel Processors)
+Supported models are defined by `LyngdorfModel` (see `lyngdorf/models/`);
+the README carries the human-readable list.
 
 All communication via TCP/IP on port 84 (no serial port support).
 """
