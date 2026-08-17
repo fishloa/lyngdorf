@@ -153,9 +153,16 @@ class ModelConfig:
             per-channel trims (centre/height/LFE/surround), which are
             MP-only and always in tenths of a dB - see
             `LyngdorfApi.change_trim_centre` et al, which hardcode ``*10``
-            rather than reading this field. See issue #41 - this is
-            derived from the vendor manuals and awaits confirmation on
-            real TDAI hardware.
+            rather than reading this field. See issue #41, where this was
+            confirmed on a real TDAI-3400: an amp showing +3 dB on its
+            front panel answers `!BASS(3)`, which the old blanket ``*10``
+            surfaced as 0.3 dB and would have written back as `!BASS(30)`.
+
+            Out-of-range values are worth avoiding rather than relying on
+            the device to bound: an MP-60 clamps cleanly (150 stores 120),
+            but a TDAI-3400 given 30 read back as 4 - not clamped, just
+            arbitrary. That is why the setters validate before sending
+            rather than trusting the device to cope.
         trim_centre_range, trim_height_range, trim_lfe_range,
             trim_surround_range: The device-documented dB range for the
             discrete multichannel speaker trims - MP series only (see
