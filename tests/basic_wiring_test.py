@@ -427,6 +427,64 @@ class TestLyngdorfModel:
             assert model.trim_lfe_range() is None
             assert model.trim_surround_range() is None
 
+    def test_trim_range_tests_cover_every_model(self):
+        """The trim-range tests above
+        (test_mp_series_trim_ranges_are_identical_across_the_family,
+        test_tdai_bass_treble_trim_range_has_a_coarser_step_than_mp,
+        test_tdai_2170_has_no_trim_ranges_at_all,
+        test_p_series_has_no_trim_ranges) use explicit per-model lists
+        that happen to total ten, but - unlike
+        test_lipsync_feature_covers_every_model - never asserted the
+        union was the full enum. A newly added model could silently fall
+        through every one of those lists and have every trim_*_range()
+        default to None (and so every trim setter raise) without any
+        test noticing. Pin the union here."""
+        mp_family = {LyngdorfModel.MP_40, LyngdorfModel.MP_50, LyngdorfModel.MP_60}
+        tdai_bass_treble_family = {
+            LyngdorfModel.TDAI_1120,
+            LyngdorfModel.TDAI_2210,
+            LyngdorfModel.TDAI_3400,
+        }
+        tdai_2170 = {LyngdorfModel.TDAI_2170}
+        p_family = {LyngdorfModel.P_100, LyngdorfModel.P_200, LyngdorfModel.P_300}
+
+        groups = (mp_family, tdai_bass_treble_family, tdai_2170, p_family)
+        union: set = set()
+        for group in groups:
+            assert union & group == set(), "a model appears in more than one group"
+            union |= group
+        assert union == set(supported_models())
+
+    def test_trim_and_lipsync_ranges_match_their_feature_flags(self):
+        """Pins the invariant, for every model (not just the ones
+        enumerated in the tests above), that trim_bass_range()/
+        trim_treble_range() are non-None exactly when
+        has_bass_trim_feature()/has_treble_trim_feature() are True, that
+        the four channel trim ranges are non-None exactly when
+        has_surround_feature() is True (all four are gated by that one
+        flag together - see ModelConfig.has_surround), and that
+        lipsync_default_range() is non-None exactly when
+        has_lipsync_feature() is True. The data already satisfies this
+        for all ten models; this stops a future model's config from
+        drifting out of sync with its own feature flags."""
+        for model in supported_models():
+            assert (
+                model.trim_bass_range() is not None
+            ) == model.has_bass_trim_feature()
+            assert (
+                model.trim_treble_range() is not None
+            ) == model.has_treble_trim_feature()
+            for channel_range in (
+                model.trim_centre_range(),
+                model.trim_height_range(),
+                model.trim_lfe_range(),
+                model.trim_surround_range(),
+            ):
+                assert (channel_range is not None) == model.has_surround_feature()
+            assert (
+                model.lipsync_default_range() is not None
+            ) == model.has_lipsync_feature()
+
     def test_lipsync_default_range_matches_lipsync_feature(self):
         """lipsync_default_range() must be non-None exactly where
         has_lipsync_feature() is True (MP and P series) - see the real
@@ -1989,7 +2047,16 @@ class TestTrimControls:
         MP-60. No connection is needed: these come straight from static
         per-model data (see ModelConfig), except lipsync_range, which
         starts at the documented default and is only overwritten by a
-        live LIPSYNCRANGE reply (see test_lipsync_range_reading below)."""
+        live LIPSYNCRANGE reply (see test_lipsync_range_reading below).
+
+        This only proves delegation happens (Receiver.x == model.x()) -
+        it would pass even if the underlying data were wrong. Whether the
+        data itself is right is covered separately, by the per-family
+        value tests above and by
+        test_trim_and_lipsync_ranges_match_their_feature_flags. Kept
+        anyway: a Receiver subclass reading from the wrong place (or not
+        at all) is a distinct failure mode from bad model data, and this
+        is the only test that would catch it."""
         from lyngdorf.device import (
             MP40Receiver,
             MP50Receiver,
@@ -2032,9 +2099,6 @@ class TestTrimControls:
         the newly-registered callback and overwrites the documented
         default, firing a notification the way max_volume's callback
         does (#40)."""
-
-        def test_function(client: Receiver):
-            assert client.lipsync_range == NumericRange(min=0.0, max=500.0, step=1.0)
 
         responses = SETUP_RESPONSES + ["!LIPSYNCRANGE(50,450)"]
 
@@ -3453,12 +3517,16 @@ class TestTrimBassTrebleScale:
 
     def test_tdai_2170_has_no_bass_treble_trim_so_scale_is_moot(self):
         """TDAI-2170 has neither Msg.TRIM_BASS nor Msg.TRIM_TREBLE at all
-        (see has_bass_trim_feature/has_treble_trim_feature) - the scale
-        field is never consulted for this model, so it needs no explicit
-        override either way."""
+        (see has_bass_trim_feature/has_treble_trim_feature), so the scale
+        field is never actually consulted for this model - but
+        tdai_series.py sets it to the TDAI family's real value (1.0)
+        anyway rather than silently inheriting ModelConfig's MP/P-family
+        default of 10.0, so there is no wrong value sitting latent should
+        a future firmware revision add bass/treble trim here."""
         model = LyngdorfModel.TDAI_2170
         assert model.has_bass_trim_feature() is False
         assert model.has_treble_trim_feature() is False
+        assert model.trim_bass_treble_scale() == 1.0
 
     @pytest.mark.asyncio
     async def test_change_trim_bass_wire_value_per_family(self):

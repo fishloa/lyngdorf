@@ -315,6 +315,15 @@ TDAI2170_CONFIG = TDAIModelConfig(
     # Power and mute states are words, not digits: !PWR(ON), !MUTE(OFF)
     power_state_on=STATE_ON,
     mute_state_in_parameter=True,
+    # TDAI-2170 has neither BASS nor TREBLE (see TDAI2170_MESSAGES), so
+    # this scale is never actually read - but ModelConfig's dataclass
+    # default (10.0, the MP/P family's "10 = 1dB" encoding) is the wrong
+    # value for the TDAI family regardless, and leaving it unset would
+    # mean this config silently inherits it. Set it explicitly to the
+    # TDAI family's real "1 = 1dB" scale so there's no wrong value
+    # sitting latent, in case a future firmware revision adds BASS/
+    # TREBLE support here.
+    trim_bass_treble_scale=TDAI_BASS_TREBLE_SCALE,
 )
 
 # TDAI-3400 Hardware Configuration
