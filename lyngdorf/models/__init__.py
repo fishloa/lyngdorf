@@ -173,6 +173,12 @@ class LyngdorfModel(Enum):
         a model with no treble trim at all (TDAI-2170)."""
         return self._config.trim_treble_range
 
+    def trim_bass_treble_scale(self) -> float:
+        """How many wire units make up 1 dB for bass/treble trim on this
+        model - 10.0 for the MP/P family, 1.0 for the TDAI family. See
+        ModelConfig.trim_bass_treble_scale."""
+        return self._config.trim_bass_treble_scale
+
     def trim_centre_range(self) -> NumericRange | None:
         """The documented dB range (and step) for centre channel trim, or
         None on a model with no discrete channel trims (see

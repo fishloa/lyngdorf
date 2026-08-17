@@ -3301,13 +3301,20 @@ class TestVolumeAndTrimStepCommandShapePerFamily:
     @pytest.mark.asyncio
     async def test_change_trim_treble_no_longer_crashes_on_tdai_1120_and_3400(self):
         """Regression test for the KeyError: change_trim_treble used
-        Msg.TRIM_TREBLE_SET unconditionally, which TDAI never defines."""
+        Msg.TRIM_TREBLE_SET unconditionally, which TDAI never defines.
+
+        The expected wire value here is `-2`, not `-20` - issue #41 found
+        this test previously encoded the "scale by ten unconditionally"
+        bug: TDAI's `!TREBLE(n)` is whole dB with no sub-decibel encoding
+        (docs/tdai-1120.md, docs/tdai-3400.md), unlike the MP series'
+        `!TRIMTREB`. See TestTrimBassTrebleScale below for the full
+        per-family write/read/round-trip coverage."""
         for model in (LyngdorfModel.TDAI_1120, LyngdorfModel.TDAI_3400):
             api = LyngdorfApi(FAKE_IP, model)
             api._protocol = mock.Mock()
             api.change_trim_treble(-2.0)
             sent = [call.args[0] for call in api._protocol.write.call_args_list]
-            assert sent == ["!TREBLE(-20)\r"]
+            assert sent == ["!TREBLE(-2)\r"]
 
     def test_change_trim_treble_still_raises_on_tdai_2170(self):
         """TDAI-2170 has no treble trim hardware/command at all (unlike
@@ -3340,6 +3347,256 @@ class TestVolumeAndTrimStepCommandShapePerFamily:
         receiver.trim_treble = -2.0  # must not raise
         receiver.trim_treble_up()  # must not raise (silently ignored)
         receiver.trim_treble_down()  # must not raise (silently ignored)
+
+
+class TestTrimBassTrebleScale:
+    """Issue #41: bass/treble trim was scaled by ten unconditionally on
+    both the write path (`LyngdorfApi.change_trim_bass`/
+    `change_trim_treble`) and the read path
+    (`Receiver._trim_bass_callback`/`_trim_treble_callback` via
+    `device.convert_decibel`), but only the MP family actually encodes
+    trims that way. docs/mp-40.md et al document `!TRIMBASS(X)` as
+    "10 = 1dB"; docs/tdai-1120.md and docs/tdai-3400.md document
+    `!BASS(n)`/`!TREBLE(n)` as whole dB with no sub-decibel encoding at
+    all. TDAI-2210 shares the TDAI-1120/3400 protocol (see
+    models/tdai_series.py) so is affected identically; TDAI-2170 has no
+    bass/treble trim whatsoever and is unaffected. The MP/P and P family
+    default (`ModelConfig.trim_bass_treble_scale = 10.0`) was already
+    correct - only the TDAI family needed the override to 1.0.
+
+    Derived from the vendor manuals and the existing code, not from a
+    real TDAI device - see issue #41 for the full analysis and the
+    "awaiting hardware confirmation" caveat.
+    """
+
+    def test_scale_is_ten_for_mp_family(self):
+        for model in (LyngdorfModel.MP_40, LyngdorfModel.MP_50, LyngdorfModel.MP_60):
+            assert model.trim_bass_treble_scale() == 10.0
+
+    def test_scale_is_one_for_tdai_family_with_bass_treble_trim(self):
+        for model in (
+            LyngdorfModel.TDAI_1120,
+            LyngdorfModel.TDAI_2210,
+            LyngdorfModel.TDAI_3400,
+        ):
+            assert model.trim_bass_treble_scale() == 1.0
+
+    def test_tdai_2170_has_no_bass_treble_trim_so_scale_is_moot(self):
+        """TDAI-2170 has neither Msg.TRIM_BASS nor Msg.TRIM_TREBLE at all
+        (see has_bass_trim_feature/has_treble_trim_feature) - the scale
+        field is never consulted for this model, so it needs no explicit
+        override either way."""
+        model = LyngdorfModel.TDAI_2170
+        assert model.has_bass_trim_feature() is False
+        assert model.has_treble_trim_feature() is False
+
+    @pytest.mark.asyncio
+    async def test_change_trim_bass_wire_value_per_family(self):
+        """A write of 3.0 dB must produce the wire value each family's
+        vendor manual specifies: MP's "10 = 1dB" TRIMBASS(30), TDAI's
+        whole-dB BASS(3)."""
+        for model in (LyngdorfModel.MP_40, LyngdorfModel.MP_50, LyngdorfModel.MP_60):
+            api = LyngdorfApi(FAKE_IP, model)
+            api._protocol = mock.Mock()
+            api.change_trim_bass(3.0)
+            sent = [call.args[0] for call in api._protocol.write.call_args_list]
+            assert sent == ["!TRIMBASS(30)\r"], model
+
+        for model in (
+            LyngdorfModel.TDAI_1120,
+            LyngdorfModel.TDAI_2210,
+            LyngdorfModel.TDAI_3400,
+        ):
+            api = LyngdorfApi(FAKE_IP, model)
+            api._protocol = mock.Mock()
+            api.change_trim_bass(3.0)
+            sent = [call.args[0] for call in api._protocol.write.call_args_list]
+            assert sent == ["!BASS(3)\r"], model
+
+    @pytest.mark.asyncio
+    async def test_change_trim_treble_wire_value_per_family(self):
+        """Same as bass, for treble: MP's TRIMTREB(30) vs TDAI's TREBLE(3)
+        for the same 3.0 dB input."""
+        for model in (LyngdorfModel.MP_40, LyngdorfModel.MP_50, LyngdorfModel.MP_60):
+            api = LyngdorfApi(FAKE_IP, model)
+            api._protocol = mock.Mock()
+            api.change_trim_treble(3.0)
+            sent = [call.args[0] for call in api._protocol.write.call_args_list]
+            assert sent == ["!TRIMTREB(30)\r"], model
+
+        for model in (
+            LyngdorfModel.TDAI_1120,
+            LyngdorfModel.TDAI_2210,
+            LyngdorfModel.TDAI_3400,
+        ):
+            api = LyngdorfApi(FAKE_IP, model)
+            api._protocol = mock.Mock()
+            api.change_trim_treble(3.0)
+            sent = [call.args[0] for call in api._protocol.write.call_args_list]
+            assert sent == ["!TREBLE(3)\r"], model
+
+    def test_trim_bass_read_value_per_family(self):
+        """A read of the wire value each family's vendor manual specifies
+        for 3 dB must yield 3.0 - MP's TRIMBASS(30), TDAI's BASS(3)."""
+        from lyngdorf.device import (
+            MP40Receiver,
+            MP50Receiver,
+            MP60Receiver,
+            TDAI1120Receiver,
+            TDAI2210Receiver,
+            TDAI3400Receiver,
+        )
+
+        for cls in (MP40Receiver, MP50Receiver, MP60Receiver):
+            receiver = cls(FAKE_IP)
+            receiver._trim_bass_callback("30", "")
+            assert receiver.trim_bass == 3.0, cls
+
+        for cls in (TDAI1120Receiver, TDAI2210Receiver, TDAI3400Receiver):
+            receiver = cls(FAKE_IP)
+            receiver._trim_bass_callback("3", "")
+            assert receiver.trim_bass == 3.0, cls
+
+    def test_trim_treble_read_value_per_family(self):
+        from lyngdorf.device import (
+            MP40Receiver,
+            MP50Receiver,
+            MP60Receiver,
+            TDAI1120Receiver,
+            TDAI2210Receiver,
+            TDAI3400Receiver,
+        )
+
+        for cls in (MP40Receiver, MP50Receiver, MP60Receiver):
+            receiver = cls(FAKE_IP)
+            receiver._trim_treble_callback("30", "")
+            assert receiver.trim_treble == 3.0, cls
+
+        for cls in (TDAI1120Receiver, TDAI2210Receiver, TDAI3400Receiver):
+            receiver = cls(FAKE_IP)
+            receiver._trim_treble_callback("3", "")
+            assert receiver.trim_treble == 3.0, cls
+
+    @staticmethod
+    def _sent_wire_arg(receiver) -> str:
+        """Pull the numeric argument out of the most recent wire command
+        `receiver._api` sent, e.g. "!BASS(3)\r" -> "3"."""
+        sent = [call.args[0] for call in receiver._api._protocol.write.call_args_list]
+        match = re.search(r"\(([-0-9]+)\)", sent[-1])
+        assert match is not None, sent
+        return match.group(1)
+
+    def test_trim_bass_round_trip_per_family(self):
+        """Set a value, feed back the wire string that was actually sent
+        (not an independently-computed expectation) as the device's own
+        reply, and assert the property matches what was set. This is the
+        shape that fails loudly if the write-side and read-side scale
+        ever drift apart from each other, even if each individually still
+        looks plausible in isolation."""
+        from lyngdorf.device import (
+            MP40Receiver,
+            MP50Receiver,
+            MP60Receiver,
+            TDAI1120Receiver,
+            TDAI2210Receiver,
+            TDAI3400Receiver,
+        )
+
+        for cls in (
+            MP40Receiver,
+            MP50Receiver,
+            MP60Receiver,
+            TDAI1120Receiver,
+            TDAI2210Receiver,
+            TDAI3400Receiver,
+        ):
+            receiver = cls(FAKE_IP)
+            receiver._api._protocol = mock.Mock()
+            receiver.trim_bass = 3.0
+            wire_value = self._sent_wire_arg(receiver)
+            receiver._trim_bass_callback(wire_value, "")
+            assert receiver.trim_bass == 3.0, cls
+
+    def test_trim_treble_round_trip_per_family(self):
+        from lyngdorf.device import (
+            MP40Receiver,
+            MP50Receiver,
+            MP60Receiver,
+            TDAI1120Receiver,
+            TDAI2210Receiver,
+            TDAI3400Receiver,
+        )
+
+        for cls in (
+            MP40Receiver,
+            MP50Receiver,
+            MP60Receiver,
+            TDAI1120Receiver,
+            TDAI2210Receiver,
+            TDAI3400Receiver,
+        ):
+            receiver = cls(FAKE_IP)
+            receiver._api._protocol = mock.Mock()
+            receiver.trim_treble = 3.0
+            wire_value = self._sent_wire_arg(receiver)
+            receiver._trim_treble_callback(wire_value, "")
+            assert receiver.trim_treble == 3.0, cls
+
+    def test_volume_round_trip_unaffected_across_every_model(self):
+        """Volume is genuinely in tenths of a dB on every model, MP and
+        TDAI alike (device.convert_decibel's default `scale=10.0`) - the
+        trim-scale fix must not have touched it. Covers all ten models,
+        including TDAI-2170 and the P series, which have no bass/treble
+        trim at all but do have volume."""
+        from lyngdorf.device import (
+            MP40Receiver,
+            MP50Receiver,
+            MP60Receiver,
+            P100Receiver,
+            P200Receiver,
+            P300Receiver,
+            TDAI1120Receiver,
+            TDAI2170Receiver,
+            TDAI2210Receiver,
+            TDAI3400Receiver,
+        )
+
+        for cls in (
+            MP40Receiver,
+            MP50Receiver,
+            MP60Receiver,
+            TDAI1120Receiver,
+            TDAI2170Receiver,
+            TDAI2210Receiver,
+            TDAI3400Receiver,
+            P100Receiver,
+            P200Receiver,
+            P300Receiver,
+        ):
+            receiver = cls(FAKE_IP)
+            receiver._api._protocol = mock.Mock()
+            receiver.volume = -20.0
+            wire_value = self._sent_wire_arg(receiver)
+            assert wire_value == "-200", cls
+            receiver._volume_callback(wire_value, "")
+            assert receiver.volume == -20.0, cls
+
+    def test_tdai_bass_treble_step_is_one_db_and_mp_is_a_tenth(self):
+        """#36's ranges still hold after the scale fix: a TDAI's 1.0 dB
+        step and +/-12 dB bound, an MP's 0.1 dB step (same bound)."""
+        tdai_expected = NumericRange(min=-12.0, max=12.0, step=1.0)
+        for model in (
+            LyngdorfModel.TDAI_1120,
+            LyngdorfModel.TDAI_2210,
+            LyngdorfModel.TDAI_3400,
+        ):
+            assert model.trim_bass_range() == tdai_expected
+            assert model.trim_treble_range() == tdai_expected
+
+        mp_expected = NumericRange(min=-12.0, max=12.0, step=0.1)
+        for model in (LyngdorfModel.MP_40, LyngdorfModel.MP_50, LyngdorfModel.MP_60):
+            assert model.trim_bass_range() == mp_expected
+            assert model.trim_treble_range() == mp_expected
 
 
 class TestReceiverClassHierarchy:

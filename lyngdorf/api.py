@@ -801,11 +801,17 @@ class LyngdorfApi:
         )
 
     def change_trim_bass(self, trim: float):
+        # Scale is model-specific (10 = 1dB on MP/P, 1 = 1dB on TDAI) - see
+        # ModelConfig.trim_bass_treble_scale.
         self._writeCommand(
-            f"{self._model.lookup_command(Msg.TRIM_BASS)}({trim*10.0:.0f})"
+            f"{self._model.lookup_command(Msg.TRIM_BASS)}"
+            f"({trim * self._model.trim_bass_treble_scale():.0f})"
         )
 
     def change_trim_centre(self, trim: float):
+        # Channel trims are MP-only (see ModelConfig.has_surround) - the
+        # TDAI family has no equivalent command at all, so unlike
+        # bass/treble above there is no per-model scale to apply here.
         self._writeCommand(
             f"{self._model.lookup_command(Msg.TRIM_CENTRE)}({trim*10.0:.0f})"
         )
@@ -826,7 +832,12 @@ class LyngdorfApi:
         )
 
     def change_trim_treble(self, trim: float):
-        self._writeCommand(f"{self._model.trim_treble_set_command()}({trim*10.0:.0f})")
+        # Scale is model-specific (10 = 1dB on MP/P, 1 = 1dB on TDAI) - see
+        # ModelConfig.trim_bass_treble_scale.
+        self._writeCommand(
+            f"{self._model.trim_treble_set_command()}"
+            f"({trim * self._model.trim_bass_treble_scale():.0f})"
+        )
 
     def trim_bass_up(self):
         if command := self._model.trim_bass_up_command():

@@ -139,6 +139,23 @@ class ModelConfig:
             TDAI series' `!BASS`/`!TREBLE` are documented as whole dB only
             (docs/tdai-1120.md, docs/tdai-3400.md), even though both
             families happen to share the same -12..+12 dB bound.
+        trim_bass_treble_scale: How many wire units make up 1 dB on the
+            bass/treble trim commands specifically - the write side
+            (`LyngdorfApi.change_trim_bass`/`change_trim_treble`) multiplies
+            a dB value by this before formatting it onto the wire, and the
+            read side (`Receiver._trim_bass_callback`/
+            `_trim_treble_callback`) divides by it. Defaults to 10.0 (the
+            MP/P family's "10 = 1dB" encoding per docs/mp-40.md et al);
+            the TDAI family overrides it to 1.0 since `!BASS`/`!TREBLE`
+            are documented as whole dB with no sub-decibel encoding at all
+            (docs/tdai-1120.md, docs/tdai-3400.md; TDAI-2210 shares that
+            protocol - see models/tdai_series.py). Not used for the
+            per-channel trims (centre/height/LFE/surround), which are
+            MP-only and always in tenths of a dB - see
+            `LyngdorfApi.change_trim_centre` et al, which hardcode ``*10``
+            rather than reading this field. See issue #41 - this is
+            derived from the vendor manuals and awaits confirmation on
+            real TDAI hardware.
         trim_centre_range, trim_height_range, trim_lfe_range,
             trim_surround_range: The device-documented dB range for the
             discrete multichannel speaker trims - MP series only (see
@@ -174,6 +191,7 @@ class ModelConfig:
     trim_height_range: NumericRange | None = None
     trim_lfe_range: NumericRange | None = None
     trim_surround_range: NumericRange | None = None
+    trim_bass_treble_scale: float = 10.0
     lipsync_default_range: NumericRange | None = None
     power_state_on: str = POWER_ON
     mute_state_in_parameter: bool = False

@@ -45,6 +45,13 @@ from .base import ModelConfig, NumericRange
 # already reflect that via Msg.TRIM_BASS/Msg.TRIM_TREBLE absence.
 TDAI_BASS_TREBLE_TRIM_RANGE = NumericRange(min=-12.0, max=12.0, step=1.0)
 
+# Same "whole dB, no sub-decibel encoding" fact as the range above, but
+# expressed as the wire scale factor that ModelConfig.trim_bass_treble_scale
+# needs: 1 wire unit = 1 dB, unlike the MP/P family's 10 wire units = 1 dB
+# default. See issue #41 - derived from the vendor manuals, not yet
+# confirmed against real TDAI hardware.
+TDAI_BASS_TREBLE_SCALE = 1.0
+
 
 class TDAIModelConfig(ModelConfig):
     """Command-shape overrides shared by TDAI-1120, TDAI-2170 and
@@ -183,6 +190,7 @@ TDAI1120_CONFIG = TDAIModelConfig(
     has_streaming=True,
     trim_bass_range=TDAI_BASS_TREBLE_TRIM_RANGE,
     trim_treble_range=TDAI_BASS_TREBLE_TRIM_RANGE,
+    trim_bass_treble_scale=TDAI_BASS_TREBLE_SCALE,
 )
 
 # TDAI-2170 Protocol Commands
@@ -356,6 +364,7 @@ TDAI2210_CONFIG = TDAIModelConfig(
     has_streaming=True,
     trim_bass_range=TDAI_BASS_TREBLE_TRIM_RANGE,
     trim_treble_range=TDAI_BASS_TREBLE_TRIM_RANGE,
+    trim_bass_treble_scale=TDAI_BASS_TREBLE_SCALE,
 )
 
 TDAI3400_CONFIG = TDAIModelConfig(
@@ -373,4 +382,5 @@ TDAI3400_CONFIG = TDAIModelConfig(
     has_streaming=True,
     trim_bass_range=TDAI_BASS_TREBLE_TRIM_RANGE,
     trim_treble_range=TDAI_BASS_TREBLE_TRIM_RANGE,
+    trim_bass_treble_scale=TDAI_BASS_TREBLE_SCALE,
 )

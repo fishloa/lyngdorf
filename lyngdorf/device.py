@@ -49,9 +49,19 @@ from .streaming import NowPlaying
 _LOGGER = logging.getLogger(__package__)
 
 
-def convert_decibel(value: float | str) -> float:
-    """Convert volume to float."""
-    return float(value) / 10.0
+def convert_decibel(value: float | str, scale: float = 10.0) -> float:
+    """Convert a wire-protocol numeric parameter to dB.
+
+    `scale` is how many wire units make up 1 dB. Volume is always in
+    tenths of a dB on both the MP and TDAI families, so the default of
+    10.0 covers every volume call site unchanged. Bass/treble trim is
+    NOT uniform across families - the MP series shares volume's tenths
+    encoding but the TDAI series' `!BASS`/`!TREBLE` are whole dB only
+    (see ModelConfig.trim_bass_treble_scale) - so callers on that path
+    must pass the model's own scale explicitly rather than relying on
+    this default. See issue #41.
+    """
+    return float(value) / scale
 
 
 class Receiver:
@@ -872,7 +882,7 @@ class Receiver:
 
     # trims
     def _trim_bass_callback(self, param1: str, ignored: str) -> None:
-        self._trim_bass = convert_decibel(param1)
+        self._trim_bass = convert_decibel(param1, self._model.trim_bass_treble_scale())
         self._notify_notification_callbacks()
 
     @property
@@ -1001,7 +1011,9 @@ class Receiver:
         self._api.trim_surround_down()
 
     def _trim_treble_callback(self, param1: str, ignored: str) -> None:
-        self._trim_treble = convert_decibel(param1)
+        self._trim_treble = convert_decibel(
+            param1, self._model.trim_bass_treble_scale()
+        )
         self._notify_notification_callbacks()
 
     @property
