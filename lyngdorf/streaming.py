@@ -61,12 +61,16 @@ import contextlib
 import http.client
 import json
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass
+from typing import TypeVar
 from urllib.parse import quote
 
 from .const import NOW_PLAYING_PATH, NOW_PLAYING_POSITION_PATH, STREAMMAGIC_PORT
 
 _LOGGER = logging.getLogger(__package__)
+
+_T = TypeVar("_T")
 
 
 @dataclass(frozen=True)
@@ -263,14 +267,32 @@ class StreamMagicSession:
         matching `_smoip_get`.
         """
         async with self._lock:
-            text = await self._request(path_and_query, timeout)
+            text = await self._request(path_and_query, timeout, self._fetch)
         return _decode_json(text, self._host, path_and_query)
 
-    async def _request(self, path_and_query: str, timeout: float) -> str | None:
+    async def get_status(self, path_and_query: str, timeout: float) -> int | None:
+        """GET a path and return the HTTP status rather than the body.
+
+        Writes need this: a successful `activate` returns a body of
+        literal `null`, which parses to None exactly like a failure, so
+        only the status distinguishes them. Everything else - connection
+        reuse, the stale-connection retry, the keep-alive latch - is
+        shared with `get()` via `_perform`; only what is extracted from
+        the response differs.
+        """
+        async with self._lock:
+            return await self._request(path_and_query, timeout, self._fetch_status)
+
+    async def _request(
+        self,
+        path_and_query: str,
+        timeout: float,
+        fetch: Callable[[str, float], _T | None],
+    ) -> _T | None:
         loop = asyncio.get_running_loop()
         try:
             return await asyncio.wait_for(
-                loop.run_in_executor(None, self._fetch, path_and_query, timeout),
+                loop.run_in_executor(None, fetch, path_and_query, timeout),
                 timeout=timeout + 1,
             )
         except (TimeoutError, OSError):
@@ -281,6 +303,23 @@ class StreamMagicSession:
             return None
 
     def _fetch(self, path_and_query: str, timeout: float) -> str | None:
+        """Run one request, returning the decoded body on HTTP 200."""
+
+        def extract(resp: http.client.HTTPResponse, body: bytes) -> str | None:
+            return body.decode(errors="replace") if resp.status == 200 else None
+
+        return self._perform(path_and_query, timeout, extract)
+
+    def _fetch_status(self, path_and_query: str, timeout: float) -> int | None:
+        """Run one request, returning the HTTP status rather than the body."""
+        return self._perform(path_and_query, timeout, lambda resp, _body: resp.status)
+
+    def _perform(
+        self,
+        path_and_query: str,
+        timeout: float,
+        extract: Callable[[http.client.HTTPResponse, bytes], _T | None],
+    ) -> _T | None:
         """Run one request, retrying once on a stale kept-alive connection.
 
         A connection idle since the last request may have been dropped by
@@ -288,12 +327,17 @@ class StreamMagicSession:
         when we try to use it. That is indistinguishable from a real
         failure at the point it happens, so a reused connection gets one
         clean retry; a fresh connection does not, and the error stands.
+
+        `extract` is the only thing that differs between `get()` and
+        `get_status()` - the decoded body for one, the bare status code
+        for the other - so the connection/retry/keep-alive machinery
+        below exists exactly once rather than once per caller.
         """
         for attempt in (1, 2):
             reusing = self._conn is not None
             self.reused_connection = reusing
             try:
-                response = self._fetch_once(path_and_query, timeout)
+                result = self._perform_once(path_and_query, timeout, extract)
             except (OSError, http.client.HTTPException):
                 self.close()
                 if reusing:
@@ -310,7 +354,7 @@ class StreamMagicSession:
                     # stale sockets over a long session never add up to a
                     # false verdict against the device.
                     self._reuse_failures = 0
-                return response
+                return result
         return None
 
     def _note_reuse_failure(self) -> None:
@@ -324,7 +368,12 @@ class StreamMagicSession:
             self._reuse_failures,
         )
 
-    def _fetch_once(self, path_and_query: str, timeout: float) -> str | None:
+    def _perform_once(
+        self,
+        path_and_query: str,
+        timeout: float,
+        extract: Callable[[http.client.HTTPResponse, bytes], _T | None],
+    ) -> _T | None:
         if self._conn is None:
             self._conn = http.client.HTTPConnection(
                 self._host, self._port, timeout=timeout
@@ -334,15 +383,17 @@ class StreamMagicSession:
         headers = {"Connection": "close"} if self.keep_alive_disabled else {}
         conn.request("GET", path_and_query, headers=headers)
         resp = conn.getresponse()
-        body = resp.read().decode(errors="replace")
+        body = resp.read()
 
         # `will_close` folds together HTTP version, the `Connection:`
         # header and whether the body was framed well enough to find the
-        # next response - i.e. exactly "may this socket be reused".
+        # next response - i.e. exactly "may this socket be reused". Must
+        # be read after the body: consulting it before `resp.read()` can
+        # give the wrong answer for chunked/close-delimited framing.
         if resp.will_close or self.keep_alive_disabled:
             self.close()
 
-        return body if resp.status == 200 else None
+        return extract(resp, body)
 
     def close(self) -> None:
         """Drop the connection, if any. Safe to call repeatedly."""
@@ -398,6 +449,49 @@ async def _smoip_get(
         return None
 
     return _decode_json(text, host, path_and_query)
+
+
+async def _smoip_status(
+    host: str, port: int, path_and_query: str, timeout: float
+) -> int | None:
+    """One-shot request returning the HTTP status rather than the body.
+
+    Mirrors `_smoip_get`: opens a connection, uses it once, closes it.
+    Writes need the bare status because a successful `activate` returns a
+    body of literal `null`, indistinguishable from a failure once parsed.
+    """
+    loop = asyncio.get_running_loop()
+
+    def _fetch() -> int:
+        conn = http.client.HTTPConnection(host, port, timeout=timeout)
+        try:
+            conn.request("GET", path_and_query, headers={"Connection": "close"})
+            resp = conn.getresponse()
+            resp.read()
+            return resp.status
+        finally:
+            conn.close()
+
+    try:
+        return await asyncio.wait_for(
+            loop.run_in_executor(None, _fetch), timeout=timeout + 1
+        )
+    except (TimeoutError, OSError):
+        _LOGGER.debug("%s: StreamMagic request to %s failed", host, path_and_query)
+        return None
+
+
+async def _get_status(
+    session: StreamMagicSession | None,
+    host: str,
+    port: int,
+    path_and_query: str,
+    timeout: float,
+) -> int | None:
+    """Route a status request through a reused connection when available."""
+    if session is not None:
+        return await session.get_status(path_and_query, timeout)
+    return await _smoip_status(host, port, path_and_query, timeout)
 
 
 async def _get(
