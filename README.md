@@ -284,6 +284,15 @@ await receiver.async_set_play_mode(PlayMode(shuffle=True, repeat=Repeat.ALL))
 `available_play_modes`, `available_repeat_modes` and `can_shuffle` report what the
 current source actually allows.
 
+`available_play_modes` is a union of two device-reported lists, not a straight
+read of either one - each is a partial view of the same six-value shuffle/repeat
+grid. The current source's own `controls.playMode` omits `normal`; the device's
+global `settings:/mediaPlayer/playModes` list omits the repeat-all variants.
+Taking either list alone leaves a genuinely supported mode unreachable - taking
+only the per-source list, for instance, meant `normal` had nowhere to go, so
+`async_set_shuffle(False)` raised instead of turning shuffle off whenever repeat
+was already off. Verified against a real MP-60.
+
 ### Typed States
 
 `PlayMode`, `Repeat`, `Control` and `PlaybackState` are importable directly from
@@ -301,6 +310,30 @@ from lyngdorf import Control, PlaybackState, PlayMode, Repeat
   `SEEK`, ...), as found in `NowPlaying.controls`.
 - `PlaybackState` - `PLAYING` / `PAUSED` / `STOPPED` / `TRANSITIONING`, as found
   in `NowPlaying.state`.
+
+### Command Pacing & Coalescing
+
+Every outbound command is routed through a paced, coalescing queue, so a caller
+never needs to throttle its own writes. This exists because a real MP-60
+(firmware 5.4.2) has a fixed queue-depth cliff, not a throughput limit: a
+read-only probe found 10 unpaced commands all got replies, while bursts of 30,
+60 and 100 unpaced commands each got exactly 16 replies, with the rest silently
+dropped - the device self-heals once traffic backs off. See
+[issue #35](https://github.com/fishloa/lyngdorf/issues/35) for the measurement.
+Left unhandled, a Home Assistant volume-slider drag (10-30 commands a second)
+would overflow that cliff, the device would stop responding, and the keepalive
+monitor would then read the silence as a dead connection and reconnect -
+surfacing to a user as "Home Assistant keeps dropping my Lyngdorf".
+
+The queue paces writes `COMMAND_PACING_MS` (50ms, see `lyngdorf/const.py`)
+apart and coalesces selectively. Absolute setters - volume, Zone B volume, the
+trims, lipsync, balance - collapse to only their latest queued value, since
+only the final value can ever matter. Relative and sequential commands never
+collapse: the volume/trim up-down steppers each mean "one more step", and
+digit and cursor/navigation commands carry meaning in their order and count.
+One consequence worth knowing deliberately: a rapid burst of volume sets can
+result in fewer commands reaching the device than were issued - the
+intermediate values were never going to be seen anyway.
 
 ## Model-Specific Features
 
@@ -345,6 +378,11 @@ poetry install
 ```bash
 poetry run pytest -v
 ```
+
+See [KNOWN_ISSUES.md](KNOWN_ISSUES.md) before writing a test that calls
+`async_connect()` on a streaming-capable model against a fake host - without a
+guaranteed `async_disconnect()`, that combination can hang the test for two
+minutes.
 
 ### Code Quality
 ```bash
