@@ -1595,6 +1595,56 @@ class TestVolumeAndMute:
         )
 
     @pytest.mark.asyncio
+    async def test_max_volume_reading(self):
+        """#40: MAXVOL?'s reply (already sent at startup - see
+        mp_series.py's setup_commands) is parsed via the registered
+        callback and exposed as max_volume, converted through the same
+        convert_decibel scaling as volume. A real MP-60 on firmware 5.4.2
+        answered !MAXVOL(0), meaning 0.0 dB - not "no maximum"."""
+
+        def test_function(client: Receiver):
+            assert client.max_volume == 0.0
+
+        responses = SETUP_RESPONSES + ["!MAXVOL(0)"]
+        await self._test_receiving_commands(responses, "MAXVOL", test_function)
+
+    def test_max_volume_is_none_before_any_reply(self):
+        """max_volume stays None until the device actually answers -
+        it is not a hardware constant computed at construction time."""
+        from lyngdorf.device import MP60Receiver, TDAI1120Receiver
+
+        assert MP60Receiver("192.168.1.1").max_volume is None
+        assert TDAI1120Receiver("192.168.1.1").max_volume is None
+
+    @pytest.mark.asyncio
+    async def test_tdai_series_never_reports_max_volume(self):
+        """MAX_VOLUME is MP-series only - TDAI's protocol has no MAXVOL
+        mapping at all, so _register_callback's defensive KeyError catch
+        skips registration silently and max_volume stays None forever,
+        rather than raising during async_connect."""
+        assert LyngdorfModel.TDAI_1120.supports_message(Msg.MAX_VOLUME) is False
+
+        transport = mock.Mock()
+        protocol = LyngdorfProtocol(None, None)
+
+        def create_conn(proto_lambda, host, port):
+            proto = proto_lambda()
+            protocol._on_connection_lost = proto._on_connection_lost
+            protocol._on_message = proto._on_message
+            return [transport, proto]
+
+        client = await async_create_receiver(FAKE_IP, LyngdorfModel.TDAI_1120)
+
+        with mock.patch("asyncio.get_event_loop", new_callable=mock.Mock) as debug_mock:
+            debug_mock.return_value.create_connection = AsyncMock(
+                side_effect=create_conn
+            )
+            await client.async_connect()
+            assert "MAXVOL" not in client._api._callbacks
+            assert client.max_volume is None
+            await client.async_disconnect()
+
+    @pytest.mark.asyncio
     async def test_volume_and_mute_commands(self):
         """Test volume and mute commands are sent correctly."""
 

@@ -82,6 +82,7 @@ class Receiver:
         # Initialize state attributes
         self._name: str | None = None
         self._volume: float | None = None
+        self._max_volume: float | None = None
         self._zone_b_volume: float | None = None
         self._mute_enabled: bool | None = None
         self._zone_b_mute_enabled: bool | None = None
@@ -221,6 +222,7 @@ class Receiver:
         # Basics
         self._register_callback(Msg.DEVICE, self._name_callback)
         self._register_callback(Msg.VOLUME, self._volume_callback)
+        self._register_callback(Msg.MAX_VOLUME, self._max_volume_callback)
         self._register_callback(Msg.POWER, self._power_callback)
         self._register_mute_callbacks()
         self._register_source_callbacks()
@@ -322,6 +324,10 @@ class Receiver:
         self._volume = convert_decibel(param1)
         self._notify_notification_callbacks()
 
+    def _max_volume_callback(self, param1: str, ignored: str) -> None:
+        self._max_volume = convert_decibel(param1)
+        self._notify_notification_callbacks()
+
     def _zone_b_volume_callback(self, param1: str, ignored: str) -> None:
         self._zone_b_volume = convert_decibel(param1)
         self._notify_notification_callbacks()
@@ -353,6 +359,21 @@ class Receiver:
     @volume.setter
     def volume(self, value: float) -> None:
         self._api.volume(value)
+
+    @property
+    def max_volume(self) -> float | None:
+        """The device's current MAXVOL setting, in dB, or None on models
+        that do not report it (only the MP series maps Msg.MAX_VOLUME).
+
+        This is a user-settable safety ceiling, not the hardware's
+        physical volume range - it can be changed at runtime from the
+        front panel or the official app, the same way
+        `homeassistant-projects/hass-lyngdorf`'s get_max()/set_max() work
+        against this same command. Do not treat it as a fixed slider
+        maximum; poll or subscribe to notification callbacks rather than
+        caching it once.
+        """
+        return self._max_volume
 
     @property
     def zone_b_volume(self):
