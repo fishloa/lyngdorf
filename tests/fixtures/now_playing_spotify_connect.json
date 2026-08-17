@@ -1,0 +1,88 @@
+[
+  {
+    "contextPath": "spotify:/ui/context",
+    "matchingMediaRoles": [],
+    "trackRoles": {
+      "icon": "https://i.scdn.co/image/ab67616d0000b273ebc918cfb51e9ced7349f436",
+      "mediaData": {
+        "resources": [
+          {
+            "bitsPerSample": 32,
+            "nrAudioChannels": 2,
+            "codec": "Vorbis (container: Ogg)",
+            "sampleFrequency": 44100,
+            "mimeType": "audio/ogg",
+            "uri": "spotify://",
+            "bitRate": 320000
+          }
+        ],
+        "metaData": {
+          "album": "Atomic/Atomix",
+          "contentPlayContextPath": "spotify:/ui/context",
+          "artist": "Blondie",
+          "live": true,
+          "playLogicPath": "spotify:playlogic",
+          "serviceID": "spotify"
+        }
+      },
+      "containerType": "none",
+      "title": "Sunday Girl",
+      "doNotTrack": true,
+      "type": "audio",
+      "audioType": "audioBroadcast"
+    },
+    "streamId": 1,
+    "status": {
+      "byteSeek": true,
+      "duration": 195133,
+      "timeSeek": true
+    },
+    "mediaRoles": {
+      "icon": "https://i.scdn.co/image/ab67616d0000b273ebc918cfb51e9ced7349f436",
+      "mediaData": {
+        "resources": [
+          {
+            "codec": "Vorbis (container: Ogg)",
+            "mimeType": "audio/unknown",
+            "uri": "spotify://?preset=%7B%22title%22:%22Liked%20Songs%22,%22trackUri%22:%22spotify:track:1e1rq2wEC9hOro9YhHmL2B%22,%22srcUri%22:%22spotify:user:fishloa:collection%22%7D",
+            "bitRate": 320000
+          }
+        ],
+        "metaData": {
+          "album": "Atomic/Atomix",
+          "contentPlayContextPath": "spotify:/ui/context",
+          "artist": "Blondie",
+          "live": true,
+          "playLogicPath": "spotify:playlogic",
+          "serviceID": "spotify"
+        }
+      },
+      "containerType": "none",
+      "title": "Liked Songs",
+      "doNotTrack": true,
+      "type": "audio",
+      "audioType": "audioBroadcast"
+    },
+    "state": "playing",
+    "playId": {
+      "systemMemberId": "Solar",
+      "timestamp": 795830
+    },
+    "error": "",
+    "controls": {
+      "previous": true,
+      "pause": true,
+      "backward15sec": false,
+      "next_": true,
+      "forward15sec": false,
+      "playMode": {
+        "shuffle": true,
+        "shuffleRepeatAll": true,
+        "repeatOne": true,
+        "shuffleRepeatOne": true,
+        "repeatAll": true
+      },
+      "seekTime": true
+    }
+  }
+]

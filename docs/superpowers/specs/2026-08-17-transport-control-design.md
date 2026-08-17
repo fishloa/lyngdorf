@@ -3,7 +3,7 @@
 Design for [#32](https://github.com/fishloa/lyngdorf/issues/32). Follows #31
 (now-playing metadata) and #33 (playback position), both shipped.
 
-Purpose: let Home Assistant drive playback — pause, next, previous, and
+Purpose: let Home Assistant drive playback — pause, next, previous, seek and
 shuffle/repeat — through the streaming module's HTTP API. This is the first
 feature in the library that *writes* to that API; everything before it was
 read-only.
@@ -22,8 +22,10 @@ GET /api/setData?path=player:player/control&role=activate&value={"control":"paus
 
 The vendor left the valid actions in a comment in their own JavaScript:
 `pause`, `next_`, `previous`, `like`, `dislike` — note the trailing
-underscore on `next_`. The same comment records that `seekTime` and
-`seekTrack` are "not yet implemented".
+underscore on `next_`. That comment also claims `seekTime` and `seekTrack`
+are "not yet implemented", but the hardware contradicts it: Spotify Connect
+advertises `seekTime: true` (below). Treat the comment as stale and the
+device's own `controls` payload as the source of truth.
 
 **Play modes** go through `settings:/mediaPlayer/playMode`, set as a value:
 
@@ -32,12 +34,14 @@ GET /api/setData?path=settings:/mediaPlayer/playMode&role=value
     &value={"type":"playerPlayMode","playerPlayMode":"shuffle"}
 ```
 
-Shuffle and repeat are not independent flags but one combined enum. The
-authoritative list is the device's own, from `getRows` on
-`settings:/mediaPlayer/playModes`. On the MP-60 that is `normal`, `shuffle`,
-`repeatOne`, `shuffleRepeatOne` — note there is **no `repeatAll`**, though
-the vendor's generic web client hardcodes one at that index. The device's
-enum wins; the shipped UI is wrong about this model.
+Shuffle and repeat are not independent flags but one combined enum. Two
+sources describe what is available and they disagree, which matters:
+`getRows` on `settings:/mediaPlayer/playModes` returns a *global* list
+(`normal`, `shuffle`, `repeatOne`, `shuffleRepeatOne` on the MP-60), while
+the now-playing payload's `controls.playMode` returns what the *current
+source* supports — which on Spotify Connect includes `repeatAll` and
+`shuffleRepeatAll` as well. The per-source dict is authoritative; the global
+enum is a fallback for payloads that omit it.
 
 ### Two findings that drive the whole design
 
@@ -67,10 +71,31 @@ when available and `stop` otherwise, but never a `play` command. There *is*
 a `play` control, but it takes `mediaRoles`/container arguments — it means
 "start playing this item", not "resume".
 
-**Capabilities are per-source.** AirPlay advertises only `next_`,
-`previous`, `pause`, and reports `audioType: audioBroadcast` with
-`live: true`, which is why it offers no seek. A natively-streamed source may
-well advertise more (see Open questions).
+**Capabilities are per-source, and the difference is large.** AirPlay
+advertises only `next_`, `previous`, `pause`. Spotify Connect, streamed
+natively by the device, advertises considerably more:
+
+```json
+{"previous": true, "pause": true, "next_": true, "seekTime": true,
+ "backward15sec": false, "forward15sec": false,
+ "playMode": {"shuffle": true, "repeatOne": true, "repeatAll": true,
+              "shuffleRepeatOne": true, "shuffleRepeatAll": true}}
+```
+
+Three things follow. **Seek is real** - `seekTime` is advertised, despite the
+vendor comment claiming it unimplemented, so that comment is stale or refers
+to a different path. **The play modes available here include `repeatAll` and
+`shuffleRepeatAll`**, which the device's global enum does not list - so
+`controls.playMode` is the authoritative per-source capability list and the
+global enum is only a fallback. And **`live: true` with
+`audioType: audioBroadcast` is reported even by this source**, alongside
+`seekTime: true`, so those flags say nothing useful about seekability. Only
+`controls` does.
+
+The `backward15sec`/`forward15sec` pair (podcast-style skip) appears as
+`false` here, which is a useful reminder that the dict advertises keys set to
+`false` as well as `true`: presence is not permission, and the value has to
+be checked.
 
 ## Design
 
@@ -84,8 +109,9 @@ poll loop's connection rather than opening sockets of their own:
 | Function | Purpose |
 |---|---|
 | `async_activate_control(host, control, …)` | One transport action |
+| `async_seek(host, position_ms, …)` | Seek, via `seekTime` with `time` in ms |
 | `async_set_play_mode(host, mode, …)` | Set the combined shuffle/repeat enum |
-| `async_fetch_play_modes(host, …)` | Read the device's declared enum |
+| `async_fetch_play_modes(host, …)` | Read the device's global enum (fallback) |
 
 Each returns a bool for success and never raises on network failure,
 matching the read helpers.
@@ -96,9 +122,14 @@ The core of the design, and the part the no-validation finding makes
 mandatory.
 
 `parse_now_playing` currently discards the payload's `controls` dict. It
-will capture it instead, as `NowPlaying.controls: frozenset[str]`. Transport
-calls check against it; play-mode calls check against the enum, fetched once
-per queue initialisation and cached.
+will capture it instead, as `NowPlaying.controls: frozenset[str]` - built
+from the keys whose value is `true`, since the device also advertises
+unavailable controls as `false` (`backward15sec` on Spotify Connect).
+
+Transport calls check against that set. Play-mode calls check against
+`controls.playMode`, which is per-source and authoritative; the global
+`settings:/mediaPlayer/playModes` enum is only a fallback for when the
+payload carries no `playMode` key.
 
 A call for something unsupported raises `LyngdorfUnsupportedError` (new, in
 `exceptions.py`) instead of sending a request that would return 200 and do
@@ -115,15 +146,20 @@ from that state.
 On `Receiver`:
 
 ```python
-can_pause / can_next / can_previous  -> bool
+can_pause / can_next / can_previous / can_seek  -> bool
 available_play_modes                 -> tuple[str, ...]
 play_mode                            -> str | None
 
 async_pause()          # see warning below
 async_next()
 async_previous()
+async_seek(position_ms)
 async_set_play_mode(mode)
 ```
+
+`can_seek` and `available_play_modes` both read from the live `controls`
+payload, so they narrow and widen as the source changes - AirPlay reports no
+seek and no play modes, Spotify Connect reports both.
 
 `async_pause()` carries an explicit docstring warning that on
 controller-driven sources it ends the session and **cannot be undone from
@@ -132,6 +168,24 @@ likeliest source of a confused bug report, so it belongs in the API
 documentation rather than a footnote.
 
 Position, now-playing and the poll loop are untouched.
+
+### Home Assistant integration note
+
+`MediaPlayerEntity.supported_features` is a property re-read on every state
+write, so it can legitimately change at runtime — the frontend shows and
+hides buttons to match. The integration should map the `can_*` properties
+onto it **strictly dynamically**: AirPlay renders pause/next/previous only,
+Spotify Connect adds seek and shuffle/repeat.
+
+That means the controls disappear entirely when playback stops, because
+`controls` goes empty. This is deliberate rather than a rough edge. On
+controller-driven sources a pause genuinely ends the session, so a live pause
+button on a stopped device would invite exactly the "why will it not resume"
+confusion the teardown behaviour causes. Showing nothing is honest about what
+the device can actually do.
+
+The library's job stops at reporting capabilities truthfully; the mapping
+lives in the integration.
 
 ### Model gating
 
@@ -160,11 +214,6 @@ doubly warranted for writes to an undocumented API.
 
 ## Out of scope
 
-**Seek.** The vendor marks it unimplemented, and the two available sources
-disagree on the command name (`seek` in the device's web client, `seekTime`
-in `jsoutter/ha-lyngdorf`). Revisit only if a source is found that
-advertises it.
-
 **`play` / `playContainer`.** Browse-and-play needs the whole `getRows`
 browsing layer — a separate feature deserving its own issue.
 
@@ -175,19 +224,15 @@ honestly and let the caller map it.
 
 ## Open questions
 
-**Spotify Connect capabilities are uncaptured.** Every measurement so far is
-AirPlay, including a phone streaming Spotify *over* AirPlay
-(`serviceID: airplay`), which is not the same thing as Spotify Connect. A
-natively-streamed source is the most likely to advertise `seekTime`, a real
-pause/resume rather than a teardown, and a non-`live` duration. Capture its
-`controls` dict before implementing; it may expand what is worth building.
-The capability gate means a richer source is picked up automatically, so
-this changes scope rather than architecture.
+**The seek command name.** `controls` advertises the capability as
+`seekTime`, the device's own web client sends `{"control":"seek","time":…}`,
+and `jsoutter/ha-lyngdorf` sends `seekTime` with `time`. Confirm against
+hardware before shipping; the capability flag is not proof of the wire name.
 
-**Whether `repeatAll` is honoured.** The MP-60 accepts and stores it despite
-not declaring it. Unknown whether the player logic acts on it. The design
-sidesteps this by trusting the declared enum, so HA's repeat-"all" is simply
-unavailable on this model.
+**Whether pause tears down Spotify Connect too.** Measured only on AirPlay,
+where it ends the session irrecoverably. Connect is controller-driven in the
+same way, so the same behaviour is likely, but it is worth confirming
+directly - it determines whether HA can offer `PLAY` on any source at all.
 
 ## Home Assistant mapping
 
@@ -197,6 +242,6 @@ unavailable on this model.
 | `NEXT_TRACK` / `PREVIOUS_TRACK` | Supported when advertised |
 | `PLAY` | Not supported — no resume command exists |
 | `STOP` | What `pause` effectively does on Connect sources |
-| `SHUFFLE_SET` | Via the combined enum |
-| `REPEAT_SET` | Partial — no `repeatAll` on the MP-60 |
-| `SEEK` | Not supported |
+| `SHUFFLE_SET` | Supported where `controls.playMode` offers `shuffle` |
+| `REPEAT_SET` | Full off/one/all on Spotify Connect; unavailable on AirPlay |
+| `SEEK` | Supported where `controls` offers `seekTime` |
