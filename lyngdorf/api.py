@@ -249,7 +249,11 @@ class LyngdorfApi:
         self._reconnect_task: asyncio.Task | None = None
         self._monitor_handle: asyncio.TimerHandle | None = None
         self._protocol: LyngdorfProtocol | None = None
-        self._callbacks: dict[str, list[Callable]] = {}
+        # Spelled out rather than a bare `Callable`: `register_in_list` is
+        # generic over the element type, and a bare one leaves it with two
+        # candidates to reconcile against the parameterised callback it is
+        # handed, which mypy 1.x refuses to infer.
+        self._callbacks: dict[str, list[Callable[[str, str], None]]] = {}
         self._notification_callbacks: list[Callable[[], None]] = []
         self._now_playing: NowPlaying | None = None
         self._now_playing_callbacks: list[Callable[[NowPlaying | None], None]] = []
