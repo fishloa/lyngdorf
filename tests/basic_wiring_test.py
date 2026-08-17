@@ -1988,6 +1988,128 @@ class TestTrimControls:
         )
         assert TDAI1120Receiver(FAKE_IP).lipsync_range is None
 
+    def test_trim_setters_reject_out_of_range_values(self):
+        """#37: trim_* setters must raise LyngdorfInvalidValueError - not
+        send a wire command and not clamp - when given a value outside
+        the model's documented range. The message names both the
+        offending value and the permitted range."""
+        from lyngdorf.device import MP60Receiver
+
+        receiver = MP60Receiver(FAKE_IP)
+        receiver._api._protocol = mock.Mock()
+
+        with pytest.raises(
+            LyngdorfInvalidValueError, match=r"trim_bass.*999\.0.*-12\.0\.\.12\.0"
+        ):
+            receiver.trim_bass = 999.0
+        with pytest.raises(LyngdorfInvalidValueError):
+            receiver.trim_treble = -999.0
+        with pytest.raises(LyngdorfInvalidValueError):
+            receiver.trim_centre = 999.0
+        with pytest.raises(LyngdorfInvalidValueError):
+            receiver.trim_height = 999.0
+        with pytest.raises(LyngdorfInvalidValueError):
+            receiver.trim_lfe = 999.0
+        with pytest.raises(LyngdorfInvalidValueError):
+            receiver.trim_surround = 999.0
+        receiver._api._protocol.write.assert_not_called()
+
+    def test_trim_setters_accept_boundary_values(self):
+        """The min/max bounds themselves are valid, not off-by-one
+        exclusive - a caller setting exactly +/-12.0 dB bass/treble or
+        +/-10.0 dB channel trim must not be rejected."""
+        from lyngdorf.device import MP60Receiver
+
+        receiver = MP60Receiver(FAKE_IP)
+        receiver._api._protocol = mock.Mock()
+
+        receiver.trim_bass = 12.0
+        receiver.trim_bass = -12.0
+        receiver.trim_treble = 12.0
+        receiver.trim_treble = -12.0
+        receiver.trim_centre = 10.0
+        receiver.trim_centre = -10.0
+        receiver.trim_height = 10.0
+        receiver.trim_lfe = 10.0
+        receiver.trim_surround = 10.0
+
+    def test_trim_setters_reject_unsupported_setting_on_tdai(self):
+        """#37: the internal asymmetry the issue calls out - trim_bass_up()
+        checks model capability and warns, but the trim_* setters checked
+        nothing at all. Resolved consistently with source/voicing/
+        room_perfect_position, which already raise LyngdorfInvalidValueError
+        for "not a valid choice on this model" rather than silently
+        no-op-ing: TDAI-1120 has bass/treble trim but no discrete channel
+        trims, so setting one of those must raise, not send a
+        TRIMCENTER-shaped command its protocol does not define."""
+        from lyngdorf.device import TDAI1120Receiver
+
+        receiver = TDAI1120Receiver(FAKE_IP)
+        receiver._api._protocol = mock.Mock()
+
+        with pytest.raises(LyngdorfInvalidValueError):
+            receiver.trim_centre = 0.0
+        with pytest.raises(LyngdorfInvalidValueError):
+            receiver.trim_height = 0.0
+        with pytest.raises(LyngdorfInvalidValueError):
+            receiver.trim_lfe = 0.0
+        with pytest.raises(LyngdorfInvalidValueError):
+            receiver.trim_surround = 0.0
+        # Bass/treble ARE supported on TDAI-1120, so must not raise.
+        receiver.trim_bass = 3.0
+        receiver.trim_treble = -3.0
+        receiver._api._protocol.write.assert_called()
+
+    def test_trim_setters_reject_any_trim_on_tdai_2170(self):
+        """TDAI-2170 has no bass/treble trim and no channel trims at all -
+        every trim setter must raise."""
+        from lyngdorf.device import TDAI2170Receiver
+
+        receiver = TDAI2170Receiver(FAKE_IP)
+        receiver._api._protocol = mock.Mock()
+
+        with pytest.raises(LyngdorfInvalidValueError):
+            receiver.trim_bass = 0.0
+        with pytest.raises(LyngdorfInvalidValueError):
+            receiver.trim_treble = 0.0
+        with pytest.raises(LyngdorfInvalidValueError):
+            receiver.trim_centre = 0.0
+        receiver._api._protocol.write.assert_not_called()
+
+    def test_lipsync_setter_rejects_out_of_range_value(self):
+        """#37: lipsync's setter validates the same way the trim setters
+        do - a real MP-60 reports !LIPSYNCRANGE(0,500), so a negative
+        value (the issue's own example) must raise rather than send
+        !LIPSYNC(-50)."""
+        from lyngdorf.device import MP60Receiver
+
+        receiver = MP60Receiver(FAKE_IP)
+        receiver._api._protocol = mock.Mock()
+
+        with pytest.raises(
+            LyngdorfInvalidValueError, match=r"lipsync.*-50.*0\.0\.\.500\.0"
+        ):
+            receiver.lipsync = -50
+        with pytest.raises(LyngdorfInvalidValueError):
+            receiver.lipsync = 501
+        receiver.lipsync = 0
+        receiver.lipsync = 500
+        receiver._api._protocol.write.assert_called()
+
+    def test_lipsync_setter_rejects_any_value_on_tdai(self):
+        """The TDAI family has no lip sync control at all
+        (has_lipsync_feature() is False, lipsync_range is None) - setting
+        it must raise rather than send a !LIPSYNC command TDAI's protocol
+        does not define."""
+        from lyngdorf.device import TDAI1120Receiver
+
+        receiver = TDAI1120Receiver(FAKE_IP)
+        receiver._api._protocol = mock.Mock()
+
+        with pytest.raises(LyngdorfInvalidValueError):
+            receiver.lipsync = 10
+        receiver._api._protocol.write.assert_not_called()
+
     async def _test_receiving_commands(
         self,
         commands_received,

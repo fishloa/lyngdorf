@@ -182,6 +182,17 @@ print(receiver.trim_centre_range)   # None on a TDAI - no discrete channel trims
 # on the TDAI family, which has no lip sync control at all.
 print(receiver.lipsync_range)
 receiver.lipsync = 20   # ms
+
+# Every trim_*/lipsync setter validates against its own *_range (or
+# raises outright if the connected model has no such range at all) rather
+# than sending whatever it is given - the device itself accepts and
+# discards any value with no error, so this is the only place a caller
+# finds out a value was wrong.
+from lyngdorf.exceptions import LyngdorfInvalidValueError
+try:
+    receiver.trim_bass = 999.0  # outside -12.0..12.0
+except LyngdorfInvalidValueError as exc:
+    print(exc)
 ```
 
 ### Zone B Control (MP Series)

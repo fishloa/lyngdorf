@@ -833,6 +833,30 @@ class Receiver:
         """
         return self._lipsync_range
 
+    def _validate_numeric(
+        self, name: str, value: float, range_: NumericRange | None
+    ) -> None:
+        """Raise LyngdorfInvalidValueError if `value` is outside `range_`,
+        or if `range_` is None - meaning the connected model has no such
+        setting at all, e.g. `trim_centre` on a TDAI, or `lipsync` on any
+        TDAI. Consistent with how `source`/`zone_b_source`/`voicing`/
+        `room_perfect_position` already raise on an invalid choice, rather
+        than with `trim_bass_up`'s warn-and-ignore for a model that can't
+        step - an absolute setter has no discrete "nearest valid choice"
+        to silently fall back to the way a stepping command does, so
+        raising is the only option that does not either send a
+        wire command the model does not define or silently drop a
+        genuine caller bug.
+        """
+        if range_ is None:
+            raise LyngdorfInvalidValueError(
+                f"{name} is not supported by model {self._model.model_name}"
+            )
+        if not range_.min <= value <= range_.max:
+            raise LyngdorfInvalidValueError(
+                f"{name} {value} is outside {range_.min}..{range_.max}"
+            )
+
     def _lipsync_callback(self, param1: str, param2: str):
         self._lipsync = int(param1)
         self._notify_notification_callbacks()
@@ -843,6 +867,7 @@ class Receiver:
 
     @lipsync.setter
     def lipsync(self, lipsync: int):
+        self._validate_numeric("lipsync", lipsync, self.lipsync_range)
         self._api.change_lipsync(lipsync)
 
     # trims
@@ -856,6 +881,7 @@ class Receiver:
 
     @trim_bass.setter
     def trim_bass(self, trim: float):
+        self._validate_numeric("trim_bass", trim, self.trim_bass_range)
         self._api.change_trim_bass(trim)
 
     @property
@@ -880,6 +906,7 @@ class Receiver:
 
     @trim_centre.setter
     def trim_centre(self, trim: float):
+        self._validate_numeric("trim_centre", trim, self.trim_centre_range)
         self._api.change_trim_centre(trim)
 
     @property
@@ -905,6 +932,7 @@ class Receiver:
 
     @trim_height.setter
     def trim_height(self, trim: float):
+        self._validate_numeric("trim_height", trim, self.trim_height_range)
         self._api.change_trim_height(trim)
 
     @property
@@ -930,6 +958,7 @@ class Receiver:
 
     @trim_lfe.setter
     def trim_lfe(self, trim: float):
+        self._validate_numeric("trim_lfe", trim, self.trim_lfe_range)
         self._api.change_trim_lfe(trim)
 
     @property
@@ -955,6 +984,7 @@ class Receiver:
 
     @trim_surround.setter
     def trim_surround(self, trim: float):
+        self._validate_numeric("trim_surround", trim, self.trim_surround_range)
         self._api.change_trim_surround(trim)
 
     @property
@@ -980,6 +1010,7 @@ class Receiver:
 
     @trim_treble.setter
     def trim_treble(self, trim: float):
+        self._validate_numeric("trim_treble", trim, self.trim_treble_range)
         self._api.change_trim_treble(trim)
 
     @property
