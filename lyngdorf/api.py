@@ -15,6 +15,7 @@ import asyncio
 import contextlib
 import dataclasses
 import logging
+import re
 import time
 import traceback
 from asyncio import timeout as asyncio_timeout
@@ -24,6 +25,8 @@ from typing import cast
 
 from .base import register_in_list
 from .const import (
+    ABSOLUTE_SETTER_MESSAGES,
+    COMMAND_PACING_MS,
     DEFAULT_LYNGDORF_PORT,
     MONITOR_INTERVAL,
     NOW_PLAYING_POLL_TIMEOUT,
@@ -63,6 +66,71 @@ from .streaming import (
 )
 
 _LOGGER = logging.getLogger(__package__)
+
+_COMMAND_PACING_SECONDS = COMMAND_PACING_MS / 1000
+
+# Shape of an absolute-setter command: a bare uppercase token followed by a
+# single parenthesised integer, e.g. "VOL(-300)" or "TRIMBASS(20)". Chosen
+# deliberately narrow rather than a bare `TOKEN(.*)`: every write this
+# library actually sends in that family (volume, zone B volume, the six
+# trims, lipsync, balance) is a signed integer, so anything else matching
+# `TOKEN(...)` but not this exact shape is left alone rather than guessed
+# at - see `_coalesce_key`.
+_ABSOLUTE_SETTER_SHAPE = re.compile(r"^([A-Z][A-Z0-9_]*)\(-?\d+\)$")
+
+
+def _absolute_setter_tokens_for_model(model: LyngdorfModel) -> frozenset[str]:
+    """The wire tokens this model uses for an absolute-setter message.
+
+    Derived from `ABSOLUTE_SETTER_MESSAGES` (const.py) via
+    `model.lookup_command` rather than hardcoded as literal strings,
+    because the wire token for the same message differs by family - e.g.
+    `Msg.TRIM_BASS` is `TRIMBASS` on MP/P but `BASS` on TDAI. A message a
+    given model does not define (`KeyError`) simply contributes no token,
+    same as any other unsupported message lookup elsewhere in this file.
+    """
+    tokens = set()
+    for msg in ABSOLUTE_SETTER_MESSAGES:
+        try:
+            tokens.add(model.lookup_command(msg))
+        except KeyError:
+            continue
+    return frozenset(tokens)
+
+
+def _coalesce_key(command: str, absolute_setter_tokens: frozenset[str]) -> str | None:
+    """The coalescing key for `command`, or None if it must never coalesce.
+
+    Only a command shaped like an absolute setter (see
+    `_ABSOLUTE_SETTER_SHAPE`) *and* whose token is one this model actually
+    uses for a message in `ABSOLUTE_SETTER_MESSAGES` can coalesce - for
+    those, the latest value fully replaces the meaning of an earlier
+    queued one. Everything else keeps no key and is therefore never
+    coalesced:
+
+    - a relative/stepping command (`VOLUP`, `VOL+`, `RPVOI-`, ...) has no
+      parenthesised value at all, so it never matches the shape;
+    - a query (`VOL?`) likewise never matches the shape;
+    - sequential input - the `NUM(0)`..`NUM(9)` digits, where `NUM` is not
+      an absolute-setter token for any model - matches the shape but is
+      filtered out by the token check, because order and count are the
+      whole meaning there.
+    """
+    match = _ABSOLUTE_SETTER_SHAPE.match(command)
+    if match is None:
+        return None
+    token = match.group(1)
+    if token not in absolute_setter_tokens:
+        return None
+    return token
+
+
+@dataclasses.dataclass(frozen=True, slots=True)
+class _QueuedWrite:
+    """One command waiting to be written, and its coalescing key (if any)."""
+
+    command: str
+    coalesce_key: str | None
 
 
 def _find_closing_paren(message: str, start: int) -> int:
@@ -235,6 +303,10 @@ class LyngdorfApi:
     # per-instance/class without affecting real connections' pacing.
     setup_command_delay: float = SETUP_COMMAND_DELAY
 
+    # Same reasoning as `setup_command_delay` above, for the runtime
+    # outbound command queue's own pacing (see `_drain_write_queue`).
+    command_pacing_seconds: float = _COMMAND_PACING_SECONDS
+
     streammagic_port: int = STREAMMAGIC_PORT
 
     def __init__(self, host: str, model: LyngdorfModel):
@@ -272,6 +344,16 @@ class LyngdorfApi:
         self._play_mode: PlayMode | None = None
         self._play_mode_callbacks: list[Callable[[PlayMode | None], None]] = []
         self._global_play_modes: frozenset[PlayMode] = frozenset()
+        # Outbound command queue - see `_writeCommand`/`_drain_write_queue`.
+        # Computed once: which wire tokens count as absolute setters is
+        # fixed for the lifetime of a model.
+        self._absolute_setter_tokens = _absolute_setter_tokens_for_model(model)
+        self._write_queue: list[_QueuedWrite] = []
+        self._write_queue_task: asyncio.Task | None = None
+        # asyncio.Event does not bind to a loop at construction time (3.10+),
+        # so this is safe to create here even though __init__ itself may run
+        # with no loop running.
+        self._write_queue_ready = asyncio.Event()
 
     async def async_connect(self) -> None:
         """Connect to the receiver asynchronously."""
@@ -312,6 +394,12 @@ class LyngdorfApi:
         self._last_message_time = time.monotonic()
         self._schedule_monitor()
         await self._writeSetup()
+        # Started only after the setup burst, not before: `_writeSetup`
+        # already paces itself with `setup_command_delay` and writes
+        # straight to the transport (see `_writeCommand`'s immediate-flush
+        # fallback, which applies here since no drain task exists yet).
+        # Starting the queue earlier would pace the same burst twice over.
+        self._start_write_queue()
         if self._model.has_streaming_feature():
             self._start_now_playing_poll()
         _LOGGER.debug("%s: connection complete", self.host)
@@ -358,6 +446,7 @@ class LyngdorfApi:
         _LOGGER.debug("%s: disconnected", self.host)
         self._protocol = None
         self._stop_monitor()
+        self._stop_write_queue()
         if not self._connection_enabled:
             return
         # Only ever run one reconnect loop. This handler can fire more than
@@ -464,6 +553,7 @@ class LyngdorfApi:
             self._connection_enabled = False
             self._stop_monitor()
             self._stop_now_playing_poll()
+            self._stop_write_queue()
             if self._reconnect_task is not None:
                 self._reconnect_task.cancel()
                 self._reconnect_task = None
@@ -504,11 +594,136 @@ class LyngdorfApi:
                 await asyncio.sleep(self.setup_command_delay)
             self._writeCommand(cmd)
 
-    def _writeCommand(self, command):
-        """Send a command to the receiver."""
+    def _writeCommand(self, command: str) -> None:
+        """Enqueue a command for paced, coalescing delivery to the receiver.
+
+        Writing straight to the transport with no pacing overflows a real
+        device - see `COMMAND_PACING_MS` in const.py for the measured
+        queue-depth cliff (https://github.com/fishloa/lyngdorf/issues/35).
+        A Home Assistant volume-slider drag alone emits 10-30 commands in
+        a second, comfortably past that cliff. Every runtime write -
+        including this one - is therefore routed through a queue drained
+        no faster than `COMMAND_PACING_MS` apart by `_drain_write_queue`,
+        which keeps in-flight commands far under it.
+
+        Repeated writes sharing an absolute-setter token (see
+        `_coalesce_key`) collapse to the latest value rather than sending
+        every intermediate one - turning a 30-command slider drag into
+        one or two wire commands. Anything else (a relative/stepping
+        command, sequential digits, navigation, a query) is never
+        coalesced; see `_coalesce_key`'s docstring for why each case is
+        safe or unsafe.
+
+        Enqueueing itself is synchronous, since this is called from
+        synchronous property setters (`receiver.volume = -30`). If
+        nothing is currently draining the queue - no drain task has been
+        started yet (still inside `_writeSetup`, before
+        `_start_write_queue` runs), a test attached `_protocol` directly
+        without going through `_async_establish_connection`, or there is
+        no running event loop at all - flush the whole queue synchronously
+        instead, the same fallback `_ensure_now_playing_task` takes when
+        there is no loop to schedule onto.
+        """
+        key = _coalesce_key(command, self._absolute_setter_tokens)
+        if key is not None:
+            self._write_queue = [
+                queued for queued in self._write_queue if queued.coalesce_key != key
+            ]
+        self._write_queue.append(_QueuedWrite(command=command, coalesce_key=key))
+
+        if self._write_queue_task is not None and not self._write_queue_task.done():
+            self._write_queue_ready.set()
+            return
+
+        while self._write_queue:
+            queued = self._write_queue.pop(0)
+            self._write_now(queued.command)
+
+    def _write_now(self, command: str) -> None:
+        """Write one command to the transport immediately, bypassing pacing.
+
+        The drain task's per-item action, and `_writeCommand`'s fallback
+        when nothing is draining the queue.
+        """
         if self._protocol is not None:
             self._protocol.write(f"!{command}\r")
             _LOGGER.debug("%s send: '!%s'", self.host, command)
+
+    def _start_write_queue(self) -> None:
+        """Start the outbound-command drain task; safe to call repeatedly."""
+        self._ensure_write_queue_task()
+
+    def _ensure_write_queue_task(self) -> None:
+        """Start the drain task unless one already exists.
+
+        Mirrors `_ensure_now_playing_task`'s single-task guarantee, with
+        one deliberate difference in how the reference is cleared. That
+        poll's HTTP request keeps running in an executor thread for a
+        while after `cancel()` returns, so its task reference is cleared
+        only once the task genuinely finishes - restarting immediately
+        would risk two polls owning a socket each on hardware with few
+        slots. This task holds no such outlasting resource: once
+        cancelled it drops out at its very next `await` with nothing left
+        running, so `_stop_write_queue` clears the reference itself, and a
+        reconnect is always free to start a fresh task right away.
+        """
+        if self._write_queue_task is not None:
+            return
+        try:
+            task = asyncio.create_task(self._drain_write_queue())
+        except RuntimeError:
+            _LOGGER.debug(
+                "%s: no running loop, not starting write-queue drain task",
+                self.host,
+            )
+            return
+        self._write_queue_task = task
+        task.add_done_callback(self._on_write_queue_task_done)
+
+    def _on_write_queue_task_done(self, task: asyncio.Task) -> None:
+        """Release the slot once the drain task genuinely finishes."""
+        if self._write_queue_task is task:
+            self._write_queue_task = None
+        if task.cancelled():
+            return
+        if (exc := task.exception()) is not None:
+            _LOGGER.error("%s: write-queue drain task failed", self.host, exc_info=exc)
+
+    def _stop_write_queue(self) -> None:
+        """Stop the drain task and drop anything still queued.
+
+        Dropping rather than flushing: a queued write was paced for the
+        connection that is going away, and by the time a later connection
+        exists, whatever it represented (a volume set mid-drag, say) may
+        no longer be what the caller or the device's own state wants -
+        there is no reconnect-time signal that says otherwise. Nothing
+        here depends on the write being retried to stay correct: the
+        caller was a synchronous setter that already returned, same as
+        any other write to a socket that drops mid-flight.
+        """
+        if self._write_queue_task is not None:
+            self._write_queue_task.cancel()
+            self._write_queue_task = None
+        self._write_queue.clear()
+
+    async def _drain_write_queue(self) -> None:
+        """Background task: write queued commands to the transport, paced.
+
+        Runs for the lifetime of one connection - see `_start_write_queue`/
+        `_stop_write_queue`. Sleeps `COMMAND_PACING_MS` after *every*
+        write, not only when another item is already queued: two
+        commands enqueued individually, each arriving to find the queue
+        momentarily empty, must still land `COMMAND_PACING_MS` apart, not
+        back-to-back.
+        """
+        while True:
+            if not self._write_queue:
+                self._write_queue_ready.clear()
+                await self._write_queue_ready.wait()
+                continue
+            queued = self._write_queue.pop(0)
+            self._write_now(queued.command)
+            await asyncio.sleep(self.command_pacing_seconds)
 
     def power_on(self, enabled: bool):
         if enabled:

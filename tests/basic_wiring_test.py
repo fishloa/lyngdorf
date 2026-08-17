@@ -7,6 +7,7 @@ from pathlib import Path
 from unittest import mock
 
 import pytest
+from conftest import flush_write_queue
 
 import lyngdorf
 from lyngdorf.api import LyngdorfApi, LyngdorfProtocol
@@ -1520,6 +1521,7 @@ class TestPowerControl:
 
                 before_length = len(write_mock.call_args_list)
                 client_functions(client)
+                await flush_write_queue(client._api)
                 after_list = [
                     call.args[0].replace("\r", "")
                     for call in write_mock.call_args_list[before_length:]
@@ -1672,6 +1674,7 @@ class TestVolumeAndMute:
 
                 before_length = len(write_mock.call_args_list)
                 client_functions(client)
+                await flush_write_queue(client._api)
                 after_list = [
                     call.args[0].replace("\r", "")
                     for call in write_mock.call_args_list[before_length:]
@@ -1781,6 +1784,7 @@ class TestTrimControls:
 
                 before_length = len(write_mock.call_args_list)
                 client_functions(client)
+                await flush_write_queue(client._api)
                 after_list = [
                     call.args[0].replace("\r", "")
                     for call in write_mock.call_args_list[before_length:]
@@ -1913,6 +1917,7 @@ class TestSourcesAndSoundModes:
 
                 before_length = len(write_mock.call_args_list)
                 client_functions(client)
+                await flush_write_queue(client._api)
                 after_list = [
                     call.args[0].replace("\r", "")
                     for call in write_mock.call_args_list[before_length:]
@@ -1967,6 +1972,7 @@ class TestZoneBFunctionality:
 
                 before_length = len(write_mock.call_args_list)
                 client_functions(client)
+                await flush_write_queue(client._api)
                 after_list = [
                     call.args[0].replace("\r", "")
                     for call in write_mock.call_args_list[before_length:]

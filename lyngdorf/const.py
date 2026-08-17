@@ -33,6 +33,17 @@ MONITOR_INTERVAL = 90  # 90 seconds between PING commands
 # mute, and trim never populate). 50ms pacing was confirmed sufficient.
 SETUP_COMMAND_DELAY = 0.05
 
+# Minimum spacing enforced between writes drained from LyngdorfApi's
+# outbound command queue (see LyngdorfApi._writeCommand/_drain_write_queue).
+# A real MP-60 has a fixed queue-depth cliff of ~16 in-flight commands -
+# past it, everything is silently dropped with no error, though the device
+# self-heals once traffic backs off - see
+# https://github.com/fishloa/lyngdorf/issues/35 for the measurement. 50ms
+# matches SETUP_COMMAND_DELAY above, already confirmed sufficient for the
+# analogous connect-time burst, and keeps any runtime burst's in-flight
+# count far under that cliff.
+COMMAND_PACING_MS = 50
+
 # Now-playing metadata (streaming-capable models only - see
 # ModelConfig.has_streaming). A separate HTTP JSON API run by the embedded
 # streaming module (StreamUnlimited StreamSDK), not part of the :84 RIO
@@ -193,6 +204,33 @@ Msg = Enum(
     ],
 )
 
+# Message types whose wire command is an *absolute* setter - `TOKEN(value)`,
+# where the latest value fully supersedes any earlier one still waiting to
+# be sent. LyngdorfApi's outbound command queue (see
+# LyngdorfApi._writeCommand) coalesces repeated writes down to the latest
+# only for the wire tokens these resolve to per model, since collapsing
+# anything else would be wrong: a relative/stepping command (VOLUP/VOLDN,
+# SRC+/SRC-, RPVOI+/-, ...) means "one more step" each time, and sequential
+# input (the NUM(0..9) digits, cursor/menu navigation) means something
+# different depending on order and count. Queries (`TOKEN?`) are excluded
+# by shape alone - they never match `TOKEN(value)` - so a caller
+# deliberately re-querying (e.g. mute on power-on) is never coalesced away.
+ABSOLUTE_SETTER_MESSAGES: frozenset[Msg] = frozenset(
+    {
+        Msg.VOLUME,
+        Msg.ZONE_B_VOLUME,
+        Msg.TRIM_BASS,
+        Msg.TRIM_CENTRE,
+        Msg.TRIM_HEIGHT,
+        Msg.TRIM_LFE,
+        Msg.TRIM_SURROUND,
+        Msg.TRIM_TREBLE,
+        Msg.TRIM_TREBLE_SET,
+        Msg.LIP_SYNC,
+        Msg.BALANCE,
+    }
+)
+
 # Import model configurations from models module
 from .models import (  # noqa: E402, F401
     MP40_CONFIG,
@@ -277,6 +315,7 @@ __all__ = [
     "RECONNECT_MAX_WAIT",
     "MONITOR_INTERVAL",
     "SETUP_COMMAND_DELAY",
+    "COMMAND_PACING_MS",
     "STREAMMAGIC_PORT",
     "NOW_PLAYING_PATH",
     "NOW_PLAYING_POSITION_PATH",
@@ -290,6 +329,7 @@ __all__ = [
     "STATE_ON",
     "STATE_OFF",
     "Msg",
+    "ABSOLUTE_SETTER_MESSAGES",
     # Model configurations
     "LyngdorfModel",
     "supported_models",
