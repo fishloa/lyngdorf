@@ -184,6 +184,26 @@ button on a stopped device would invite exactly the "why will it not resume"
 confusion the teardown behaviour causes. Showing nothing is honest about what
 the device can actually do.
 
+**Capability changes need no new callback.** `controls` is a field on the
+frozen `NowPlaying`, so any change to it makes the object unequal to the
+cached one and fires the existing now-playing callback — which the receiver
+already forwards to `_notify_notification_callbacks()`. The integration's
+existing listener calls `async_write_ha_state()`, and Home Assistant re-reads
+`supported_features` as part of that write. Switching source from AirPlay to
+Spotify Connect therefore updates the buttons with no extra plumbing on
+either side.
+
+The stopped case falls out of the same mechanism: `parse_now_playing` returns
+`None` when the payload has no `trackRoles`, so every `can_*` property
+reports `False` and the controls disappear.
+
+The `lyngdorf` integration currently exposes none of these features, so this
+is additive on the Home Assistant side: a dynamic `supported_features`, the
+transport service methods, and a requirement bump. That is a separate pull
+request against `home-assistant/core`, made after this library ships and is
+hardware-verified — not a core feature request, since every capability maps
+to an existing `MediaPlayerEntityFeature`.
+
 The library's job stops at reporting capabilities truthfully; the mapping
 lives in the integration.
 
