@@ -67,7 +67,7 @@ async def main():
     await receiver.async_connect()
 
     # Control the receiver
-    receiver.power_on(True)
+    receiver.power_on = True
     print(f"Volume: {receiver.volume} dB")
     receiver.volume = -22.5
     receiver.mute_enabled = False
@@ -88,9 +88,9 @@ asyncio.run(main())
 
 ### Power Control
 ```python
-receiver.power_on(True)   # Turn on
-receiver.power_on(False)  # Turn off
-print(receiver.power_on)  # Check power state
+receiver.power_on = True   # Turn on
+receiver.power_on = False  # Turn off
+print(receiver.power_on)   # Check power state
 ```
 
 ### Volume Control
@@ -104,19 +104,16 @@ receiver.mute_enabled = True  # Mute
 ### Source Selection
 ```python
 # List available sources
-print(receiver.sources)
+print(receiver.available_sources)
 
 # Select source by name
 receiver.source = "HDMI 1"
-
-# Or by index
-receiver.change_source(1)
 ```
 
 ### RoomPerfect™ & Voicing
 ```python
 # List available positions
-print(receiver.room_perfect_positions)
+print(receiver.available_room_perfect_positions)
 
 # Select position
 receiver.room_perfect_position = "Focus 1"
@@ -124,7 +121,7 @@ receiver.room_perfect_position = "Global"
 receiver.room_perfect_position = "Bypass"
 
 # List available voicings
-print(receiver.voicings)
+print(receiver.available_voicings)
 
 # Select voicing
 receiver.voicing = "Neutral"
@@ -133,12 +130,12 @@ receiver.voicing = "Neutral"
 ### Trim Controls (MP Series)
 ```python
 # Adjust trim levels (in dB)
-receiver.trim_bass(1.5)      # +1.5 dB
-receiver.trim_treble(-0.5)   # -0.5 dB
-receiver.trim_centre(0.0)    # Reset to 0 dB
-receiver.trim_height(2.0)
-receiver.trim_lfe(-1.0)
-receiver.trim_surround(0.5)
+receiver.trim_bass = 1.5      # +1.5 dB
+receiver.trim_treble = -0.5   # -0.5 dB
+receiver.trim_centre = 0.0    # Reset to 0 dB
+receiver.trim_height = 2.0
+receiver.trim_lfe = -1.0
+receiver.trim_surround = 0.5
 
 # Or use increment/decrement
 receiver.trim_bass_up()
@@ -148,7 +145,7 @@ receiver.trim_bass_down()
 ### Zone B Control (MP Series)
 ```python
 # Zone B power
-receiver.zone_b_power_on(True)
+receiver.zone_b_power_on = True
 
 # Zone B volume
 receiver.zone_b_volume = -30.0
@@ -156,23 +153,154 @@ receiver.zone_b_volume_up()
 receiver.zone_b_volume_down()
 
 # Zone B source
-receiver.change_zone_b_source(2)
+receiver.zone_b_source = "Apple TV"
 ```
 
 ### Callbacks & Events
 ```python
-# Register for volume changes
-def on_volume_change(param1, param2):
-    print(f"Volume changed: {param1}")
-
-receiver._api.register_callback("VOL", on_volume_change)
-
-# Register for any change notification
+# Register for any state change (volume, source, power, now-playing, etc.)
 def on_any_change():
     print("Receiver state changed")
 
-receiver._api.register_notification_callback(on_any_change)
+unsubscribe = receiver.register_notification_callback(on_any_change)
+
+# Detach later - e.g. when a Home Assistant entity is removed, or a config
+# entry is reloaded. Safe to call more than once.
+unsubscribe()
 ```
+
+Every `register_*` method on `Receiver` (`register_notification_callback`,
+`register_position_callback`, `register_position_jump_callback`) returns a plain
+`Callable[[], None]` that removes that registration. The returned unsubscribe is
+idempotent - calling it twice, or after the callback was already removed some
+other way, is a no-op rather than an error, which matters for teardown paths that
+run more than once. Registering the exact same callback a second time collapses
+to the existing entry rather than firing it twice.
+
+This matters most for Home Assistant: an integration that registers a callback on
+entity setup but never unsubscribes on entity removal will accumulate duplicate
+callbacks across every config-entry reload.
+
+Reacting to one specific wire command (e.g. only `VOL` messages) has no public
+API - that lives on the private `receiver._api.register_callback(...)` and isn't
+part of the supported surface. `register_notification_callback` above is the
+supported way to learn "something changed" and then read whichever properties
+you care about.
+
+### Now-Playing Metadata (Streaming Models Only)
+
+Models with the embedded streaming module expose now-playing metadata for
+streaming sources such as AirPlay, Spotify Connect, Qobuz and TIDAL. Check
+`receiver.model.has_streaming_feature()` (or the narrower `receiver.has_position`
+for position specifically) before relying on this - the TDAI-2170 and the P
+series have no streaming module, so `now_playing`, position and transport
+control are all unavailable on those models.
+
+```python
+now_playing = receiver.now_playing  # NowPlaying, or None if idle/unsupported
+if now_playing is not None:
+    print(f"{now_playing.artist} - {now_playing.title} ({now_playing.source})")
+    print(now_playing.state)  # PlaybackState.PLAYING, .PAUSED, .STOPPED, ...
+```
+
+`NowPlaying` also carries `album`, `art_url`, `duration_ms`, the `controls` the
+current source offers right now (see Transport Control below), and `play_modes`.
+
+### Playback Position
+
+```python
+print(receiver.position_ms, receiver.position_updated_at, receiver.position_percent)
+```
+
+Position is reported through two different callbacks, for two different kinds of
+consumer:
+
+```python
+# Fires on every raw update - about once a second while playing. For a
+# live-counting UI that wants a smooth per-second value.
+def on_position(position_ms):
+    print(f"Position: {position_ms} ms")
+
+receiver.register_position_callback(on_position)
+
+# Fires only on discontinuities: a seek, a track change, a play/pause, or the
+# reported position drifting from where it should be. Does NOT fire for
+# ordinary once-a-second progress.
+def on_position_jump(position_ms):
+    print(f"Position jumped to {position_ms} ms")
+
+unsubscribe = receiver.register_position_jump_callback(on_position_jump)
+```
+
+Use `register_position_jump_callback` for anything where each call has a cost -
+a Home Assistant entity state write, say. The raw `register_position_callback`
+firing once a second would mean roughly 86,400 state writes per player per day;
+the jump callback only fires when something actually changed.
+
+### Transport Control
+
+```python
+if receiver.can_pause:
+    await receiver.async_pause()
+
+if receiver.can_next:
+    await receiver.async_next()
+
+if receiver.can_seek:
+    await receiver.async_seek(30_000)  # milliseconds
+```
+
+**Capabilities are per-source and change at runtime.** The device advertises what
+the *current* source supports, not a fixed list for the model: AirPlay offers only
+`can_pause` / `can_next` / `can_previous`; Spotify Connect adds `can_seek` and five
+play modes; a stopped device advertises nothing, so every `can_*` property reads
+`False`. Always check the relevant `can_*` property (or `available_play_modes` /
+`available_repeat_modes`) before calling - calling something the current source
+doesn't offer raises `LyngdorfUnsupportedError` (from `lyngdorf.exceptions`)
+rather than returning `False`, because the device accepts unsupported commands
+silently (an unrecognised play mode still returns HTTP 200 and is stored), so a
+return value could never tell a caller whether anything actually happened.
+
+> **Warning:** `async_pause()` is source-dependent, and on some sources it is
+> destructive. On a source the device streams itself (Spotify Connect) it
+> toggles: pause, then resume. On AirPlay and other controller-driven sources it
+> instead **ends the session** - the device cannot restart it, and there is no
+> separate resume command; only the controlling phone or app can start it again.
+> Check `receiver.can_pause` and know your source before calling it.
+
+Shuffle and repeat can be set independently - each call carries the other setting
+over unchanged rather than leaving it to the device to infer:
+
+```python
+from lyngdorf import PlayMode, Repeat
+
+await receiver.async_set_shuffle(True)
+await receiver.async_set_repeat(Repeat.ALL)
+
+# Or set both at once:
+await receiver.async_set_play_mode(PlayMode(shuffle=True, repeat=Repeat.ALL))
+```
+
+`available_play_modes`, `available_repeat_modes` and `can_shuffle` report what the
+current source actually allows.
+
+### Typed States
+
+`PlayMode`, `Repeat`, `Control` and `PlaybackState` are importable directly from
+`lyngdorf`:
+
+```python
+from lyngdorf import Control, PlaybackState, PlayMode, Repeat
+```
+
+- `Repeat` - `OFF` / `ONE` / `ALL`.
+- `PlayMode` - a frozen dataclass pairing `shuffle: bool` with `repeat: Repeat`,
+  not an enum: the device's six wire values (`normal`, `shuffle`, `repeatOne`, ...)
+  are really a 2x3 grid of these two independent axes.
+- `Control` - a transport action name (`PAUSE`, `NEXT_TRACK`, `PREVIOUS_TRACK`,
+  `SEEK`, ...), as found in `NowPlaying.controls`.
+- `PlaybackState` - `PLAYING` / `PAUSED` / `STOPPED` / `TRANSITIONING`, as found
+  in `NowPlaying.state`.
 
 ## Model-Specific Features
 

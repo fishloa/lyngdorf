@@ -1,3 +1,4 @@
+import ast
 import asyncio
 import logging
 import re
@@ -7,6 +8,7 @@ from unittest import mock
 
 import pytest
 
+import lyngdorf
 from lyngdorf.api import LyngdorfApi, LyngdorfProtocol
 from lyngdorf.const import (
     MONITOR_INTERVAL,
@@ -324,6 +326,62 @@ class TestLyngdorfModel:
             f"missing from README={enum_models - readme_models}, "
             f"in README but not in enum={readme_models - enum_models}"
         )
+
+
+class TestReadmeCodeExamples:
+    """Guards README.md's ```python code blocks against drifting out of
+    sync with the real API.
+
+    Deliberately a floor, not a doctest runner: every block must at least
+    parse, and any `receiver.<attr>` access or `from lyngdorf import ...`
+    name it uses must resolve against the real `Receiver` class / the
+    `lyngdorf` package's public surface. An ordinary prose edit to the
+    README can't trip this - only a code block naming something that
+    doesn't exist can.
+    """
+
+    @staticmethod
+    def _code_blocks() -> list[str]:
+        readme_path = Path(__file__).resolve().parent.parent / "README.md"
+        text = readme_path.read_text(encoding="utf-8")
+        return re.findall(r"```python\n(.*?)```", text, re.DOTALL)
+
+    def test_readme_has_python_code_blocks(self):
+        """Sanity check that the extraction regex still finds blocks at
+        all - protects against the other two tests going quietly vacuous
+        if the README's fence style ever changes."""
+        assert len(self._code_blocks()) >= 10
+
+    def test_readme_code_blocks_parse(self):
+        for block in self._code_blocks():
+            try:
+                ast.parse(block)
+            except SyntaxError as exc:
+                pytest.fail(
+                    f"README Python code block failed to parse: {exc}\n---\n{block}"
+                )
+
+    def test_readme_code_blocks_reference_real_api(self):
+        known_top_level_names = set(lyngdorf.__all__)
+        receiver_attrs = {name for name in dir(Receiver) if not name.startswith("_")}
+
+        missing: list[str] = []
+        for block in self._code_blocks():
+            tree = ast.parse(block)
+            for node in ast.walk(tree):
+                if (
+                    isinstance(node, ast.Attribute)
+                    and isinstance(node.value, ast.Name)
+                    and node.value.id == "receiver"
+                    and node.attr not in receiver_attrs
+                ):
+                    missing.append(f"receiver.{node.attr}")
+                if isinstance(node, ast.ImportFrom) and node.module == "lyngdorf":
+                    for alias in node.names:
+                        if alias.name not in known_top_level_names:
+                            missing.append(f"from lyngdorf import {alias.name}")
+
+        assert not missing, f"README references API that doesn't exist: {missing}"
 
 
 # =============================================================================
