@@ -22,13 +22,16 @@ class NumericRange:
     fields to build a `NumberEntity`) gets named, self-documenting fields
     instead of having to remember index 0/1/2.
 
-    `step` is a display/UI granularity, not something this library
-    enforces on writes - `Receiver.trim_bass`'s setter (see device.py)
-    validates against `min`/`max` only, the same way Home Assistant itself
-    only clamps to the native min/max and never rounds to a step before
-    calling into an integration. It exists here purely so a consumer can
-    build a correctly-grained slider without having to know, for example,
-    that the MP series' trims are addressable to 0.1 dB (`api.py` encodes
+    Both `min`/`max` and `step` are advisory: this library does not
+    enforce any of the three on a write. `Receiver.trim_bass`'s setter
+    (see device.py) and every other numeric setter send whatever value
+    they are given straight to the device, unchecked against this range -
+    see `Receiver.volume_range`'s docstring for why (in short: the device
+    itself already bounds these values sensibly, so a library check in
+    front of it adds nothing but a second place for a legitimate write to
+    fail). This exists purely so a consumer can build a correctly-bounded,
+    correctly-grained slider without having to know, for example, that the
+    MP series' trims are addressable to 0.1 dB (`api.py` encodes
     `int(trim * 10)` on the wire) while the TDAI series' are whole-dB only.
 
     Frozen (and so hashable/comparable by value) rather than a plain
@@ -158,11 +161,22 @@ class ModelConfig:
             front panel answers `!BASS(3)`, which the old blanket ``*10``
             surfaced as 0.3 dB and would have written back as `!BASS(30)`.
 
-            Out-of-range values are worth avoiding rather than relying on
-            the device to bound: an MP-60 clamps cleanly (150 stores 120),
-            but a TDAI-3400 given 30 read back as 4 - not clamped, just
-            arbitrary. That is why the setters validate before sending
-            rather than trusting the device to cope.
+            That mismatch is why a TDAI-3400, under the old blanket ``*10``
+            assumption, could be sent a wire value that read back as 4
+            rather than the intended dB figure - not because the device
+            failed to bound the value, but because the library itself
+            multiplied by the wrong scale before the write ever reached
+            the wire, producing a wire value that did not correspond to
+            the caller's requested dB at all. It was fixed by giving each
+            family its own `trim_bass_treble_scale` so a value in the
+            documented range always encodes correctly, not by rejecting
+            out-of-range values at the setter - the setters do not
+            validate against `trim_bass_range`/`trim_treble_range` (or any
+            other numeric range) at all; see `Receiver.volume_range`'s
+            docstring for why. An MP-60, by contrast, bounds a genuinely
+            out-of-range value cleanly and predictably by itself (150
+            stores as 120), which is precisely the kind of case where a
+            library check in front of the device adds nothing.
         trim_centre_range, trim_height_range, trim_lfe_range,
             trim_surround_range: The device-documented dB range for the
             discrete multichannel speaker trims - MP series only (see

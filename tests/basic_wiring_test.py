@@ -2122,31 +2122,34 @@ class TestTrimControls:
         )
         assert TDAI1120Receiver(FAKE_IP).lipsync_range is None
 
-    def test_trim_setters_reject_out_of_range_values(self):
-        """#37: trim_* setters must raise LyngdorfInvalidValueError - not
-        send a wire command and not clamp - when given a value outside
-        the model's documented range. The message names both the
-        offending value and the permitted range."""
+    def test_trim_setters_send_out_of_range_values_unchanged(self):
+        """Versions 1.6.0/1.7.0 (#37) made the trim_* setters raise
+        LyngdorfInvalidValueError for a value outside the model's
+        documented range. That validation was removed in 1.8.0: the
+        device itself bounds these values sensibly (see
+        Receiver.volume_range's docstring), so a value outside the
+        documented range is now sent to the wire exactly as given,
+        neither rejected nor clamped by this library."""
         from lyngdorf.device import MP60Receiver
 
         receiver = MP60Receiver(FAKE_IP)
         receiver._api._protocol = mock.Mock()
 
-        with pytest.raises(
-            LyngdorfInvalidValueError, match=r"trim_bass.*999\.0.*-12\.0\.\.12\.0"
-        ):
-            receiver.trim_bass = 999.0
-        with pytest.raises(LyngdorfInvalidValueError):
-            receiver.trim_treble = -999.0
-        with pytest.raises(LyngdorfInvalidValueError):
-            receiver.trim_centre = 999.0
-        with pytest.raises(LyngdorfInvalidValueError):
-            receiver.trim_height = 999.0
-        with pytest.raises(LyngdorfInvalidValueError):
-            receiver.trim_lfe = 999.0
-        with pytest.raises(LyngdorfInvalidValueError):
-            receiver.trim_surround = 999.0
-        receiver._api._protocol.write.assert_not_called()
+        receiver.trim_bass = 999.0
+        receiver.trim_treble = -999.0
+        receiver.trim_centre = 999.0
+        receiver.trim_height = 999.0
+        receiver.trim_lfe = 999.0
+        receiver.trim_surround = 999.0
+        sent = [call.args[0] for call in receiver._api._protocol.write.call_args_list]
+        assert sent == [
+            "!TRIMBASS(9990)\r",
+            "!TRIMTREB(-9990)\r",
+            "!TRIMCENTER(9990)\r",
+            "!TRIMHEIGHT(9990)\r",
+            "!TRIMLFE(9990)\r",
+            "!TRIMSURRS(9990)\r",
+        ]
 
     def test_trim_setters_accept_boundary_values(self):
         """The min/max bounds themselves are valid, not off-by-one
@@ -2210,25 +2213,22 @@ class TestTrimControls:
             receiver.trim_centre = 0.0
         receiver._api._protocol.write.assert_not_called()
 
-    def test_lipsync_setter_rejects_out_of_range_value(self):
-        """#37: lipsync's setter validates the same way the trim setters
-        do - a real MP-60 reports !LIPSYNCRANGE(0,500), so a negative
-        value (the issue's own example) must raise rather than send
-        !LIPSYNC(-50)."""
+    def test_lipsync_setter_sends_out_of_range_value_unchanged(self):
+        """Version 1.6.0 (#37) made lipsync's setter raise
+        LyngdorfInvalidValueError for a value outside lipsync_range (a
+        real MP-60 reports !LIPSYNCRANGE(0,500)). That validation was
+        removed in 1.8.0 - see Receiver.volume_range's docstring - so a
+        negative or over-range value is sent to the wire exactly as
+        given."""
         from lyngdorf.device import MP60Receiver
 
         receiver = MP60Receiver(FAKE_IP)
         receiver._api._protocol = mock.Mock()
 
-        with pytest.raises(
-            LyngdorfInvalidValueError, match=r"lipsync.*-50.*0\.0\.\.500\.0"
-        ):
-            receiver.lipsync = -50
-        with pytest.raises(LyngdorfInvalidValueError):
-            receiver.lipsync = 501
-        receiver.lipsync = 0
-        receiver.lipsync = 500
-        receiver._api._protocol.write.assert_called()
+        receiver.lipsync = -50
+        receiver.lipsync = 501
+        sent = [call.args[0] for call in receiver._api._protocol.write.call_args_list]
+        assert sent == ["!LIPSYNC(-50)\r", "!LIPSYNC(501)\r"]
 
     def test_lipsync_setter_rejects_any_value_on_tdai(self):
         """The TDAI family has no lip sync control at all
@@ -3826,22 +3826,23 @@ class TestVolumeRangeAndValidation:
         assert tdai.max_volume is None  # TDAI never reports MAXVOL at all
         assert tdai.zone_b_volume_range is None  # no Zone B on any TDAI
 
-    def test_volume_setter_rejects_out_of_range_value(self):
-        """#42: volume's setter must validate the same way the trim/
-        lipsync setters do (#37) - raise, not clamp and not silently
-        send the value."""
+    def test_volume_setter_sends_out_of_range_value_unchanged(self):
+        """Version 1.7.0 (#42) made volume's setter raise
+        LyngdorfInvalidValueError for a value outside volume_range, the
+        same way the trim/lipsync setters did (#37). That validation was
+        removed in 1.8.0: a real MP-60 clamps !VOL(240) and anything past
+        it cleanly and predictably (see Receiver.volume_range's
+        docstring), so this library now sends whatever value it is given
+        rather than rejecting it first."""
         from lyngdorf.device import MP60Receiver
 
         receiver = MP60Receiver(FAKE_IP)
         receiver._api._protocol = mock.Mock()
 
-        with pytest.raises(
-            LyngdorfInvalidValueError, match=r"volume.*999\.0.*-99\.9\.\.24\.0"
-        ):
-            receiver.volume = 999.0
-        with pytest.raises(LyngdorfInvalidValueError):
-            receiver.volume = -999.0
-        receiver._api._protocol.write.assert_not_called()
+        receiver.volume = 999.0
+        receiver.volume = -999.0
+        sent = [call.args[0] for call in receiver._api._protocol.write.call_args_list]
+        assert sent == ["!VOL(9990)\r", "!VOL(-9990)\r"]
 
     def test_volume_setter_accepts_boundary_values(self):
         from lyngdorf.device import MP60Receiver
@@ -3853,38 +3854,39 @@ class TestVolumeRangeAndValidation:
         receiver.volume = -99.9
         receiver._api._protocol.write.assert_called()
 
-    def test_volume_setter_uses_the_tdai_family_lower_ceiling(self):
-        """+20.0 dB is within the MP/P family's +24.0 dB ceiling but
-        outside the entire TDAI family's lower +12.0 dB one - the same
-        value must be accepted on one and rejected on the other."""
+    def test_volume_setter_sends_value_above_tdai_ceiling_unchanged(self):
+        """+20.0 dB is within the MP/P family's +24.0 dB documented
+        ceiling but outside the entire TDAI family's lower +12.0 dB one.
+        Both bounds are advisory only (see Receiver.volume_range's
+        docstring), so the identical value is sent to both models rather
+        than being rejected on the one whose documented ceiling it
+        exceeds."""
         from lyngdorf.device import MP60Receiver, TDAI1120Receiver
 
         mp = MP60Receiver(FAKE_IP)
         mp._api._protocol = mock.Mock()
         mp.volume = 20.0
-        mp._api._protocol.write.assert_called()
+        mp._api._protocol.write.assert_called_with("!VOL(200)\r")
 
         tdai = TDAI1120Receiver(FAKE_IP)
         tdai._api._protocol = mock.Mock()
-        with pytest.raises(LyngdorfInvalidValueError):
-            tdai.volume = 20.0
-        tdai.volume = 12.0
-        tdai._api._protocol.write.assert_called()
+        tdai.volume = 20.0
+        tdai._api._protocol.write.assert_called_with("!VOL(200)\r")
 
-    def test_zone_b_volume_setter_rejects_out_of_range_value(self):
+    def test_zone_b_volume_setter_sends_out_of_range_value_unchanged(self):
+        """Version 1.7.0 (#42) made zone_b_volume's setter raise
+        LyngdorfInvalidValueError the same way volume's does. That
+        validation was removed in 1.8.0 - see Receiver.volume_range's
+        docstring - so an out-of-range value is sent to the wire exactly
+        as given."""
         from lyngdorf.device import MP60Receiver
 
         receiver = MP60Receiver(FAKE_IP)
         receiver._api._protocol = mock.Mock()
 
-        with pytest.raises(
-            LyngdorfInvalidValueError,
-            match=r"zone_b_volume.*999\.0.*-99\.9\.\.24\.0",
-        ):
-            receiver.zone_b_volume = 999.0
-        receiver.zone_b_volume = 24.0
-        receiver.zone_b_volume = -99.9
-        receiver._api._protocol.write.assert_called()
+        receiver.zone_b_volume = 999.0
+        sent = [call.args[0] for call in receiver._api._protocol.write.call_args_list]
+        assert sent == ["!ZVOL(9990)\r"]
 
     def test_zone_b_volume_setter_rejects_on_model_without_zone_b(self):
         """No TDAI model has Zone B at all (zone_b_volume_range is None
@@ -3931,15 +3933,19 @@ class TestMethodSetters:
 
     Each `set_*` method is a thin wrapper delegating to the matching
     property setter (`self.volume = value`, not the reverse) rather than
-    duplicating its validation - the property setters predate this issue
+    duplicating its behaviour - the property setters predate this issue
     and are already directly tested and documented, so wrapping them is
     the smaller, lower-risk direction and guarantees the two can never
-    validate differently by construction, not just by coincidence. These
+    behave differently by construction, not just by coincidence. These
     tests exercise that guarantee directly: each one asserts a `set_*`
-    call both raises exactly where the property setter would AND, on a
-    valid value, sends the identical wire command - rather than
-    independently re-deriving "is this validated correctly", which the
-    property setters' own tests (#37, #42) already cover.
+    call both raises exactly where the property setter would (a
+    capability check, or an unknown name for the enum-style
+    `room_perfect_position`/`voicing`) AND sends the identical wire
+    command for both a documented-range value and an out-of-range one
+    (1.8.0 removed numeric range validation - see
+    `Receiver.volume_range`'s docstring) - rather than independently
+    re-deriving "does this behave correctly", which the property setters'
+    own tests already cover.
 
     Deliberately NOT added: mute_enabled/zone_b_mute_enabled, power_on/
     zone_b_power_on, source/zone_b_source, sound_mode. Every one of
@@ -3966,10 +3972,12 @@ class TestMethodSetters:
         sent = [call.args[0] for call in receiver._api._protocol.write.call_args_list]
         assert sent == ["!VOL(-100)\r", "!ZVOL(-300)\r"]
 
-        with pytest.raises(LyngdorfInvalidValueError):
-            receiver.set_volume(999.0)
-        with pytest.raises(LyngdorfInvalidValueError):
-            receiver.set_zone_b_volume(999.0)
+        # Out-of-range values are sent unchanged, not rejected - see
+        # Receiver.volume_range's docstring.
+        receiver.set_volume(999.0)
+        receiver.set_zone_b_volume(999.0)
+        sent = [call.args[0] for call in receiver._api._protocol.write.call_args_list]
+        assert sent[-2:] == ["!VOL(9990)\r", "!ZVOL(9990)\r"]
 
         tdai = TDAI1120Receiver(FAKE_IP)
         tdai._api._protocol = mock.Mock()
@@ -3986,8 +3994,11 @@ class TestMethodSetters:
         sent = [call.args[0] for call in receiver._api._protocol.write.call_args_list]
         assert sent == ["!LIPSYNC(20)\r"]
 
-        with pytest.raises(LyngdorfInvalidValueError):
-            receiver.set_lipsync(-50)
+        # Out-of-range values are sent unchanged, not rejected - see
+        # Receiver.volume_range's docstring.
+        receiver.set_lipsync(-50)
+        sent = [call.args[0] for call in receiver._api._protocol.write.call_args_list]
+        assert sent[-1] == "!LIPSYNC(-50)\r"
 
         tdai = TDAI1120Receiver(FAKE_IP)
         tdai._api._protocol = mock.Mock()
@@ -3998,8 +4009,8 @@ class TestMethodSetters:
     def test_set_trim_methods_match_their_properties(self):
         """Covers all six trims on an MP-60 (which has every one of
         them - see has_surround_feature) and confirms the same
-        validation applies via TDAI-1120, which has bass/treble but no
-        discrete channel trims."""
+        capability check applies via TDAI-1120, which has bass/treble but
+        no discrete channel trims."""
         from lyngdorf.device import MP60Receiver, TDAI1120Receiver
 
         receiver = MP60Receiver(FAKE_IP)
@@ -4020,18 +4031,23 @@ class TestMethodSetters:
             "!TRIMSURRS(-30)\r",
         ]
 
-        with pytest.raises(LyngdorfInvalidValueError):
-            receiver.set_trim_bass(999.0)
-        with pytest.raises(LyngdorfInvalidValueError):
-            receiver.set_trim_treble(999.0)
-        with pytest.raises(LyngdorfInvalidValueError):
-            receiver.set_trim_centre(999.0)
-        with pytest.raises(LyngdorfInvalidValueError):
-            receiver.set_trim_height(999.0)
-        with pytest.raises(LyngdorfInvalidValueError):
-            receiver.set_trim_lfe(999.0)
-        with pytest.raises(LyngdorfInvalidValueError):
-            receiver.set_trim_surround(999.0)
+        # Out-of-range values are sent unchanged, not rejected - see
+        # Receiver.volume_range's docstring.
+        receiver.set_trim_bass(999.0)
+        receiver.set_trim_treble(999.0)
+        receiver.set_trim_centre(999.0)
+        receiver.set_trim_height(999.0)
+        receiver.set_trim_lfe(999.0)
+        receiver.set_trim_surround(999.0)
+        sent = [call.args[0] for call in receiver._api._protocol.write.call_args_list]
+        assert sent[-6:] == [
+            "!TRIMBASS(9990)\r",
+            "!TRIMTREB(9990)\r",
+            "!TRIMCENTER(9990)\r",
+            "!TRIMHEIGHT(9990)\r",
+            "!TRIMLFE(9990)\r",
+            "!TRIMSURRS(9990)\r",
+        ]
 
         tdai = TDAI1120Receiver(FAKE_IP)
         tdai._api._protocol = mock.Mock()

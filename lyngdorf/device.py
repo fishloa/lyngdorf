@@ -376,7 +376,12 @@ class Receiver:
 
     @volume.setter
     def volume(self, value: float) -> None:
-        self._validate_numeric("volume", value, self.volume_range)
+        """Send `value` to the device unchanged - no bounds check against
+        `volume_range` (see that property's docstring for why this was
+        removed). Still raises if the model has no volume control at all,
+        which cannot currently happen (`volume_range` is never None), but
+        the check is kept for consistency with the other numeric setters."""
+        self._require_capability("volume", self.volume_range)
         self._api.volume(value)
 
     def set_volume(self, value: float) -> None:
@@ -405,6 +410,22 @@ class Receiver:
         two are kept separate. This property's value is fixed for the
         connection's lifetime; `max_volume` is the one that can change
         at runtime.
+
+        Advisory only - `volume`'s setter (and every other numeric
+        setter's `*_range` counterpart in this module) no longer enforces
+        this bound before writing. Versions 1.6.0/1.7.0 (#37, #42) raised
+        `LyngdorfInvalidValueError` for a value outside range; that check
+        was removed because the device itself already bounds volume
+        sensibly: probing a real MP-60, `!VOL(240)` is accepted and 250,
+        300 and 400 all clamp back to 240, predictably and safely. Where
+        the device already clamps like that, a library rejecting the
+        write first adds nothing but a second place for a legitimate
+        write to fail. This range exists purely so a consumer (in
+        particular Home Assistant's `number` platform) can build a
+        correctly-bounded slider; the device is the actual enforcement
+        point, and this value is simply what its manual documents. Do not
+        reintroduce a bounds check here on the assumption one was lost by
+        accident - it was removed deliberately.
         """
         return self._model.volume_range()
 
@@ -449,7 +470,12 @@ class Receiver:
 
     @zone_b_volume.setter
     def zone_b_volume(self, value: float) -> None:
-        self._validate_numeric("zone_b_volume", value, self.zone_b_volume_range)
+        """Send `value` to the device unchanged - see `volume`'s setter
+        and `volume_range`'s docstring for why this is no longer bounds-
+        checked against `zone_b_volume_range`. Still raises if the model
+        has no Zone B at all, which is a capability check rather than a
+        numeric one."""
+        self._require_capability("zone_b_volume", self.zone_b_volume_range)
         self._api.zone_b_volume(value)
 
     def set_zone_b_volume(self, value: float) -> None:
@@ -467,6 +493,9 @@ class Receiver:
         is documented identical to `volume_range` on the same model - see
         `ModelConfig.zone_b_volume_range`. Like `volume_range`, this is a
         fixed capability and is never narrowed to `max_volume`.
+
+        Advisory only, like `volume_range` - see that property's
+        docstring for why `zone_b_volume`'s setter no longer enforces it.
         """
         if not self._model.has_zone_b_feature():
             return None
@@ -920,31 +949,36 @@ class Receiver:
         then, the documented default (`NumericRange(0, 500, 1)`, matching
         a real MP-60's measured reply). None on a model with no lip sync
         control at all (the TDAI family - see `has_lipsync_feature`).
+
+        Advisory only, like `volume_range` - see that property's
+        docstring for why `lipsync`'s setter no longer enforces it.
         """
         return self._lipsync_range
 
-    def _validate_numeric(
-        self, name: str, value: float, range_: NumericRange | None
-    ) -> None:
-        """Raise LyngdorfInvalidValueError if `value` is outside `range_`,
-        or if `range_` is None - meaning the connected model has no such
-        setting at all, e.g. `trim_centre` on a TDAI, or `lipsync` on any
-        TDAI. Consistent with how `source`/`zone_b_source`/`voicing`/
-        `room_perfect_position` already raise on an invalid choice, rather
-        than with `trim_bass_up`'s warn-and-ignore for a model that can't
-        step - an absolute setter has no discrete "nearest valid choice"
-        to silently fall back to the way a stepping command does, so
-        raising is the only option that does not either send a
-        wire command the model does not define or silently drop a
-        genuine caller bug.
+    def _require_capability(self, name: str, range_: NumericRange | None) -> None:
+        """Raise LyngdorfInvalidValueError if `range_` is None - meaning
+        the connected model has no such setting at all, e.g. `trim_centre`
+        on a TDAI, or `lipsync` on any TDAI. This is a capability check
+        only: it does not compare `value` against `range_.min`/`range_.max`
+        at all, unlike the `_validate_numeric` this replaced - see the
+        `*_range` properties' docstrings for why the numeric bound is no
+        longer enforced here. A model lacking the control entirely is a
+        different problem in kind from a value being outside the
+        documented range for a control that does exist: there is simply no
+        command to send, and no meaningful thing for the device to do,
+        whereas an out-of-range value on a control the model does have is
+        something the device itself is left to handle. Consistent with
+        how `source`/`zone_b_source`/`voicing`/`room_perfect_position`
+        already raise on an invalid choice, rather than with
+        `trim_bass_up`'s warn-and-ignore for a model that can't step - an
+        absolute setter has no discrete "nearest valid choice" to silently
+        fall back to the way a stepping command does, so raising is the
+        only option that does not send a wire command the model does not
+        define.
         """
         if range_ is None:
             raise LyngdorfInvalidValueError(
                 f"{name} is not supported by model {self._model.model_name}"
-            )
-        if not range_.min <= value <= range_.max:
-            raise LyngdorfInvalidValueError(
-                f"{name} {value} is outside {range_.min}..{range_.max}"
             )
 
     def _lipsync_callback(self, param1: str, param2: str):
@@ -957,7 +991,12 @@ class Receiver:
 
     @lipsync.setter
     def lipsync(self, lipsync: int):
-        self._validate_numeric("lipsync", lipsync, self.lipsync_range)
+        """Send `lipsync` to the device unchanged - see `volume`'s setter
+        and `volume_range`'s docstring for why this is no longer bounds-
+        checked against `lipsync_range`. Still raises if the model has no
+        lip sync control at all (the TDAI family), a capability check
+        rather than a numeric one."""
+        self._require_capability("lipsync", self.lipsync_range)
         self._api.change_lipsync(lipsync)
 
     def set_lipsync(self, lipsync: int) -> None:
@@ -975,7 +1014,11 @@ class Receiver:
 
     @trim_bass.setter
     def trim_bass(self, trim: float):
-        self._validate_numeric("trim_bass", trim, self.trim_bass_range)
+        """Send `trim` to the device unchanged - see `volume`'s setter
+        and `volume_range`'s docstring for why this is no longer bounds-
+        checked against `trim_bass_range`. Still raises if the model has no
+        bass trim at all, a capability check rather than a numeric one."""
+        self._require_capability("trim_bass", self.trim_bass_range)
         self._api.change_trim_bass(trim)
 
     def set_trim_bass(self, trim: float) -> None:
@@ -985,7 +1028,10 @@ class Receiver:
     @property
     def trim_bass_range(self) -> NumericRange | None:
         """The documented dB range (and UI step) for `trim_bass`, or None
-        on a model with no bass trim at all (TDAI-2170)."""
+        on a model with no bass trim at all (TDAI-2170).
+
+        Advisory only, like `volume_range` - see that property's
+        docstring for why `trim_bass`'s setter no longer enforces it."""
         return self._model.trim_bass_range()
 
     def trim_bass_up(self):
@@ -1004,7 +1050,11 @@ class Receiver:
 
     @trim_centre.setter
     def trim_centre(self, trim: float):
-        self._validate_numeric("trim_centre", trim, self.trim_centre_range)
+        """Send `trim` to the device unchanged - see `volume`'s setter
+        and `volume_range`'s docstring for why this is no longer bounds-
+        checked against `trim_centre_range`. Still raises if the model has no
+        centre trim at all, a capability check rather than a numeric one."""
+        self._require_capability("trim_centre", self.trim_centre_range)
         self._api.change_trim_centre(trim)
 
     def set_trim_centre(self, trim: float) -> None:
@@ -1016,7 +1066,10 @@ class Receiver:
     def trim_centre_range(self) -> NumericRange | None:
         """The documented dB range (and UI step) for `trim_centre`, or
         None on a model with no discrete channel trims at all (see
-        `has_surround_feature`)."""
+        `has_surround_feature`).
+
+        Advisory only, like `volume_range` - see that property's
+        docstring for why `trim_centre`'s setter no longer enforces it."""
         return self._model.trim_centre_range()
 
     def trim_centre_up(self):
@@ -1035,7 +1088,11 @@ class Receiver:
 
     @trim_height.setter
     def trim_height(self, trim: float):
-        self._validate_numeric("trim_height", trim, self.trim_height_range)
+        """Send `trim` to the device unchanged - see `volume`'s setter
+        and `volume_range`'s docstring for why this is no longer bounds-
+        checked against `trim_height_range`. Still raises if the model has no
+        height trim at all, a capability check rather than a numeric one."""
+        self._require_capability("trim_height", self.trim_height_range)
         self._api.change_trim_height(trim)
 
     def set_trim_height(self, trim: float) -> None:
@@ -1047,7 +1104,10 @@ class Receiver:
     def trim_height_range(self) -> NumericRange | None:
         """The documented dB range (and UI step) for `trim_height`, or
         None on a model with no discrete channel trims at all (see
-        `has_surround_feature`)."""
+        `has_surround_feature`).
+
+        Advisory only, like `volume_range` - see that property's
+        docstring for why `trim_height`'s setter no longer enforces it."""
         return self._model.trim_height_range()
 
     def trim_height_up(self):
@@ -1066,7 +1126,11 @@ class Receiver:
 
     @trim_lfe.setter
     def trim_lfe(self, trim: float):
-        self._validate_numeric("trim_lfe", trim, self.trim_lfe_range)
+        """Send `trim` to the device unchanged - see `volume`'s setter
+        and `volume_range`'s docstring for why this is no longer bounds-
+        checked against `trim_lfe_range`. Still raises if the model has no
+        lfe trim at all, a capability check rather than a numeric one."""
+        self._require_capability("trim_lfe", self.trim_lfe_range)
         self._api.change_trim_lfe(trim)
 
     def set_trim_lfe(self, trim: float) -> None:
@@ -1077,7 +1141,10 @@ class Receiver:
     def trim_lfe_range(self) -> NumericRange | None:
         """The documented dB range (and UI step) for `trim_lfe`, or None
         on a model with no discrete channel trims at all (see
-        `has_surround_feature`)."""
+        `has_surround_feature`).
+
+        Advisory only, like `volume_range` - see that property's
+        docstring for why `trim_lfe`'s setter no longer enforces it."""
         return self._model.trim_lfe_range()
 
     def trim_lfe_up(self):
@@ -1096,7 +1163,11 @@ class Receiver:
 
     @trim_surround.setter
     def trim_surround(self, trim: float):
-        self._validate_numeric("trim_surround", trim, self.trim_surround_range)
+        """Send `trim` to the device unchanged - see `volume`'s setter
+        and `volume_range`'s docstring for why this is no longer bounds-
+        checked against `trim_surround_range`. Still raises if the model has no
+        surround trim at all, a capability check rather than a numeric one."""
+        self._require_capability("trim_surround", self.trim_surround_range)
         self._api.change_trim_surround(trim)
 
     def set_trim_surround(self, trim: float) -> None:
@@ -1108,7 +1179,10 @@ class Receiver:
     def trim_surround_range(self) -> NumericRange | None:
         """The documented dB range (and UI step) for `trim_surround`, or
         None on a model with no discrete channel trims at all (see
-        `has_surround_feature`)."""
+        `has_surround_feature`).
+
+        Advisory only, like `volume_range` - see that property's
+        docstring for why `trim_surround`'s setter no longer enforces it."""
         return self._model.trim_surround_range()
 
     def trim_surround_up(self):
@@ -1129,7 +1203,11 @@ class Receiver:
 
     @trim_treble.setter
     def trim_treble(self, trim: float):
-        self._validate_numeric("trim_treble", trim, self.trim_treble_range)
+        """Send `trim` to the device unchanged - see `volume`'s setter
+        and `volume_range`'s docstring for why this is no longer bounds-
+        checked against `trim_treble_range`. Still raises if the model has no
+        treble trim at all, a capability check rather than a numeric one."""
+        self._require_capability("trim_treble", self.trim_treble_range)
         self._api.change_trim_treble(trim)
 
     def set_trim_treble(self, trim: float) -> None:
@@ -1140,7 +1218,10 @@ class Receiver:
     @property
     def trim_treble_range(self) -> NumericRange | None:
         """The documented dB range (and UI step) for `trim_treble`, or
-        None on a model with no treble trim at all (TDAI-2170)."""
+        None on a model with no treble trim at all (TDAI-2170).
+
+        Advisory only, like `volume_range` - see that property's
+        docstring for why `trim_treble`'s setter no longer enforces it."""
         return self._model.trim_treble_range()
 
     def trim_treble_up(self):

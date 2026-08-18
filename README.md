@@ -101,10 +101,14 @@ receiver.volume_down()    # Decrease volume
 receiver.mute_enabled = True  # Mute
 
 # volume_range is the model's fixed, documented capability -
-# NumericRange(min, max, step) - and validates every write: an
-# out-of-range value raises LyngdorfInvalidValueError rather than being
-# sent. It differs by family: the MP and P series allow up to +24.0 dB,
-# the entire TDAI family only up to +12.0 dB.
+# NumericRange(min, max, step). It differs by family: the MP and P
+# series allow up to +24.0 dB, the entire TDAI family only up to
+# +12.0 dB. It is advisory only: the setter sends whatever value it is
+# given without checking it against this range - the device itself
+# already bounds volume sensibly (a real MP-60 clamps anything past
+# its documented ceiling rather than doing anything harmful), so this
+# library does not duplicate that check. Use this range to build a
+# correctly-bounded slider (e.g. Home Assistant's `number` platform).
 print(receiver.volume_range)   # NumericRange(-99.9, 24.0, 0.1) on an MP
 
 # The device's current user-settable safety ceiling, in dB (MP and P
@@ -182,6 +186,12 @@ receiver.trim_bass_down()
 # should build its slider bounds from these instead of hardcoding them -
 # they vary by model, and the MP series' 0.1 dB step genuinely differs
 # from the TDAI series' whole-dB-only one even where the dB bound matches.
+#
+# These ranges are advisory device facts, not something this library
+# enforces: they describe what the model's manual documents, and the
+# device itself is the enforcement point (see volume_range's docstring
+# for the reasoning). Do not rely on a setter to reject an out-of-range
+# value.
 print(receiver.trim_bass_range)     # NumericRange(-12.0, 12.0, 0.1) on an MP
 print(receiver.trim_centre_range)   # None on a TDAI - no discrete channel trims
 
@@ -192,27 +202,31 @@ print(receiver.trim_centre_range)   # None on a TDAI - no discrete channel trims
 print(receiver.lipsync_range)
 receiver.lipsync = 20   # ms
 
-# Every volume/trim_*/lipsync setter validates against its own *_range
-# (or raises outright if the connected model has no such range at all)
-# rather than sending whatever it is given - the device itself accepts
-# and discards any value with no error, so this is the only place a
-# caller finds out a value was wrong.
+# Every volume/trim_*/lipsync setter sends the value it is given
+# unchanged - it does not check it against its own *_range. It still
+# raises LyngdorfInvalidValueError if the connected model has no such
+# control at all - not an out-of-range value, but a request the model
+# cannot express, e.g. trim_centre on a TDAI (see trim_centre_range
+# above: None means no discrete channel trims at all, so there is no
+# command to send).
 from lyngdorf.exceptions import LyngdorfInvalidValueError
+
+tdai = await async_create_receiver("192.168.1.101", LyngdorfModel.TDAI_1120)
 try:
-    receiver.trim_bass = 999.0  # outside -12.0..12.0
+    tdai.trim_centre = 0.0
 except LyngdorfInvalidValueError as exc:
     print(exc)
 ```
 
 ### Method-Based Setters
 
-Every property setter above that validates (`volume`, `zone_b_volume`, `lipsync`,
-the six trims, `room_perfect_position`, `voicing`) also has a `set_*` method
+Every property setter above (`volume`, `zone_b_volume`, `lipsync`, the six
+trims, `room_perfect_position`, `voicing`) also has a `set_*` method
 equivalent - `set_volume(db)`, `set_zone_b_volume(db)`, `set_lipsync(ms)`,
 `set_trim_bass(db)`/`set_trim_treble(db)`/`set_trim_centre(db)`/
 `set_trim_height(db)`/`set_trim_lfe(db)`/`set_trim_surround(db)`,
 `set_room_perfect_position(name)`, `set_voicing(name)`. Each delegates straight
-to its property, so it validates identically - it exists for consumers (Home
+to its property, so it behaves identically - it exists for consumers (Home
 Assistant's `number`/`select` platforms in particular) that build entities from
 tables of small callables, where a lambda cannot contain an assignment and
 `lambda r, v: setattr(r, "trim_bass", v)` hides a typo from the type checker.
