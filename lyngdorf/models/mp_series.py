@@ -16,6 +16,13 @@ Protocol Characteristics:
 from ..const import Msg
 from .base import ModelConfig, NumericRange
 
+# The MP volume ceiling of +24.0 dB is measured, not just transcribed: on a
+# real MP-60, !VOL(240) is accepted and !VOL(250), !VOL(300) and !VOL(400)
+# all clamp back to 240. A third-party table elsewhere claims the MP-50
+# stops at +20.0 dB, but that source marks its own MP entries untested and
+# cites nothing, and docs/mp-50.md gives the same -999..240 as its siblings,
+# so no per-model exception is made here.
+#
 # Trim ranges below are transcribed from docs/mp-40.md, docs/mp-50.md and
 # docs/mp-60.md, which all document identical bounds and "10 = 1dB"
 # encoding (hence the 0.1 dB step) for every MP model - not assumed, each
