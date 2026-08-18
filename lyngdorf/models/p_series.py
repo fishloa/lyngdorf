@@ -22,6 +22,15 @@ from .base import ModelConfig, NumericRange
 # families document the same LIPSYNC/LIPSYNCRANGE commands.
 P_LIPSYNC_DEFAULT_RANGE = NumericRange(min=0.0, max=500.0, step=1.0)
 
+# !VOL/!ZVOL: -999..240 (-99.9..+24.0 dB), 0.1 dB step - docs/p-series.md
+# documents the same bound as the MP family for both the main-zone and
+# Zone B volume commands (checked individually, not assumed). The P
+# series manual also documents a "Head Unit" variant with a completely
+# different scale (0..999 = 0..99.9 dB) - this library does not model
+# head units, so that variant is deliberately not represented here. See
+# issue #42.
+P_VOLUME_RANGE = NumericRange(min=-99.9, max=24.0, step=0.1)
+
 # Shared P Series Protocol Commands
 P_MESSAGES: dict[Msg, str] = {
     Msg.DEVICE: "DEVICE",
@@ -143,6 +152,8 @@ P100_CONFIG = ModelConfig(
     has_zone_b=True,
     has_video=True,
     lipsync_default_range=P_LIPSYNC_DEFAULT_RANGE,
+    volume_range=P_VOLUME_RANGE,
+    zone_b_volume_range=P_VOLUME_RANGE,
 )
 
 # P200 / P300 Hardware Configuration
@@ -182,6 +193,8 @@ P200_CONFIG = ModelConfig(
     has_zone_b=True,
     has_video=True,
     lipsync_default_range=P_LIPSYNC_DEFAULT_RANGE,
+    volume_range=P_VOLUME_RANGE,
+    zone_b_volume_range=P_VOLUME_RANGE,
 )
 
 P300_CONFIG = ModelConfig(
@@ -196,4 +209,6 @@ P300_CONFIG = ModelConfig(
     has_zone_b=True,
     has_video=True,
     lipsync_default_range=P_LIPSYNC_DEFAULT_RANGE,
+    volume_range=P_VOLUME_RANGE,
+    zone_b_volume_range=P_VOLUME_RANGE,
 )

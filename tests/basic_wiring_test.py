@@ -3737,6 +3737,190 @@ class TestTrimBassTrebleScale:
             assert model.trim_treble_range() == mp_expected
 
 
+class TestVolumeRangeAndValidation:
+    """Issue #42: volume and zone_b_volume were the last numeric
+    controls with no matching *_range property and no validation on
+    write - #36/#37 covered the six trims and lipsync, but not these.
+
+    docs/mp-40.md, docs/mp-50.md, docs/mp-60.md and docs/p-series.md all
+    document `!VOL`/`!ZVOL` as -999..240 (-99.9..+24.0 dB); the entire
+    TDAI family - TDAI-1120, TDAI-2170, TDAI-2210 and TDAI-3400 -
+    documents a lower -999..120 (-99.9..+12.0 dB) ceiling instead for
+    `!VOL` (TDAI has no Zone B at all, so no `!ZVOL`). Checked
+    individually per model, not assumed uniform across a family that
+    otherwise shares one protocol - #36 found trim steps differing
+    within a family and #41 found the encoding differing between
+    families sharing a bound, so neither kind of assumption is safe
+    here either.
+
+    `volume_range`/`zone_b_volume_range` are deliberately static: they
+    report the model's documented hardware capability only, and are
+    never narrowed by `max_volume` (#40's live, user-settable MAXVOL
+    ceiling, which the device already enforces itself and which can
+    change from the front panel mid-session) - see both properties'
+    docstrings in device.py and `ModelConfig.volume_range`'s docstring
+    for the full reasoning. A test asserting the range narrows would be
+    asserting the wrong behaviour; the test below asserts the opposite.
+    """
+
+    def test_volume_range_per_family(self):
+        mp_p_expected = NumericRange(min=-99.9, max=24.0, step=0.1)
+        tdai_expected = NumericRange(min=-99.9, max=12.0, step=0.1)
+        mp_p_family = {
+            LyngdorfModel.MP_40,
+            LyngdorfModel.MP_50,
+            LyngdorfModel.MP_60,
+            LyngdorfModel.P_100,
+            LyngdorfModel.P_200,
+            LyngdorfModel.P_300,
+        }
+        tdai_family = {
+            LyngdorfModel.TDAI_1120,
+            LyngdorfModel.TDAI_2170,
+            LyngdorfModel.TDAI_2210,
+            LyngdorfModel.TDAI_3400,
+        }
+        assert mp_p_family & tdai_family == set()
+        assert mp_p_family | tdai_family == set(supported_models())
+        for model in mp_p_family:
+            assert model.volume_range() == mp_p_expected, model
+        for model in tdai_family:
+            assert model.volume_range() == tdai_expected, model
+
+    def test_zone_b_volume_range_matches_has_zone_b_feature(self):
+        """zone_b_volume_range must be non-None exactly where
+        has_zone_b_feature is True (the MP and P families), and
+        identical to volume_range on that same model - documented
+        identical bounds for !VOL/!ZVOL on every model that has both
+        (docs/mp-60.md's !ZVOL matches its !VOL exactly, likewise for
+        docs/mp-40.md/docs/p-series.md) - and None everywhere else,
+        including the whole TDAI family, none of which maps Zone B at
+        all."""
+        for model in supported_models():
+            if model.has_zone_b_feature():
+                assert model.zone_b_volume_range() == model.volume_range(), model
+            else:
+                assert model.zone_b_volume_range() is None, model
+
+    def test_receiver_volume_range_is_static_and_ignores_max_volume(self):
+        """The Receiver-level property must match the model's documented
+        range exactly, and must NOT change when `_max_volume` is set -
+        simulating a `!MAXVOL` reply having arrived must not narrow (or
+        otherwise touch) `volume_range` at all. This is the regression
+        test for the behaviour #42's brief originally asked for
+        (narrowing to MAXVOL) and the project owner then explicitly
+        rejected in favour of keeping the two concepts separate."""
+        from lyngdorf.device import MP60Receiver, TDAI1120Receiver
+
+        mp_expected = NumericRange(min=-99.9, max=24.0, step=0.1)
+        receiver = MP60Receiver(FAKE_IP)
+        assert receiver.volume_range == mp_expected
+        assert receiver.max_volume is None
+        receiver._max_volume = 0.0  # as if !MAXVOL(0) had just arrived
+        assert receiver.volume_range == mp_expected, "must not narrow"
+        assert receiver.zone_b_volume_range == mp_expected
+
+        tdai_expected = NumericRange(min=-99.9, max=12.0, step=0.1)
+        tdai = TDAI1120Receiver(FAKE_IP)
+        assert tdai.volume_range == tdai_expected
+        assert tdai.max_volume is None  # TDAI never reports MAXVOL at all
+        assert tdai.zone_b_volume_range is None  # no Zone B on any TDAI
+
+    def test_volume_setter_rejects_out_of_range_value(self):
+        """#42: volume's setter must validate the same way the trim/
+        lipsync setters do (#37) - raise, not clamp and not silently
+        send the value."""
+        from lyngdorf.device import MP60Receiver
+
+        receiver = MP60Receiver(FAKE_IP)
+        receiver._api._protocol = mock.Mock()
+
+        with pytest.raises(
+            LyngdorfInvalidValueError, match=r"volume.*999\.0.*-99\.9\.\.24\.0"
+        ):
+            receiver.volume = 999.0
+        with pytest.raises(LyngdorfInvalidValueError):
+            receiver.volume = -999.0
+        receiver._api._protocol.write.assert_not_called()
+
+    def test_volume_setter_accepts_boundary_values(self):
+        from lyngdorf.device import MP60Receiver
+
+        receiver = MP60Receiver(FAKE_IP)
+        receiver._api._protocol = mock.Mock()
+
+        receiver.volume = 24.0
+        receiver.volume = -99.9
+        receiver._api._protocol.write.assert_called()
+
+    def test_volume_setter_uses_the_tdai_family_lower_ceiling(self):
+        """+20.0 dB is within the MP/P family's +24.0 dB ceiling but
+        outside the entire TDAI family's lower +12.0 dB one - the same
+        value must be accepted on one and rejected on the other."""
+        from lyngdorf.device import MP60Receiver, TDAI1120Receiver
+
+        mp = MP60Receiver(FAKE_IP)
+        mp._api._protocol = mock.Mock()
+        mp.volume = 20.0
+        mp._api._protocol.write.assert_called()
+
+        tdai = TDAI1120Receiver(FAKE_IP)
+        tdai._api._protocol = mock.Mock()
+        with pytest.raises(LyngdorfInvalidValueError):
+            tdai.volume = 20.0
+        tdai.volume = 12.0
+        tdai._api._protocol.write.assert_called()
+
+    def test_zone_b_volume_setter_rejects_out_of_range_value(self):
+        from lyngdorf.device import MP60Receiver
+
+        receiver = MP60Receiver(FAKE_IP)
+        receiver._api._protocol = mock.Mock()
+
+        with pytest.raises(
+            LyngdorfInvalidValueError,
+            match=r"zone_b_volume.*999\.0.*-99\.9\.\.24\.0",
+        ):
+            receiver.zone_b_volume = 999.0
+        receiver.zone_b_volume = 24.0
+        receiver.zone_b_volume = -99.9
+        receiver._api._protocol.write.assert_called()
+
+    def test_zone_b_volume_setter_rejects_on_model_without_zone_b(self):
+        """No TDAI model has Zone B at all (zone_b_volume_range is None
+        for all of them) - setting zone_b_volume must raise rather than
+        send a !ZVOL-shaped command that model's protocol does not
+        define, the same "not supported by this model" behaviour
+        trim_centre already has on a TDAI (#37)."""
+        from lyngdorf.device import TDAI1120Receiver
+
+        receiver = TDAI1120Receiver(FAKE_IP)
+        receiver._api._protocol = mock.Mock()
+
+        with pytest.raises(LyngdorfInvalidValueError):
+            receiver.zone_b_volume = 0.0
+        receiver._api._protocol.write.assert_not_called()
+
+    def test_zone_b_volume_setter_sends_zvol_not_vol(self):
+        """Regression test for a pre-existing bug found while adding
+        this validation: `LyngdorfApi.zone_b_volume` built its wire
+        command from `Msg.VOLUME` instead of `Msg.ZONE_B_VOLUME`, so
+        setting `zone_b_volume` silently sent `!VOL(...)` - changing the
+        MAIN zone's volume - instead of `!ZVOL(...)`. No existing test
+        checked the wire content of a `zone_b_volume` write (only
+        `zone_b_volume_up`/`_down`, which use a different code path),
+        so it went unnoticed. Fixed in `LyngdorfApi.zone_b_volume`
+        alongside this issue's validation."""
+        from lyngdorf.device import MP60Receiver
+
+        receiver = MP60Receiver(FAKE_IP)
+        receiver._api._protocol = mock.Mock()
+        receiver.volume = -10.0
+        receiver.zone_b_volume = -30.0
+        sent = [call.args[0] for call in receiver._api._protocol.write.call_args_list]
+        assert sent == ["!VOL(-100)\r", "!ZVOL(-300)\r"]
+
+
 class TestReceiverClassHierarchy:
     """Regression tests for the family-class-hierarchy refactor: model-
     specific behaviour (which messages a family registers, and under

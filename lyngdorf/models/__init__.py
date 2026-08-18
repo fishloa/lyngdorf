@@ -209,6 +209,18 @@ class LyngdorfModel(Enum):
         at all (the TDAI family - see has_lipsync_feature)."""
         return self._config.lipsync_default_range
 
+    def volume_range(self) -> NumericRange | None:
+        """The documented dB range (and step) for the main-zone volume -
+        see ModelConfig.volume_range for why this is not uniform across
+        every family sharing the same protocol (the TDAI family's ceiling
+        is lower than the MP/P families')."""
+        return self._config.volume_range
+
+    def zone_b_volume_range(self) -> NumericRange | None:
+        """The documented dB range (and step) for Zone B volume, or None
+        on a model with no Zone B at all (see has_zone_b_feature)."""
+        return self._config.zone_b_volume_range
+
     def power_state_on_value(self) -> str:
         """Return the power-state parameter value that means "powered on".
 

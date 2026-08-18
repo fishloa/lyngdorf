@@ -175,6 +175,46 @@ class ModelConfig:
             startup, so this is a fallback, not the final word - see
             `Receiver._lipsync_range_callback`. None for the TDAI family,
             which has no lip sync control at all.
+        volume_range: The device-documented dB range (and 0.1 dB step,
+            the same tenths-of-a-dB wire encoding as the MP trims - see
+            `LyngdorfApi.volume`) for the main-zone `!VOL` command. NOT
+            uniform across every family sharing the same protocol: the MP
+            and P families document -99.9..+24.0 dB (docs/mp-40.md,
+            docs/mp-60.md, docs/p-series.md all agree), but the entire
+            TDAI family - TDAI-1120, TDAI-2170 and TDAI-3400 - documents a
+            lower ceiling of -99.9..+12.0 dB (docs/tdai-1120.md,
+            docs/tdai-2170.md, docs/tdai-3400.md), and TDAI-2210 shares
+            that bound since it shares TDAI-1120/3400's protocol.
+
+            This is the model's fixed hardware capability and stays that
+            way for the connection's whole lifetime - it is set per model
+            here (not computed) deliberately so a single model's bound can
+            be changed later without restructuring anything. It is
+            deliberately NOT narrowed to the device's live `MAXVOL`
+            setting (`Receiver.max_volume`, #40): `max_volume` is a
+            user-settable speaker-protection ceiling the device already
+            enforces in hardware and can change from the front panel
+            mid-session, so folding it into `volume_range` would make a
+            capability a consumer might cache (e.g. Home Assistant's
+            `number`/`media_player` slider bounds, read once) silently
+            change meaning later - a stored scene or automation built
+            against the old bound would start meaning something different
+            with no code change on either side. A consumer that wants the
+            live ceiling reads `max_volume` itself and decides what to do
+            with it; the two concepts (what the hardware can do, versus
+            what the user currently allows) are kept distinct rather than
+            blended into one number. See `Receiver.volume_range`.
+        zone_b_volume_range: The device-documented dB range for the `!ZVOL`
+            command, on the models that have Zone B at all (see
+            `has_zone_b`) - None everywhere else, including the whole TDAI
+            family, none of which maps Zone B at all. Where present, it is
+            documented identical to `volume_range` on the same model
+            (docs/mp-60.md's `!ZVOL` matches its `!VOL` exactly, and
+            likewise for docs/mp-40.md/docs/p-series.md) - not assumed
+            equal, each was checked. Like `volume_range`, this is a fixed
+            capability, never narrowed to any live setting - no manual
+            documents a Zone B counterpart to `!MAXVOL` (no `!ZMAXVOL`)
+            regardless.
     """
 
     model_name: str
@@ -200,6 +240,8 @@ class ModelConfig:
     trim_surround_range: NumericRange | None = None
     trim_bass_treble_scale: float = 10.0
     lipsync_default_range: NumericRange | None = None
+    volume_range: NumericRange | None = None
+    zone_b_volume_range: NumericRange | None = None
     power_state_on: str = POWER_ON
     mute_state_in_parameter: bool = False
     keepalive_message: Msg | None = Msg.DEVICE

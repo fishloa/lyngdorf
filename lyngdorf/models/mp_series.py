@@ -41,6 +41,33 @@ MP_CHANNEL_TRIM_RANGE = NumericRange(min=-10.0, max=10.0, step=0.1)
 # measured reply on firmware 5.4.2: !LIPSYNCRANGE(0,500).
 LIPSYNC_DEFAULT_RANGE = NumericRange(min=0.0, max=500.0, step=1.0)
 
+# !VOL/!ZVOL: -999..240 (-99.9..+24.0 dB), 0.1 dB step (tenths on the
+# wire - see LyngdorfApi.volume). Checked individually against
+# docs/mp-40.md, docs/mp-50.md and docs/mp-60.md (all three main-zone
+# !VOL) and docs/mp-60.md's !ZVOL specifically, not assumed equal - they
+# turn out to document identical bounds for both commands across the
+# whole family. See issue #42.
+#
+# One external source disagrees for the MP-50 specifically:
+# homeassistant-projects/hass-lyngdorf gives it a +20.0 dB ceiling
+# against +24.0 for the MP-60. That claim was checked and rejected: that
+# repo marks both its MP entries 'tested': False, cites no manual or
+# measurement anywhere in its history, and appears scaffolded from a
+# sibling project's template rather than derived from Lyngdorf's own
+# docs. Our own docs/mp-50.md (like docs/mp-40.md and docs/mp-60.md)
+# gives !VOL as -999 to 240 (-99.9 to +24.0 dB) - the vendor's own MP-50
+# documentation contradicts the +20.0 dB claim directly. Do not "fix"
+# this constant to match that source without a better one.
+#
+# Each MP model is still given this constant individually below (not
+# hardcoded into ModelConfig's default) precisely so a future model - or
+# a better-sourced correction to this one - can diverge from the rest of
+# the family without restructuring anything; #36 already found trim
+# steps differing within a family and #41 found the encoding differing
+# between families, so uniformity here is presently-true data, not an
+# assumption baked into the shape of the code.
+MP_VOLUME_RANGE = NumericRange(min=-99.9, max=24.0, step=0.1)
+
 # Shared MP Protocol Commands
 # All MP-40, MP-50, and MP-60 models use this command mapping
 MP_MESSAGES: dict[Msg, str] = {
@@ -241,6 +268,8 @@ MP40_CONFIG = ModelConfig(
     trim_lfe_range=MP_CHANNEL_TRIM_RANGE,
     trim_surround_range=MP_CHANNEL_TRIM_RANGE,
     lipsync_default_range=LIPSYNC_DEFAULT_RANGE,
+    volume_range=MP_VOLUME_RANGE,
+    zone_b_volume_range=MP_VOLUME_RANGE,
 )
 
 # MP-50 Hardware Configuration
@@ -329,6 +358,8 @@ MP50_CONFIG = ModelConfig(
     trim_lfe_range=MP_CHANNEL_TRIM_RANGE,
     trim_surround_range=MP_CHANNEL_TRIM_RANGE,
     lipsync_default_range=LIPSYNC_DEFAULT_RANGE,
+    volume_range=MP_VOLUME_RANGE,
+    zone_b_volume_range=MP_VOLUME_RANGE,
 )
 
 # MP-60 Hardware Configuration
@@ -422,4 +453,6 @@ MP60_CONFIG = ModelConfig(
     trim_lfe_range=MP_CHANNEL_TRIM_RANGE,
     trim_surround_range=MP_CHANNEL_TRIM_RANGE,
     lipsync_default_range=LIPSYNC_DEFAULT_RANGE,
+    volume_range=MP_VOLUME_RANGE,
+    zone_b_volume_range=MP_VOLUME_RANGE,
 )

@@ -100,10 +100,19 @@ receiver.volume_up()      # Increase volume
 receiver.volume_down()    # Decrease volume
 receiver.mute_enabled = True  # Mute
 
+# volume_range is the model's fixed, documented capability -
+# NumericRange(min, max, step) - and validates every write: an
+# out-of-range value raises LyngdorfInvalidValueError rather than being
+# sent. It differs by family: the MP and P series allow up to +24.0 dB,
+# the entire TDAI family only up to +12.0 dB.
+print(receiver.volume_range)   # NumericRange(-99.9, 24.0, 0.1) on an MP
+
 # The device's current user-settable safety ceiling, in dB (MP and P
 # series; None on the TDAI family, whose manuals document no MAXVOL
 # command at all). Not a hardware maximum, and it can change at runtime -
 # see max_volume's docstring before using it as a fixed slider bound.
+# Deliberately NOT folded into volume_range above - see volume_range's
+# docstring for why a capability and a user preference are kept separate.
 print(receiver.max_volume)
 ```
 
@@ -183,11 +192,11 @@ print(receiver.trim_centre_range)   # None on a TDAI - no discrete channel trims
 print(receiver.lipsync_range)
 receiver.lipsync = 20   # ms
 
-# Every trim_*/lipsync setter validates against its own *_range (or
-# raises outright if the connected model has no such range at all) rather
-# than sending whatever it is given - the device itself accepts and
-# discards any value with no error, so this is the only place a caller
-# finds out a value was wrong.
+# Every volume/trim_*/lipsync setter validates against its own *_range
+# (or raises outright if the connected model has no such range at all)
+# rather than sending whatever it is given - the device itself accepts
+# and discards any value with no error, so this is the only place a
+# caller finds out a value was wrong.
 from lyngdorf.exceptions import LyngdorfInvalidValueError
 try:
     receiver.trim_bass = 999.0  # outside -12.0..12.0
@@ -200,7 +209,8 @@ except LyngdorfInvalidValueError as exc:
 # Zone B power
 receiver.zone_b_power_on = True
 
-# Zone B volume
+# Zone B volume - zone_b_volume_range is None on a model with no Zone B
+# at all (e.g. every TDAI), otherwise identical to volume_range
 receiver.zone_b_volume = -30.0
 receiver.zone_b_volume_up()
 receiver.zone_b_volume_down()

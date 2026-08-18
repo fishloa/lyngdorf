@@ -768,7 +768,7 @@ class LyngdorfApi:
 
     def zone_b_volume(self, volume: float):
         self._writeCommand(
-            f"{self._model.lookup_command(Msg.VOLUME)}({volume*10.0:.0f})"
+            f"{self._model.lookup_command(Msg.ZONE_B_VOLUME)}({volume*10.0:.0f})"
         )
 
     def change_source(self, source: int):

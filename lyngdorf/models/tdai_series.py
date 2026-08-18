@@ -52,6 +52,19 @@ TDAI_BASS_TREBLE_TRIM_RANGE = NumericRange(min=-12.0, max=12.0, step=1.0)
 # confirmed against real TDAI hardware.
 TDAI_BASS_TREBLE_SCALE = 1.0
 
+# !VOL: -999..120 (-99.9..+12.0 dB), 0.1 dB step - docs/tdai-1120.md,
+# docs/tdai-2170.md and docs/tdai-3400.md all document this same bound,
+# lower than the MP/P families' -99.9..+24.0 dB (see mp_series.py's
+# MP_VOLUME_RANGE) - checked individually, not assumed uniform across
+# families that otherwise share a protocol. TDAI-2210 shares this bound
+# too, since it shares TDAI-1120/3400's protocol. Independently
+# corroborated outside our own manuals too: avcontrol/pyavcontrol's
+# TDAI-3400 definition and thejens/lyngdorf-mcp both agree on
+# -999..120. No TDAI model maps Zone B at all, so there is no
+# zone_b_volume_range constant here - see ModelConfig.zone_b_volume_range.
+# See issue #42.
+TDAI_VOLUME_RANGE = NumericRange(min=-99.9, max=12.0, step=0.1)
+
 
 class TDAIModelConfig(ModelConfig):
     """Command-shape overrides shared by TDAI-1120, TDAI-2170 and
@@ -191,6 +204,7 @@ TDAI1120_CONFIG = TDAIModelConfig(
     trim_bass_range=TDAI_BASS_TREBLE_TRIM_RANGE,
     trim_treble_range=TDAI_BASS_TREBLE_TRIM_RANGE,
     trim_bass_treble_scale=TDAI_BASS_TREBLE_SCALE,
+    volume_range=TDAI_VOLUME_RANGE,
 )
 
 # TDAI-2170 Protocol Commands
@@ -324,6 +338,7 @@ TDAI2170_CONFIG = TDAIModelConfig(
     # sitting latent, in case a future firmware revision adds BASS/
     # TREBLE support here.
     trim_bass_treble_scale=TDAI_BASS_TREBLE_SCALE,
+    volume_range=TDAI_VOLUME_RANGE,
 )
 
 # TDAI-3400 Hardware Configuration
@@ -374,6 +389,7 @@ TDAI2210_CONFIG = TDAIModelConfig(
     trim_bass_range=TDAI_BASS_TREBLE_TRIM_RANGE,
     trim_treble_range=TDAI_BASS_TREBLE_TRIM_RANGE,
     trim_bass_treble_scale=TDAI_BASS_TREBLE_SCALE,
+    volume_range=TDAI_VOLUME_RANGE,
 )
 
 TDAI3400_CONFIG = TDAIModelConfig(
@@ -392,4 +408,5 @@ TDAI3400_CONFIG = TDAIModelConfig(
     trim_bass_range=TDAI_BASS_TREBLE_TRIM_RANGE,
     trim_treble_range=TDAI_BASS_TREBLE_TRIM_RANGE,
     trim_bass_treble_scale=TDAI_BASS_TREBLE_SCALE,
+    volume_range=TDAI_VOLUME_RANGE,
 )

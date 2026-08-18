@@ -376,7 +376,27 @@ class Receiver:
 
     @volume.setter
     def volume(self, value: float) -> None:
+        self._validate_numeric("volume", value, self.volume_range)
         self._api.volume(value)
+
+    @property
+    def volume_range(self) -> NumericRange | None:
+        """The valid range for `volume`, in dB, with a 0.1 dB step - the
+        model's fixed, documented capability (see
+        ModelConfig.volume_range), never None for any currently supported
+        model. NOT uniform across families: the MP and P families allow
+        up to +24.0 dB, the entire TDAI family (including TDAI-2210,
+        which shares TDAI-1120/3400's protocol) only up to +12.0 dB - see
+        ModelConfig.volume_range's docstring for the per-manual citations.
+
+        Deliberately NOT narrowed to `max_volume` (#40's live MAXVOL
+        setting) even though that would make for a tighter bound in
+        practice - see ModelConfig.volume_range's docstring for why the
+        two are kept separate. This property's value is fixed for the
+        connection's lifetime; `max_volume` is the one that can change
+        at runtime.
+        """
+        return self._model.volume_range()
 
     @property
     def max_volume(self) -> float | None:
@@ -392,9 +412,16 @@ class Receiver:
         against: docs/mp-40.md/docs/mp-60.md give -55.0..-20.0 dB while
         docs/p-series.md gives -55.0..+24.0 dB for the very same command,
         and a real MP-60 on firmware 5.4.2 answered !MAXVOL(0), i.e.
-        0.0 dB - outside the MP-40/MP-60 documented range. This value is
+        0.0 dB - outside the MP-40/MP-60 documented range. The device's
+        own control websocket (a separate, richer status channel some
+        models expose) independently confirms this: it reports
+        `max_volume: {"min": -55.0, "max": 24.0, ...}`, matching
+        docs/p-series.md and confirming docs/mp-40.md/docs/mp-60.md's
+        `-55.0..-20.0` is simply wrong. `0.0 dB` is a genuine value from
+        that device, not a sentinel meaning "no limit". This value is
         therefore read and surfaced as-is, never validated against any
-        range - do not add validation here.
+        range, and NOT used to narrow `volume_range` (see that property's
+        docstring for why) - do not add either.
 
         This is a user-settable safety ceiling, not the hardware's
         physical volume range - it can be changed at runtime from the
@@ -412,7 +439,23 @@ class Receiver:
 
     @zone_b_volume.setter
     def zone_b_volume(self, value: float) -> None:
+        self._validate_numeric("zone_b_volume", value, self.zone_b_volume_range)
         self._api.zone_b_volume(value)
+
+    @property
+    def zone_b_volume_range(self) -> NumericRange | None:
+        """The valid range for `zone_b_volume`, in dB, with a 0.1 dB
+        step - None on a model with no Zone B at all (see
+        `ModelConfig.has_zone_b`; explicit here rather than relying
+        solely on the model config leaving the field unset, the same
+        defensive style as `_requery_zone_b_mute`). Where present, this
+        is documented identical to `volume_range` on the same model - see
+        `ModelConfig.zone_b_volume_range`. Like `volume_range`, this is a
+        fixed capability and is never narrowed to `max_volume`.
+        """
+        if not self._model.has_zone_b_feature():
+            return None
+        return self._model.zone_b_volume_range()
 
     def volume_up(self):
         self._api.volume_up()
