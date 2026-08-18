@@ -204,6 +204,25 @@ except LyngdorfInvalidValueError as exc:
     print(exc)
 ```
 
+### Method-Based Setters
+
+Every property setter above that validates (`volume`, `zone_b_volume`, `lipsync`,
+the six trims, `room_perfect_position`, `voicing`) also has a `set_*` method
+equivalent - `set_volume(db)`, `set_zone_b_volume(db)`, `set_lipsync(ms)`,
+`set_trim_bass(db)`/`set_trim_treble(db)`/`set_trim_centre(db)`/
+`set_trim_height(db)`/`set_trim_lfe(db)`/`set_trim_surround(db)`,
+`set_room_perfect_position(name)`, `set_voicing(name)`. Each delegates straight
+to its property, so it validates identically - it exists for consumers (Home
+Assistant's `number`/`select` platforms in particular) that build entities from
+tables of small callables, where a lambda cannot contain an assignment and
+`lambda r, v: setattr(r, "trim_bass", v)` hides a typo from the type checker.
+
+```python
+receiver.set_volume(-25.0)
+receiver.set_trim_bass(1.5)
+receiver.set_room_perfect_position("Focus 1")
+```
+
 ### Zone B Control (MP Series)
 ```python
 # Zone B power

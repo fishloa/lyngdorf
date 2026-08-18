@@ -379,6 +379,16 @@ class Receiver:
         self._validate_numeric("volume", value, self.volume_range)
         self._api.volume(value)
 
+    def set_volume(self, value: float) -> None:
+        """Method equivalent of the `volume` setter (#43) - for callers
+        (e.g. Home Assistant's `number`/`media_player` platforms, which
+        build entities from tables of small callables rather than
+        per-control subclasses) that need a checked method rather than a
+        `setattr(receiver, "volume", value)` string literal invisible to
+        a type checker. Delegates to the property so the two can never
+        validate differently."""
+        self.volume = value
+
     @property
     def volume_range(self) -> NumericRange | None:
         """The valid range for `volume`, in dB, with a 0.1 dB step - the
@@ -441,6 +451,11 @@ class Receiver:
     def zone_b_volume(self, value: float) -> None:
         self._validate_numeric("zone_b_volume", value, self.zone_b_volume_range)
         self._api.zone_b_volume(value)
+
+    def set_zone_b_volume(self, value: float) -> None:
+        """Method equivalent of the `zone_b_volume` setter - see
+        `set_volume`."""
+        self.zone_b_volume = value
 
     @property
     def zone_b_volume_range(self) -> NumericRange | None:
@@ -822,6 +837,11 @@ class Receiver:
                 room_perfect_position,
             )
 
+    def set_room_perfect_position(self, room_perfect_position: str) -> None:
+        """Method equivalent of the `room_perfect_position` setter - see
+        `set_volume`."""
+        self.room_perfect_position = room_perfect_position
+
     def _voicing_callback(self, param1: str, param2: str):
         if self._voicings.is_full():
             self._voicing = param2
@@ -872,6 +892,10 @@ class Receiver:
             raise LyngdorfInvalidValueError(
                 "%s is not a valid voicing name, and cannot be chosen", voicing
             )
+
+    def set_voicing(self, voicing: str) -> None:
+        """Method equivalent of the `voicing` setter - see `set_volume`."""
+        self.voicing = voicing
 
     def _lipsync_range_callback(self, param1: str, ignored: str) -> None:
         """Handle a LIPSYNCRANGE reply - `!LIPSYNCRANGE(min,max)` arrives
@@ -936,6 +960,10 @@ class Receiver:
         self._validate_numeric("lipsync", lipsync, self.lipsync_range)
         self._api.change_lipsync(lipsync)
 
+    def set_lipsync(self, lipsync: int) -> None:
+        """Method equivalent of the `lipsync` setter - see `set_volume`."""
+        self.lipsync = lipsync
+
     # trims
     def _trim_bass_callback(self, param1: str, ignored: str) -> None:
         self._trim_bass = convert_decibel(param1, self._model.trim_bass_treble_scale())
@@ -949,6 +977,10 @@ class Receiver:
     def trim_bass(self, trim: float):
         self._validate_numeric("trim_bass", trim, self.trim_bass_range)
         self._api.change_trim_bass(trim)
+
+    def set_trim_bass(self, trim: float) -> None:
+        """Method equivalent of the `trim_bass` setter - see `set_volume`."""
+        self.trim_bass = trim
 
     @property
     def trim_bass_range(self) -> NumericRange | None:
@@ -974,6 +1006,11 @@ class Receiver:
     def trim_centre(self, trim: float):
         self._validate_numeric("trim_centre", trim, self.trim_centre_range)
         self._api.change_trim_centre(trim)
+
+    def set_trim_centre(self, trim: float) -> None:
+        """Method equivalent of the `trim_centre` setter - see
+        `set_volume`."""
+        self.trim_centre = trim
 
     @property
     def trim_centre_range(self) -> NumericRange | None:
@@ -1001,6 +1038,11 @@ class Receiver:
         self._validate_numeric("trim_height", trim, self.trim_height_range)
         self._api.change_trim_height(trim)
 
+    def set_trim_height(self, trim: float) -> None:
+        """Method equivalent of the `trim_height` setter - see
+        `set_volume`."""
+        self.trim_height = trim
+
     @property
     def trim_height_range(self) -> NumericRange | None:
         """The documented dB range (and UI step) for `trim_height`, or
@@ -1027,6 +1069,10 @@ class Receiver:
         self._validate_numeric("trim_lfe", trim, self.trim_lfe_range)
         self._api.change_trim_lfe(trim)
 
+    def set_trim_lfe(self, trim: float) -> None:
+        """Method equivalent of the `trim_lfe` setter - see `set_volume`."""
+        self.trim_lfe = trim
+
     @property
     def trim_lfe_range(self) -> NumericRange | None:
         """The documented dB range (and UI step) for `trim_lfe`, or None
@@ -1052,6 +1098,11 @@ class Receiver:
     def trim_surround(self, trim: float):
         self._validate_numeric("trim_surround", trim, self.trim_surround_range)
         self._api.change_trim_surround(trim)
+
+    def set_trim_surround(self, trim: float) -> None:
+        """Method equivalent of the `trim_surround` setter - see
+        `set_volume`."""
+        self.trim_surround = trim
 
     @property
     def trim_surround_range(self) -> NumericRange | None:
@@ -1080,6 +1131,11 @@ class Receiver:
     def trim_treble(self, trim: float):
         self._validate_numeric("trim_treble", trim, self.trim_treble_range)
         self._api.change_trim_treble(trim)
+
+    def set_trim_treble(self, trim: float) -> None:
+        """Method equivalent of the `trim_treble` setter - see
+        `set_volume`."""
+        self.trim_treble = trim
 
     @property
     def trim_treble_range(self) -> NumericRange | None:

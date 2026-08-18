@@ -3921,6 +3921,154 @@ class TestVolumeRangeAndValidation:
         assert sent == ["!VOL(-100)\r", "!ZVOL(-300)\r"]
 
 
+class TestMethodSetters:
+    """Issue #43: a method equivalent next to every property setter the
+    issue names, for callers (chiefly Home Assistant's `number` and
+    `select` platforms, which build entities from tables of small
+    callables rather than a subclass per control) that need a checked
+    method rather than a `setattr(receiver, "trim_bass", value)` string
+    literal a type checker cannot see into.
+
+    Each `set_*` method is a thin wrapper delegating to the matching
+    property setter (`self.volume = value`, not the reverse) rather than
+    duplicating its validation - the property setters predate this issue
+    and are already directly tested and documented, so wrapping them is
+    the smaller, lower-risk direction and guarantees the two can never
+    validate differently by construction, not just by coincidence. These
+    tests exercise that guarantee directly: each one asserts a `set_*`
+    call both raises exactly where the property setter would AND, on a
+    valid value, sends the identical wire command - rather than
+    independently re-deriving "is this validated correctly", which the
+    property setters' own tests (#37, #42) already cover.
+
+    Deliberately NOT added: mute_enabled/zone_b_mute_enabled, power_on/
+    zone_b_power_on, source/zone_b_source, sound_mode. Every one of
+    those maps onto a dedicated abstract method Home Assistant's own
+    `MediaPlayerEntity`/`SwitchEntity` base classes already require an
+    integration to override by name (`async_turn_on`, `async_mute_volume`,
+    `async_select_source`, `async_select_sound_mode`, ...), so an
+    integration writes `self._client.power_on = True` directly inside a
+    real method body - already a type-checked attribute access, with no
+    `setattr` and no string literal anywhere. The motivating bug (a
+    string literal invisible to mypy) only exists for the `number`/
+    `select`-style controls this issue lists, which are built from a
+    shared, data-driven entity-description table with no room for a
+    per-control method - so only those get a `set_*` equivalent here.
+    """
+
+    def test_set_volume_and_set_zone_b_volume_match_their_properties(self):
+        from lyngdorf.device import MP60Receiver, TDAI1120Receiver
+
+        receiver = MP60Receiver(FAKE_IP)
+        receiver._api._protocol = mock.Mock()
+        receiver.set_volume(-10.0)
+        receiver.set_zone_b_volume(-30.0)
+        sent = [call.args[0] for call in receiver._api._protocol.write.call_args_list]
+        assert sent == ["!VOL(-100)\r", "!ZVOL(-300)\r"]
+
+        with pytest.raises(LyngdorfInvalidValueError):
+            receiver.set_volume(999.0)
+        with pytest.raises(LyngdorfInvalidValueError):
+            receiver.set_zone_b_volume(999.0)
+
+        tdai = TDAI1120Receiver(FAKE_IP)
+        tdai._api._protocol = mock.Mock()
+        with pytest.raises(LyngdorfInvalidValueError):
+            # No Zone B on any TDAI model at all.
+            tdai.set_zone_b_volume(0.0)
+
+    def test_set_lipsync_matches_its_property(self):
+        from lyngdorf.device import MP60Receiver, TDAI1120Receiver
+
+        receiver = MP60Receiver(FAKE_IP)
+        receiver._api._protocol = mock.Mock()
+        receiver.set_lipsync(20)
+        sent = [call.args[0] for call in receiver._api._protocol.write.call_args_list]
+        assert sent == ["!LIPSYNC(20)\r"]
+
+        with pytest.raises(LyngdorfInvalidValueError):
+            receiver.set_lipsync(-50)
+
+        tdai = TDAI1120Receiver(FAKE_IP)
+        tdai._api._protocol = mock.Mock()
+        with pytest.raises(LyngdorfInvalidValueError):
+            # No lip sync control at all on any TDAI model.
+            tdai.set_lipsync(10)
+
+    def test_set_trim_methods_match_their_properties(self):
+        """Covers all six trims on an MP-60 (which has every one of
+        them - see has_surround_feature) and confirms the same
+        validation applies via TDAI-1120, which has bass/treble but no
+        discrete channel trims."""
+        from lyngdorf.device import MP60Receiver, TDAI1120Receiver
+
+        receiver = MP60Receiver(FAKE_IP)
+        receiver._api._protocol = mock.Mock()
+        receiver.set_trim_bass(1.0)
+        receiver.set_trim_treble(-1.0)
+        receiver.set_trim_centre(2.0)
+        receiver.set_trim_height(-2.0)
+        receiver.set_trim_lfe(3.0)
+        receiver.set_trim_surround(-3.0)
+        sent = [call.args[0] for call in receiver._api._protocol.write.call_args_list]
+        assert sent == [
+            "!TRIMBASS(10)\r",
+            "!TRIMTREB(-10)\r",
+            "!TRIMCENTER(20)\r",
+            "!TRIMHEIGHT(-20)\r",
+            "!TRIMLFE(30)\r",
+            "!TRIMSURRS(-30)\r",
+        ]
+
+        with pytest.raises(LyngdorfInvalidValueError):
+            receiver.set_trim_bass(999.0)
+        with pytest.raises(LyngdorfInvalidValueError):
+            receiver.set_trim_treble(999.0)
+        with pytest.raises(LyngdorfInvalidValueError):
+            receiver.set_trim_centre(999.0)
+        with pytest.raises(LyngdorfInvalidValueError):
+            receiver.set_trim_height(999.0)
+        with pytest.raises(LyngdorfInvalidValueError):
+            receiver.set_trim_lfe(999.0)
+        with pytest.raises(LyngdorfInvalidValueError):
+            receiver.set_trim_surround(999.0)
+
+        tdai = TDAI1120Receiver(FAKE_IP)
+        tdai._api._protocol = mock.Mock()
+        with pytest.raises(LyngdorfInvalidValueError):
+            # No discrete channel trims on any TDAI model at all.
+            tdai.set_trim_centre(0.0)
+        tdai.set_trim_bass(3.0)
+        tdai._api._protocol.write.assert_called()
+
+    def test_set_room_perfect_position_and_set_voicing_match_their_properties(self):
+        from lyngdorf.device import MP60Receiver
+
+        receiver = MP60Receiver(FAKE_IP)
+        receiver._api._protocol = mock.Mock()
+        # Populate the lookup tables the way the RPFOCCOUNT/RPFOC and
+        # RPVOICOUNT/RPVOI population bursts would (see
+        # _room_perfect_position_callback/_voicing_callback) - a bare
+        # CountingNumberDict rejects every name via lookupIndex()==-1
+        # otherwise.
+        receiver._room_perfect_positions.count_callback("2", "")
+        receiver._room_perfect_position_callback("0", "Global")
+        receiver._room_perfect_position_callback("1", "Focus 1")
+        receiver._voicings.count_callback("2", "")
+        receiver._voicing_callback("0", "Voice 0")
+        receiver._voicing_callback("1", "Voice 1")
+
+        receiver.set_room_perfect_position("Focus 1")
+        receiver.set_voicing("Voice 1")
+        sent = [call.args[0] for call in receiver._api._protocol.write.call_args_list]
+        assert sent == ["!RPFOC(1)\r", "!RPVOI(1)\r"]
+
+        with pytest.raises(LyngdorfInvalidValueError):
+            receiver.set_room_perfect_position("NotARealPosition")
+        with pytest.raises(LyngdorfInvalidValueError):
+            receiver.set_voicing("NotARealVoicing")
+
+
 class TestReceiverClassHierarchy:
     """Regression tests for the family-class-hierarchy refactor: model-
     specific behaviour (which messages a family registers, and under
