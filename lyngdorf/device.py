@@ -325,7 +325,7 @@ class Receiver:
             self._name = param1
 
     @property
-    def name(self):
+    def name(self) -> str | None:
         return self._name
 
     @property
@@ -333,7 +333,7 @@ class Receiver:
         return self._host
 
     @property
-    def model(self):
+    def model(self) -> LyngdorfModel:
         return self._model
 
     # Volumes
@@ -371,7 +371,7 @@ class Receiver:
         self._notify_notification_callbacks()
 
     @property
-    def volume(self):
+    def volume(self) -> float | None:
         return self._volume
 
     @volume.setter
@@ -465,7 +465,7 @@ class Receiver:
         return self._max_volume
 
     @property
-    def zone_b_volume(self):
+    def zone_b_volume(self) -> float | None:
         return self._zone_b_volume
 
     @zone_b_volume.setter
@@ -514,7 +514,7 @@ class Receiver:
         self._api.zone_b_volume_down()
 
     @property
-    def mute_enabled(self):
+    def mute_enabled(self) -> bool | None:
         return self._mute_enabled
 
     @mute_enabled.setter
@@ -522,7 +522,7 @@ class Receiver:
         self._api.mute_enabled(enabled)
 
     @property
-    def zone_b_mute_enabled(self):
+    def zone_b_mute_enabled(self) -> bool | None:
         return self._zone_b_mute_enabled
 
     @zone_b_mute_enabled.setter
@@ -530,7 +530,7 @@ class Receiver:
         self._api.zone_b_mute_enabled(enabled)
 
     @property
-    def source(self):
+    def source(self) -> str | None:
         return self._source
 
     @source.setter
@@ -583,7 +583,7 @@ class Receiver:
         return list(self._sources.values())
 
     @property
-    def zone_b_source(self):
+    def zone_b_source(self) -> str | None:
         return self._zone_b_source
 
     @zone_b_source.setter
@@ -609,7 +609,7 @@ class Receiver:
         return list(self._zone_b_sources.values())
 
     @property
-    def audio_input(self):
+    def audio_input(self) -> str | None:
         return self._audio_input
 
     def _audio_input_callback(self, param1: str, param2: str):
@@ -636,7 +636,7 @@ class Receiver:
         return list(self._audio_inputs.values())
 
     @property
-    def zone_b_audio_input(self):
+    def zone_b_audio_input(self) -> str | None:
         return self._zone_b_audio_input
 
     def _zone_b_audio_input_callback(self, param1: str, param2: str):
@@ -648,7 +648,7 @@ class Receiver:
         self._notify_notification_callbacks()
 
     @property
-    def video_input(self):
+    def video_input(self) -> str | None:
         return self._video_input
 
     def _video_input_callback(self, param1: str, param2: str):
@@ -676,11 +676,11 @@ class Receiver:
         return list(self._video_inputs.values())
 
     @property
-    def streaming_source(self):
+    def streaming_source(self) -> str | None:
         return self._streaming_source
 
     @property
-    def zone_b_streaming_source(self):
+    def zone_b_streaming_source(self) -> str | None:
         return self._zone_b_streaming_source
 
     def _stream_type_callback(self, param1: str, param2: str):
@@ -716,7 +716,7 @@ class Receiver:
         return list(self._stream_types.values())
 
     @property
-    def audio_information(self):
+    def audio_information(self) -> str | None:
         return self._audio_info
 
     def _audio_info_callback(self, param1: str, param2: str):
@@ -724,7 +724,7 @@ class Receiver:
         self._notify_notification_callbacks()
 
     @property
-    def video_information(self):
+    def video_information(self) -> str | None:
         return self._video_info
 
     def _video_info_callback(self, param1: str, param2: str):
@@ -732,7 +732,7 @@ class Receiver:
         self._notify_notification_callbacks()
 
     @property
-    def sound_mode(self):
+    def sound_mode(self) -> str | None:
         return self._sound_mode
 
     @sound_mode.setter
@@ -790,7 +790,7 @@ class Receiver:
             pass
 
     @property
-    def power_on(self):
+    def power_on(self) -> bool | None:
         return self._power_on
 
     @power_on.setter
@@ -798,7 +798,7 @@ class Receiver:
         self._api.power_on(enabled)
 
     @property
-    def zone_b_power_on(self):
+    def zone_b_power_on(self) -> bool | None:
         return self._zone_b_power_on
 
     @zone_b_power_on.setter
@@ -852,7 +852,7 @@ class Receiver:
         return list(self._room_perfect_positions.values())
 
     @property
-    def room_perfect_position(self):
+    def room_perfect_position(self) -> str | None:
         return self._room_perfect_position
 
     @room_perfect_position.setter
@@ -909,7 +909,7 @@ class Receiver:
         return list(self._voicings.values())
 
     @property
-    def voicing(self):
+    def voicing(self) -> str | None:
         return self._voicing
 
     @voicing.setter
@@ -986,7 +986,7 @@ class Receiver:
         self._notify_notification_callbacks()
 
     @property
-    def lipsync(self):
+    def lipsync(self) -> int | None:
         return self._lipsync
 
     @lipsync.setter
@@ -1009,7 +1009,7 @@ class Receiver:
         self._notify_notification_callbacks()
 
     @property
-    def trim_bass(self):
+    def trim_bass(self) -> float | None:
         return self._trim_bass
 
     @trim_bass.setter
@@ -1045,7 +1045,7 @@ class Receiver:
         self._notify_notification_callbacks()
 
     @property
-    def trim_centre(self):
+    def trim_centre(self) -> float | None:
         return self._trim_centre
 
     @trim_centre.setter
@@ -1083,7 +1083,7 @@ class Receiver:
         self._notify_notification_callbacks()
 
     @property
-    def trim_height(self):
+    def trim_height(self) -> float | None:
         return self._trim_height
 
     @trim_height.setter
@@ -1121,7 +1121,7 @@ class Receiver:
         self._notify_notification_callbacks()
 
     @property
-    def trim_lfe(self):
+    def trim_lfe(self) -> float | None:
         return self._trim_lfe
 
     @trim_lfe.setter
@@ -1158,7 +1158,7 @@ class Receiver:
         self._notify_notification_callbacks()
 
     @property
-    def trim_surround(self):
+    def trim_surround(self) -> float | None:
         return self._trim_surround
 
     @trim_surround.setter
@@ -1198,7 +1198,7 @@ class Receiver:
         self._notify_notification_callbacks()
 
     @property
-    def trim_treble(self):
+    def trim_treble(self) -> float | None:
         return self._trim_treble
 
     @trim_treble.setter
