@@ -1,0 +1,59 @@
+{
+  "_comment": "Generated from measured usage of the Home Assistant lyngdorf integration. Do not hand-edit; regenerate and replace.",
+  "source": "home-assistant/core lyngdorf integration",
+  "measured_at": "2026-08-21",
+  "branches": ["lyngdorf-remote", "lyngdorf-select"],
+  "classified_against": "lyngdorf 2.0 design spec section 7, commit 3138166",
+
+  "shimmed_reads": [
+    "available_audio_inputs", "available_remote_keys", "available_repeat_modes",
+    "available_room_perfect_positions", "available_sound_modes", "available_sources",
+    "available_stream_types", "available_video_inputs", "available_voicings",
+    "can_shuffle", "has_position", "has_remote_keys", "lipsync_range",
+    "mute_enabled", "now_playing", "position_ms", "position_updated_at",
+    "repeat", "shuffle", "volume_range",
+    "trim_bass", "trim_treble", "trim_centre", "trim_height", "trim_lfe", "trim_surround",
+    "trim_bass_range", "trim_treble_range", "trim_centre_range",
+    "trim_height_range", "trim_lfe_range", "trim_surround_range",
+    "zone_b_audio_input", "zone_b_available_sources", "zone_b_mute_enabled",
+    "zone_b_power_on", "zone_b_source", "zone_b_streaming_source",
+    "zone_b_volume", "zone_b_volume_range"
+  ],
+
+  "shimmed_write_methods": [
+    "set_volume", "set_zone_b_volume", "set_lipsync",
+    "set_trim_bass", "set_trim_treble", "set_trim_centre",
+    "set_trim_height", "set_trim_lfe", "set_trim_surround",
+    "send_remote_commands"
+  ],
+
+  "shimmed_steppers": [
+    "volume_up", "volume_down", "zone_b_volume_up", "zone_b_volume_down"
+  ],
+
+  "shimmed_methods_already_async": [
+    "async_connect", "async_disconnect", "async_pause", "async_next",
+    "async_previous", "async_seek", "async_set_shuffle", "async_set_repeat"
+  ],
+
+  "shimmed_callbacks": [
+    "register_notification_callback", "register_position_jump_callback"
+  ],
+
+  "await_same_name": ["set_room_perfect_position", "set_voicing"],
+
+  "no_shim_reused_names": ["volume", "lipsync"],
+
+  "no_shim_removed": ["un_register_notification_callback"],
+
+  "kept_unchanged": [
+    "audio_information", "audio_input", "connected", "max_volume", "model",
+    "power_on", "room_perfect_position", "sound_mode", "source",
+    "streaming_source", "video_information", "video_input", "voicing"
+  ],
+
+  "also_written_by_production_setter_carve_out": [
+    "power_on", "mute_enabled", "source", "sound_mode",
+    "zone_b_power_on", "zone_b_mute_enabled", "zone_b_source"
+  ]
+}
