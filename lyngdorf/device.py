@@ -12,7 +12,7 @@ All communication via TCP/IP on port 84 (no serial port support).
 import asyncio
 import contextlib
 import logging
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from datetime import datetime
 from typing import TYPE_CHECKING
 
@@ -41,8 +41,9 @@ from .const import (
     LyngdorfModel,
     Msg,
 )
-from .exceptions import LyngdorfInvalidValueError
+from .exceptions import LyngdorfInvalidValueError, LyngdorfUnsupportedError
 from .models import NumericRange
+from .remote import RemoteKey, resolve_remote_key
 from .states import Control, PlayMode, Repeat
 from .streaming import NowPlaying
 
@@ -1424,6 +1425,111 @@ class Receiver:
         See `LyngdorfApi.async_set_repeat`.
         """
         return await self._api.async_set_repeat(repeat)
+
+    # Remote control (#46)
+
+    @property
+    def available_remote_keys(self) -> frozenset[RemoteKey]:
+        """Every remote-control button this model's protocol documents.
+
+        An explicit per-model set (see `ModelConfig.remote_keys`), never
+        inferred from whether some unrelated wire command happens to
+        succeed. Empty for the whole TDAI family, which has no
+        navigation hardware at all; the MP and P families both populate
+        the full button set their manual documents - see
+        `lyngdorf/remote.py` for the per-model wire tables.
+
+        Feeds both a consumer's advertised command list (e.g. Home
+        Assistant's `remote` platform) and its own input validation, so
+        it never has to guess what this model supports.
+        """
+        return self._model.available_remote_keys()
+
+    @property
+    def has_remote_keys(self) -> bool:
+        """Whether this model has any remote-control buttons at all.
+
+        False for the whole TDAI family - a consumer should offer no
+        remote entity at all in that case, rather than one that
+        advertises but supports nothing.
+        """
+        return self._model.has_remote_keys_feature()
+
+    def press(self, key: RemoteKey) -> None:
+        """Press a single remote key.
+
+        Typed convenience for a caller that already has a `RemoteKey`
+        and is not going through strings at all. `send_remote_commands`
+        is the entry point shaped for Home Assistant's
+        `RemoteEntity.async_send_command`; this delegates to it with a
+        single-item batch so the two can never validate or dispatch
+        differently.
+
+        Raises:
+            LyngdorfUnsupportedError: this model does not have `key`.
+        """
+        self.send_remote_commands([key])
+
+    def send_remote_commands(
+        self, commands: Iterable[str | RemoteKey], num_repeats: int = 1
+    ) -> None:
+        """Send a batch of remote-key presses, in order.
+
+        Shaped to match Home Assistant's
+        `RemoteEntity.async_send_command` exactly -
+        `command: Iterable[str]` plus `num_repeats` - so the integration
+        needs no translation layer:
+
+            async def async_send_command(self, command, **kwargs):
+                self._receiver.send_remote_commands(
+                    command, num_repeats=kwargs.get(ATTR_NUM_REPEATS, 1)
+                )
+
+        Also accepts `RemoteKey` directly, for callers that are not going
+        through strings at all.
+
+        Every command is resolved to a `RemoteKey` - case-insensitively
+        for strings, so `up`/`UP`/`Up` all resolve the same way, see
+        `resolve_remote_key` - and checked against
+        `available_remote_keys` for *this whole batch* before anything is
+        sent. A typo (or a key this model does not have) partway through
+        a batch of six therefore raises before the first of the other
+        five reaches the device, rather than leaving the device half
+        navigated through a menu on the way to discovering the mistake.
+
+        Raises:
+            LyngdorfUnsupportedError: some `commands` entry does not
+                resolve to a `RemoteKey` this model has, naming the bad
+                value and what this model does support.
+
+        `num_repeats` presses of the same key are enqueued individually
+        - the outbound write queue already paces every write and never
+        coalesces a remote key (see `LyngdorfApi.send_remote_key`), so
+        nothing further is needed here for `num_repeats` presses to
+        reach the device as that many distinct, in-order wire commands.
+
+        `delay_secs`, which `RemoteEntity.async_send_command` also
+        accepts, is deliberately NOT supported here: the write queue
+        already owns pacing (`COMMAND_PACING_MS`), and a second,
+        caller-supplied delay on top of it would fight that rather than
+        cooperate with it. An integration should drop that argument
+        rather than have this library grow a second timing mechanism.
+        """
+        available = self.available_remote_keys
+        resolved: list[RemoteKey] = []
+        for command in commands:
+            key = resolve_remote_key(command)
+            if key is None or key not in available:
+                raise LyngdorfUnsupportedError(
+                    f"{command!r} is not a supported remote key for model "
+                    f"{self._model.model_name} (available: "
+                    f"{sorted(available) or 'none'})"
+                )
+            resolved.append(key)
+
+        for key in resolved:
+            for _ in range(num_repeats):
+                self._api.send_remote_key(key)
 
 
 if TYPE_CHECKING:

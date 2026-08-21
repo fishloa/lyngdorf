@@ -181,28 +181,15 @@ Msg = Enum(
         "AUDIO_MODE_NEXT",  # MP only
         "AUDIO_MODE_PREV",  # MP only
         "AUDIO_MODE_BUTTON",  # MP only - toggles audio mode menu
-        # Navigation (MP only)
-        "CURSOR_UP",
-        "CURSOR_DOWN",
-        "CURSOR_LEFT",
-        "CURSOR_RIGHT",
-        "CURSOR_ENTER",
-        "MENU",
-        "INFO",
-        "SETTINGS",
-        "NAV_BACK",
-        "DIGIT_0",
-        "DIGIT_1",
-        "DIGIT_2",
-        "DIGIT_3",
-        "DIGIT_4",
-        "DIGIT_5",
-        "DIGIT_6",
-        "DIGIT_7",
-        "DIGIT_8",
-        "DIGIT_9",
     ],
 )
+
+# Navigation/remote-control buttons (DIRU/DIRD/.../MENU/INFO/SETUP/BACK/EXIT/
+# MULTIVIEW/NUM(0..9)) are deliberately NOT in `Msg` above - see
+# lyngdorf/remote.py's module docstring for why. They are write-only (the
+# device never replies to any of them), so they do not fit `Msg`'s
+# bidirectional shape at all; each model's `RemoteKey` -> wire-command table
+# lives in `ModelConfig.remote_keys` instead. See issue #46.
 
 # Message types whose wire command is an *absolute* setter - `TOKEN(value)`,
 # where the latest value fully supersedes any earlier one still waiting to

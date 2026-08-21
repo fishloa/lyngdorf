@@ -14,6 +14,7 @@ Protocol Characteristics:
 """
 
 from ..const import Msg
+from ..remote import RemoteKey, RemoteKeyTable
 from .base import ModelConfig, NumericRange
 
 # The MP volume ceiling of +24.0 dB is measured, not just transcribed: on a
@@ -154,26 +155,32 @@ MP_MESSAGES: dict[Msg, str] = {
     Msg.AUDIO_MODE_NEXT: "AUDMODE+",
     Msg.AUDIO_MODE_PREV: "AUDMODE-",
     Msg.AUDIO_MODE_BUTTON: "AUDIO",
-    Msg.CURSOR_UP: "DIRU",
-    Msg.CURSOR_DOWN: "DIRD",
-    Msg.CURSOR_LEFT: "DIRL",
-    Msg.CURSOR_RIGHT: "DIRR",
-    Msg.CURSOR_ENTER: "ENTER",
-    Msg.MENU: "MENU",
-    Msg.INFO: "INFO",
-    Msg.SETTINGS: "SETUP",
-    Msg.NAV_BACK: "BACK",
-    Msg.DIGIT_0: "NUM(0)",
-    Msg.DIGIT_1: "NUM(1)",
-    Msg.DIGIT_2: "NUM(2)",
-    Msg.DIGIT_3: "NUM(3)",
-    Msg.DIGIT_4: "NUM(4)",
-    Msg.DIGIT_5: "NUM(5)",
-    Msg.DIGIT_6: "NUM(6)",
-    Msg.DIGIT_7: "NUM(7)",
-    Msg.DIGIT_8: "NUM(8)",
-    Msg.DIGIT_9: "NUM(9)",
 }
+
+# MP-40/50/60 remote-key wire commands (write-only - see lyngdorf/remote.py).
+# Checked individually against docs/mp-40.md, docs/mp-50.md and
+# docs/mp-60.md, which all document an identical button set. No `!BACK` on
+# any MP model - `!BACK` is documented for the P series only
+# (docs/p-series.md); MP documents `!EXIT` instead (see P_REMOTE_KEYS in
+# p_series.py for the P-series table, which has both). Getting this
+# backwards (wiring MP's NAV_BACK to "BACK" and never mapping "EXIT" at
+# all) is the defect issue #46 found and this table fixes.
+MP_REMOTE_KEYS = RemoteKeyTable(
+    commands={
+        RemoteKey.UP: "DIRU",
+        RemoteKey.DOWN: "DIRD",
+        RemoteKey.LEFT: "DIRL",
+        RemoteKey.RIGHT: "DIRR",
+        RemoteKey.ENTER: "ENTER",
+        RemoteKey.MENU: "MENU",
+        RemoteKey.INFO: "INFO",
+        RemoteKey.SETTINGS: "SETUP",
+        RemoteKey.EXIT: "EXIT",
+        RemoteKey.MULTIVIEW: "MULTIVIEW",
+    },
+    # `!NUM(X)` is one parameterised command, not ten literal entries.
+    digit_format="NUM({})",
+)
 
 # Shared MP Setup Command Sequence
 MP_SETUP_MESSAGES: list[str] = [
@@ -277,6 +284,7 @@ MP40_CONFIG = ModelConfig(
     lipsync_default_range=LIPSYNC_DEFAULT_RANGE,
     volume_range=MP_VOLUME_RANGE,
     zone_b_volume_range=MP_VOLUME_RANGE,
+    remote_keys=MP_REMOTE_KEYS,
 )
 
 # MP-50 Hardware Configuration
@@ -367,6 +375,7 @@ MP50_CONFIG = ModelConfig(
     lipsync_default_range=LIPSYNC_DEFAULT_RANGE,
     volume_range=MP_VOLUME_RANGE,
     zone_b_volume_range=MP_VOLUME_RANGE,
+    remote_keys=MP_REMOTE_KEYS,
 )
 
 # MP-60 Hardware Configuration
@@ -462,4 +471,5 @@ MP60_CONFIG = ModelConfig(
     lipsync_default_range=LIPSYNC_DEFAULT_RANGE,
     volume_range=MP_VOLUME_RANGE,
     zone_b_volume_range=MP_VOLUME_RANGE,
+    remote_keys=MP_REMOTE_KEYS,
 )

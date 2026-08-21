@@ -13,6 +13,7 @@ Manual only and has not been verified against real hardware.
 """
 
 from ..const import Msg
+from ..remote import RemoteKey, RemoteKeyTable
 from .base import ModelConfig, NumericRange
 
 # Fallback for Receiver.lipsync_range before a real LIPSYNCRANGE? reply
@@ -78,6 +79,32 @@ P_MESSAGES: dict[Msg, str] = {
     # aren't validated).
     Msg.MAX_VOLUME: "MAXVOL",
 }
+
+# P100/200/300 remote-key wire commands (write-only - see
+# lyngdorf/remote.py). Checked against docs/p-series.md, which documents
+# one shared button set for the whole family (the manual itself notes
+# `!MULTIVIEW` is functional on the P200 only, but the command table -
+# and this issue's per-model coverage table - lists it for the family, so
+# it is mapped here for all three; P100/P300 simply have no button that
+# sends it). Unlike MP, the P series documents `!BACK` - see
+# MP_REMOTE_KEYS in mp_series.py for why MP does not get it.
+P_REMOTE_KEYS = RemoteKeyTable(
+    commands={
+        RemoteKey.UP: "DIRU",
+        RemoteKey.DOWN: "DIRD",
+        RemoteKey.LEFT: "DIRL",
+        RemoteKey.RIGHT: "DIRR",
+        RemoteKey.ENTER: "ENTER",
+        RemoteKey.MENU: "MENU",
+        RemoteKey.INFO: "INFO",
+        RemoteKey.SETTINGS: "SETUP",
+        RemoteKey.BACK: "BACK",
+        RemoteKey.EXIT: "EXIT",
+        RemoteKey.MULTIVIEW: "MULTIVIEW",
+    },
+    # `!NUM(X)` is one parameterised command, not ten literal entries.
+    digit_format="NUM({})",
+)
 
 # Shared P Series Setup Command Sequence
 P_SETUP_MESSAGES: list[str] = [
@@ -154,6 +181,7 @@ P100_CONFIG = ModelConfig(
     lipsync_default_range=P_LIPSYNC_DEFAULT_RANGE,
     volume_range=P_VOLUME_RANGE,
     zone_b_volume_range=P_VOLUME_RANGE,
+    remote_keys=P_REMOTE_KEYS,
 )
 
 # P200 / P300 Hardware Configuration
@@ -195,6 +223,7 @@ P200_CONFIG = ModelConfig(
     lipsync_default_range=P_LIPSYNC_DEFAULT_RANGE,
     volume_range=P_VOLUME_RANGE,
     zone_b_volume_range=P_VOLUME_RANGE,
+    remote_keys=P_REMOTE_KEYS,
 )
 
 P300_CONFIG = ModelConfig(
@@ -211,4 +240,5 @@ P300_CONFIG = ModelConfig(
     lipsync_default_range=P_LIPSYNC_DEFAULT_RANGE,
     volume_range=P_VOLUME_RANGE,
     zone_b_volume_range=P_VOLUME_RANGE,
+    remote_keys=P_REMOTE_KEYS,
 )
