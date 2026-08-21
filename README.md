@@ -9,34 +9,63 @@ Python library to control Lyngdorf A/V processors and integrated amplifiers over
 ## Supported Models
 
 ### MP Series (Multichannel Processors)
-- **MP-40** - Entry-level processor (3 HDMI inputs, 12-channel decoding)
-- **MP-50** - Mid-level processor (8 HDMI inputs, 11.1 + 4 aux)
-- **MP-60** - Flagship processor (8 HDMI inputs, 16-channel decoding)
+- **[MP-40](https://lyngdorf.steinwaylyngdorf.com/lyngdorf-mp-40/)** - Entry-level processor (3 HDMI inputs, 12-channel decoding)
+- **[MP-50](https://lyngdorf.steinwaylyngdorf.com/electronics/)** - Mid-level processor (8 HDMI inputs, 11.1 + 4 aux) — discontinued, no product page remains
+- **[MP-60](https://lyngdorf.steinwaylyngdorf.com/lyngdorf-mp-60/)** - Flagship processor (8 HDMI inputs, 16-channel decoding)
 
 ### TDAI Series (Integrated Amplifiers)
-- **TDAI-1120** - Entry-level integrated amplifier
-- **TDAI-2170** - Older integrated amplifier model, with a more limited protocol
-- **TDAI-2210** - Integrated amplifier sharing the TDAI-1120/3400 protocol
-- **TDAI-3400** - Top-of-line networked integrated amplifier
+- **[TDAI-1120](https://lyngdorf.steinwaylyngdorf.com/lyngdorf-tdai-1120/)** - Entry-level integrated amplifier
+- **[TDAI-2170](https://lyngdorf.steinwaylyngdorf.com/electronics/)** - Older integrated amplifier model, with a more limited protocol — discontinued
+- **[TDAI-2210](https://lyngdorf.steinwaylyngdorf.com/lyngdorf-tdai-2210/)** - Integrated amplifier sharing the TDAI-1120/3400 protocol
+- **[TDAI-3400](https://lyngdorf.steinwaylyngdorf.com/lyngdorf-tdai-3400/)** - Top-of-line networked integrated amplifier
 
 ### P Series (Cinema Processors)
-- **P100** - Entry-level cinema processor (4 HDMI inputs, no video output routing)
-- **P200** - Mid-level cinema processor (9 HDMI inputs, up to 5 HDMI outputs)
-- **P300** - Flagship cinema processor (9 HDMI inputs, up to 5 HDMI outputs)
+Sold under the Steinway Lyngdorf brand.
 
-The P series are cinema/multichannel processors with no built-in streaming
-module and no discrete channel trim controls.
+- **[P100](https://steinwaylyngdorf.com/steinway-sons-p100/)** - Entry-level cinema processor (4 HDMI inputs, no video output routing)
+- **[P200](https://steinwaylyngdorf.com/steinway-sons-p200/)** - Mid-level cinema processor (9 HDMI inputs, up to 5 HDMI outputs)
+- **[P300](https://steinwaylyngdorf.com/steinway-sons-p300/)** - Flagship cinema processor (9 HDMI inputs, up to 5 HDMI outputs)
 
-All models support:
-- Power control
-- Volume/mute control
-- Source selection
-- RoomPerfect™ room correction
-- Voicing selection
-- Trim controls (bass, treble, center, height, LFE, surround) - MP and TDAI series
-- Zone B control (MP and P series)
-- Remote-control buttons - cursor navigation, menu/info/setup, digits, exit
-  (MP and P series only - the TDAI family has no navigation hardware at all)
+## Capability Matrix
+
+What this library supports **per model**. Generated from `ModelConfig`, and
+covered by a test that regenerates every cell from the live config, so it
+cannot drift from the code.
+
+| Model | Zone B | Video | Surround trims | Streaming | Remote keys | Volume (dB) | Bass/treble trim | Lip sync | MAXVOL |
+|---|---|---|---|---|---|---|---|---|---|
+| **MP-40** | ✅ | ✅ | ✅ | ✅ | 21 | -99.9 to 24 / 0.1 | -12 to 12 / 0.1 | ✅ | ✅ |
+| **MP-50** | ✅ | ✅ | ✅ | ✅ | 21 | -99.9 to 24 / 0.1 | -12 to 12 / 0.1 | ✅ | ✅ |
+| **MP-60** | ✅ | ✅ | ✅ | ✅ | 21 | -99.9 to 24 / 0.1 | -12 to 12 / 0.1 | ✅ | ✅ |
+| **TDAI-1120** | — | — | — | ✅ | — | -99.9 to 12 / 0.1 | -12 to 12 / 1 | — | — |
+| **TDAI-2170** | — | — | — | — | — | -99.9 to 12 / 0.1 | — | — | — |
+| **TDAI-2210** | — | — | — | ✅ | — | -99.9 to 12 / 0.1 | -12 to 12 / 1 | — | — |
+| **TDAI-3400** | — | — | — | ✅ | — | -99.9 to 12 / 0.1 | -12 to 12 / 1 | — | — |
+| **P100** | ✅ | ✅ | — | — | 20 | -99.9 to 24 / 0.1 | — | ✅ | ✅ |
+| **P200** | ✅ | ✅ | — | — | 21 | -99.9 to 24 / 0.1 | — | ✅ | ✅ |
+| **P300** | ✅ | ✅ | — | — | 20 | -99.9 to 24 / 0.1 | — | ✅ | ✅ |
+
+Reading the matrix:
+
+- **Surround trims** are the discrete channel trims (centre, height, LFE,
+  surround). Bass and treble are separate and listed in their own column,
+  because the TDAI family has those but not the discrete ones.
+- **Streaming** means the device has a StreamUnlimited module on port 8080:
+  now-playing metadata, playback position, transport and play modes. The
+  TDAI-2170 and the whole P series have no streaming module.
+- **Remote keys** counts the buttons the model exposes. MP-40/50/60 and the
+  P200 have 21; the P100 and P300 have 20, lacking `MULTIVIEW`, which
+  the P-series manual restricts to the P200. The TDAI family has no
+  navigation hardware at all, so `has_remote_keys` is `False` there.
+- **Volume / trim ranges** are `NumericRange(min, max, step)`. Note the step:
+  the MP and P series adjust trims in 0.1 dB, the TDAI family in whole dB
+  only. These ranges are advisory — read the setter docs before treating
+  them as enforcement.
+- **MAXVOL** is the device's user-settable safety ceiling. Read-only in this
+  library. No TDAI manual documents the command at all.
+
+All models support power, volume and mute, source selection, RoomPerfect™
+room correction, and voicing selection.
 
 ## Installation
 
