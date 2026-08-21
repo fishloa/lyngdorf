@@ -257,9 +257,11 @@ receiver.zone_b_source = "Apple TV"
 ### Remote Control (MP and P Series)
 
 The MP and P series both expose the device's on-screen-menu remote buttons -
-cursor navigation, `MENU`/`INFO`/`SETUP`, digits, `EXIT` (and, on the P series
-only, `BACK`) - as a small, write-only API. The whole TDAI family has no
-navigation hardware at all, so `has_remote_keys` is `False` and
+cursor navigation, `MENU`/`INFO`/`SETUP`, `BACK`/`EXIT`, digits - as a small,
+write-only API, and the two families' key sets are identical. (The MP manuals
+document only `EXIT` and omit `BACK` entirely, but a real MP-60 accepts
+`!BACK` too - the manuals are wrong here, not the mapping.) The whole TDAI
+family has no navigation hardware at all, so `has_remote_keys` is `False` and
 `available_remote_keys` is empty there.
 
 ```python
@@ -283,11 +285,13 @@ if receiver.has_remote_keys:
 ```
 
 `send_remote_commands` resolves every command in the batch to a `RemoteKey`
-*before* sending anything - a typo (or a key this model doesn't have, such as
-`BACK` on an MP model) raises `LyngdorfUnsupportedError` naming the bad value
-and what the model does support, rather than leaving the device halfway
-through a menu navigation on the way to discovering the mistake. `num_repeats`
-presses of the same key are enqueued individually; `delay_secs` (also part of
+*before* sending anything - a typo (or a key this model doesn't have) raises
+`LyngdorfUnsupportedError` naming the bad value and what the model does
+support, rather than leaving the device halfway through a menu navigation on
+the way to discovering the mistake. `num_repeats` repeats the *whole resolved
+sequence* as a block - `["1", "2", "3"]` with `num_repeats=2` sends `123123`,
+not `112233` - matching how Home Assistant's own `broadlink`/`harmony`
+integrations interpret the same field. `delay_secs` (also part of
 `RemoteEntity.async_send_command`'s signature) is deliberately not supported -
 the outbound write queue already owns pacing, and a caller-supplied delay on
 top of it would only fight that. An integration should drop that argument

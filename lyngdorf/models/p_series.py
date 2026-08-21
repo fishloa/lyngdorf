@@ -86,8 +86,11 @@ P_MESSAGES: dict[Msg, str] = {
 # `!MULTIVIEW` is functional on the P200 only, but the command table -
 # and this issue's per-model coverage table - lists it for the family, so
 # it is mapped here for all three; P100/P300 simply have no button that
-# sends it). Unlike MP, the P series documents `!BACK` - see
-# MP_REMOTE_KEYS in mp_series.py for why MP does not get it.
+# sends it). docs/p-series.md documents `!BACK` directly, unlike the MP
+# manuals, which omit it entirely - but a real MP-60 accepts it too (see
+# MP_REMOTE_KEYS in mp_series.py for the measurement), so MP gets it as
+# well now. The two families' remote-key sets are not actually
+# differentiated by `BACK` at all; they happen to be identical.
 P_REMOTE_KEYS = RemoteKeyTable(
     commands={
         RemoteKey.UP: "DIRU",

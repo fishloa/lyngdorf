@@ -38,16 +38,22 @@ from lyngdorf.remote import RemoteKey, RemoteKeyTable, resolve_remote_key
 
 FAKE_IP = "0.0.0.0"
 
-# Every key an MP model documents - see docs/mp-40.md, docs/mp-50.md,
-# docs/mp-60.md. No BACK: MP documents !EXIT instead (see MP_REMOTE_KEYS,
-# mp_series.py).
-MP_EXPECTED_KEYS = frozenset(
+# Every key both the MP and P families have. The MP manuals
+# (docs/mp-40.md, docs/mp-50.md, docs/mp-60.md) omit `!BACK` and document
+# only `!EXIT`, but that is a documentation error, not a hardware gap: a
+# real MP-60 on firmware 5.4.2 echoes `#BACK` at `!VERB(2)` (which stays
+# silent for anything it does not recognise) while rejecting deliberately
+# malformed controls in the same session - see MP_REMOTE_KEYS in
+# mp_series.py for the measurement. The MP and P key sets are therefore
+# identical, not differentiated by BACK as originally assumed.
+EXPECTED_KEYS = frozenset(
     {
         RemoteKey.UP,
         RemoteKey.DOWN,
         RemoteKey.LEFT,
         RemoteKey.RIGHT,
         RemoteKey.ENTER,
+        RemoteKey.BACK,
         RemoteKey.MENU,
         RemoteKey.INFO,
         RemoteKey.SETTINGS,
@@ -66,10 +72,6 @@ MP_EXPECTED_KEYS = frozenset(
     }
 )
 
-# Every key a P model documents - see docs/p-series.md. Same as MP, plus
-# BACK, which docs/p-series.md documents and no MP manual does.
-P_EXPECTED_KEYS = MP_EXPECTED_KEYS | {RemoteKey.BACK}
-
 
 def _sent(receiver: Receiver) -> list[str]:
     """Every command that actually reached the mocked transport, in order."""
@@ -87,16 +89,25 @@ class TestPerModelCapability:
     never inferred from anything else - see ModelConfig.remote_keys."""
 
     @pytest.mark.parametrize("receiver_cls", [MP40Receiver, MP50Receiver, MP60Receiver])
-    def test_mp_models_have_the_full_mp_key_set(self, receiver_cls):
+    def test_mp_models_have_the_full_key_set(self, receiver_cls):
         receiver = receiver_cls(FAKE_IP)
-        assert receiver.available_remote_keys == MP_EXPECTED_KEYS
+        assert receiver.available_remote_keys == EXPECTED_KEYS
         assert receiver.has_remote_keys is True
 
     @pytest.mark.parametrize("receiver_cls", [P100Receiver, P200Receiver, P300Receiver])
-    def test_p_models_have_the_full_p_key_set_including_back(self, receiver_cls):
+    def test_p_models_have_the_full_key_set(self, receiver_cls):
         receiver = receiver_cls(FAKE_IP)
-        assert receiver.available_remote_keys == P_EXPECTED_KEYS
+        assert receiver.available_remote_keys == EXPECTED_KEYS
         assert receiver.has_remote_keys is True
+
+    def test_mp_and_p_key_sets_are_identical(self):
+        """BACK was originally thought to be P-only, but a real MP-60
+        accepts it too (see MP_REMOTE_KEYS in mp_series.py) - the two
+        families' key sets do not actually differ at all."""
+        assert (
+            MP60Receiver(FAKE_IP).available_remote_keys
+            == P100Receiver(FAKE_IP).available_remote_keys
+        )
 
     @pytest.mark.parametrize(
         "receiver_cls",
@@ -107,11 +118,13 @@ class TestPerModelCapability:
         assert receiver.available_remote_keys == frozenset()
         assert receiver.has_remote_keys is False
 
-    def test_mp_does_not_have_back(self):
-        """The defect this issue fixes: MP models must NOT get BACK - no
-        MP manual documents `!BACK` (only docs/p-series.md does)."""
+    def test_mp_has_back(self):
+        """No MP manual documents `!BACK`, but a real MP-60 on firmware
+        5.4.2 accepts it (see MP_REMOTE_KEYS in mp_series.py for the
+        `!VERB(2)` echo measurement) - the manual is wrong, not the
+        table. Do not "fix" this back to excluding BACK."""
         receiver = MP60Receiver(FAKE_IP)
-        assert RemoteKey.BACK not in receiver.available_remote_keys
+        assert RemoteKey.BACK in receiver.available_remote_keys
 
     def test_mp_has_exit(self):
         """The other half of the same defect: MP models must have EXIT,
@@ -197,11 +210,12 @@ class TestWireCommandPerModel:
         receiver.press(RemoteKey.EXIT)
         assert _sent(receiver) == ["!EXIT\r"]
 
-    def test_mp60_back_is_unsupported(self):
+    def test_mp60_back_sends_back(self):
+        """A real MP-60 accepts `!BACK` despite no MP manual documenting
+        it - see MP_REMOTE_KEYS in mp_series.py for the measurement."""
         receiver = _wire(MP60Receiver(FAKE_IP))
-        with pytest.raises(LyngdorfUnsupportedError):
-            receiver.press(RemoteKey.BACK)
-        assert _sent(receiver) == []
+        receiver.press(RemoteKey.BACK)
+        assert _sent(receiver) == ["!BACK\r"]
 
     def test_p100_back_sends_back(self):
         receiver = _wire(P100Receiver(FAKE_IP))
@@ -292,11 +306,12 @@ class TestBatchValidatesBeforeSending:
         assert _sent(receiver) == []
 
     def test_unsupported_key_for_this_model_raises_and_sends_nothing(self):
-        """BACK resolves to a real RemoteKey, but MP60 does not have it -
-        still must raise before sending, same as an unresolvable string."""
-        receiver = _wire(MP60Receiver(FAKE_IP))
+        """UP resolves to a real RemoteKey, but this TDAI model has no
+        remote keys at all - still must raise before sending, same as an
+        unresolvable string."""
+        receiver = _wire(TDAI1120Receiver(FAKE_IP))
         with pytest.raises(LyngdorfUnsupportedError):
-            receiver.send_remote_commands(["up", "back"])
+            receiver.send_remote_commands(["up"])
         assert _sent(receiver) == []
 
     def test_error_message_names_the_bad_value_and_available_keys(self):

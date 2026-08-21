@@ -159,12 +159,21 @@ MP_MESSAGES: dict[Msg, str] = {
 
 # MP-40/50/60 remote-key wire commands (write-only - see lyngdorf/remote.py).
 # Checked individually against docs/mp-40.md, docs/mp-50.md and
-# docs/mp-60.md, which all document an identical button set. No `!BACK` on
-# any MP model - `!BACK` is documented for the P series only
-# (docs/p-series.md); MP documents `!EXIT` instead (see P_REMOTE_KEYS in
-# p_series.py for the P-series table, which has both). Getting this
-# backwards (wiring MP's NAV_BACK to "BACK" and never mapping "EXIT" at
-# all) is the defect issue #46 found and this table fixes.
+# docs/mp-60.md, which all document an identical button set - except for
+# `!BACK`, which none of the three manuals mention (they document `!EXIT`
+# only). The manuals are wrong here: probed against a real MP-60 on
+# firmware 5.4.2 at `!VERB(2)` (which echoes every command the device
+# recognises with a leading `#`, and stays silent for anything it
+# doesn't), `!BACK` came back `#BACK` - accepted - while deliberately
+# malformed controls sent in the same session got no echo at all, so the
+# discriminator is sound and this is not noise. `!EXIT`, `!MULTIVIEW` and
+# every other token below were also confirmed accepted the same way. This
+# matches `jsoutter/ha-lyngdorf`, which ships `BACK` for MP models too.
+# Measured on an MP-60 only - MP-40/MP-50 are inferred from the shared
+# manual lineage and the same third-party mapping, not independently
+# measured. `EXIT` is kept alongside `BACK`: both are genuinely accepted,
+# distinct buttons, not two names for the same one. Do not remove `BACK`
+# to "match the manual" - the manual is the thing that's wrong here.
 MP_REMOTE_KEYS = RemoteKeyTable(
     commands={
         RemoteKey.UP: "DIRU",
@@ -173,6 +182,7 @@ MP_REMOTE_KEYS = RemoteKeyTable(
         RemoteKey.RIGHT: "DIRR",
         RemoteKey.ENTER: "ENTER",
         RemoteKey.MENU: "MENU",
+        RemoteKey.BACK: "BACK",
         RemoteKey.INFO: "INFO",
         RemoteKey.SETTINGS: "SETUP",
         RemoteKey.EXIT: "EXIT",
