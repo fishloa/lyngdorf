@@ -185,6 +185,27 @@ class TestSupportedModels:
         """Test lookup_receiver_model returns None for unknown models."""
         assert lookup_receiver_model("unknown-model") is None
 
+    @pytest.mark.asyncio
+    async def test_every_model_has_an_exported_receiver_class(self):
+        """Every supported model's Receiver class must be importable
+        straight from the package.
+
+        Derived from LyngdorfModel rather than a hand-written list, so
+        adding a model without exporting its class fails here. That is
+        exactly how TDAI2210Receiver came to exist in device.py, be
+        reachable via async_create_receiver, and still be missing from
+        __init__.py while all nine of its siblings were exported -
+        `from lyngdorf import TDAI2210Receiver` raised ImportError.
+        """
+        for model in LyngdorfModel:
+            receiver = await async_create_receiver(FAKE_IP, model)
+            assert receiver is not None
+            name = type(receiver).__name__
+            assert name in lyngdorf.__all__, f"{name} missing from __all__"
+            assert getattr(lyngdorf, name, None) is type(
+                receiver
+            ), f"{name} not importable from the lyngdorf package"
+
 
 class TestLyngdorfModel:
     """Tests for LyngdorfModel enum and configuration."""
@@ -518,10 +539,19 @@ class TestLyngdorfModel:
         ), "README.md has no '## Supported Models' section"
         section = section_match.group(1)
 
-        # Model names appear bolded, e.g. "**MP-40**" or "**TDAI-2210**".
+        # Model names are bolded, but only ever as a list bullet
+        # ("- **MP-40** - ...") or a capability-matrix row cell
+        # ("| **MP-40** | ..."). Matching bold anywhere in the section
+        # would also sweep up ordinary prose emphasis - the matrix's
+        # own glossary bolds terms like **Streaming** and **MAXVOL** -
+        # so anchor to those two shapes instead.
+        # The name may be wrapped in a link to the vendor's product page,
+        # i.e. "- **[MP-40](https://...)**", so the "[" is optional.
         readme_models = {
             name.lower()
-            for name in re.findall(r"\*\*([A-Z][A-Za-z0-9-]*)\*\*", section)
+            for name in re.findall(
+                r"^[-|]\s*\*\*\[?([A-Z][A-Za-z0-9-]*)", section, re.MULTILINE
+            )
         }
 
         enum_models = {model.model_name for model in LyngdorfModel}
@@ -4741,3 +4771,73 @@ class TestMessageParameterParsing:
         parameter, so it falls to the pre-existing command-only branch and
         no SRCNAME callback fires. Better ignored than half-parsed."""
         assert await self._parse(LyngdorfModel.TDAI_1120, '!SRCNAME(0,"oops') is None
+
+
+class TestReadmeCapabilityMatrix:
+    """Guards README.md's per-model capability matrix against drifting
+    out of sync with ModelConfig.
+
+    The matrix is the first thing a consumer reads to decide what a given
+    model can do, and it is entirely hand-copied markdown - exactly the
+    kind of table that silently rots the first time a model gains a
+    feature. This regenerates every cell from the live config and
+    compares, so adding a model, a remote key, or changing a range makes
+    the README fail here rather than quietly lie.
+    """
+
+    @staticmethod
+    def _matrix_rows() -> dict[str, list[str]]:
+        readme_path = Path(__file__).resolve().parent.parent / "README.md"
+        rows: dict[str, list[str]] = {}
+        for line in readme_path.read_text(encoding="utf-8").splitlines():
+            match = re.match(r"^\|\s*\*\*([A-Za-z0-9-]+)\*\*\s*\|(.+)\|\s*$", line)
+            if not match:
+                continue
+            cells = [c.strip() for c in match.group(2).split("|")]
+            if len(cells) == 9:  # the capability matrix's column count
+                rows[match.group(1).lower()] = cells
+        return rows
+
+    @staticmethod
+    def _yn(value: bool) -> str:
+        return "✅" if value else "—"
+
+    @staticmethod
+    def _rng(value: NumericRange | None) -> str:
+        if value is None:
+            return "—"
+        return f"{value.min:g} to {value.max:g} / {value.step:g}"
+
+    def test_matrix_covers_every_model(self):
+        """Protects the comparison below from going vacuous, and catches
+        a new model being added to the enum but not to the README."""
+        rows = self._matrix_rows()
+        assert len(rows) == len(LyngdorfModel)
+        for model in LyngdorfModel:
+            assert model.model_name in rows, f"{model.model_name} missing from matrix"
+
+    def test_matrix_matches_model_config(self):
+        rows = self._matrix_rows()
+        wrong: list[str] = []
+        for model in LyngdorfModel:
+            keys = model.available_remote_keys()
+            expected = [
+                self._yn(model.has_zone_b_feature()),
+                self._yn(model.has_video_feature()),
+                self._yn(model.has_surround_feature()),
+                self._yn(model.has_streaming_feature()),
+                str(len(keys)) if keys else "—",
+                self._rng(model.volume_range()),
+                self._rng(model.trim_bass_range()),
+                self._yn(model.has_lipsync_feature()),
+                self._yn(Msg.MAX_VOLUME in model.config.messages),
+            ]
+            actual = rows[model.model_name]
+            if actual != expected:
+                wrong.append(
+                    f"{model.model_name}:\n"
+                    f"  README: {actual}\n"
+                    f"  config: {expected}"
+                )
+        if wrong:
+            pytest.fail("README capability matrix is out of date:\n" + "\n".join(wrong))
