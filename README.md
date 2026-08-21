@@ -258,11 +258,20 @@ receiver.zone_b_source = "Apple TV"
 
 The MP and P series both expose the device's on-screen-menu remote buttons -
 cursor navigation, `MENU`/`INFO`/`SETUP`, `BACK`/`EXIT`, digits - as a small,
-write-only API, and the two families' key sets are identical. (The MP manuals
-document only `EXIT` and omit `BACK` entirely, but a real MP-60 accepts
-`!BACK` too - the manuals are wrong here, not the mapping.) The whole TDAI
-family has no navigation hardware at all, so `has_remote_keys` is `False` and
-`available_remote_keys` is empty there.
+write-only API. (The MP manuals document only `EXIT` and omit `BACK`
+entirely, but a real MP-60 accepts `!BACK` too - the manuals are wrong here,
+not the mapping.) The whole TDAI family has no navigation hardware at all, so
+`has_remote_keys` is `False` and `available_remote_keys` is empty there.
+
+`MULTIVIEW` is the one key that genuinely differs by model, not just by
+family: every MP model has it, but on the P series `docs/p-series.md`
+explicitly restricts it to the **P200 only** - a stated hardware restriction,
+not a documentation gap like `BACK` was, and with no hardware to test a P100
+or P300 against, the manual is followed rather than overruled. So MP-40/50/60
+and the P200 all expose an identical key set including `MULTIVIEW`; the P100
+and P300 expose that same set minus `MULTIVIEW`. Always check
+`available_remote_keys` rather than assuming a key is present because a
+sibling model has it.
 
 ```python
 from lyngdorf import RemoteKey

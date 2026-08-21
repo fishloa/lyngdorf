@@ -38,15 +38,20 @@ from lyngdorf.remote import RemoteKey, RemoteKeyTable, resolve_remote_key
 
 FAKE_IP = "0.0.0.0"
 
-# Every key both the MP and P families have. The MP manuals
+# Every MP model, plus the P200, have this full set. The MP manuals
 # (docs/mp-40.md, docs/mp-50.md, docs/mp-60.md) omit `!BACK` and document
 # only `!EXIT`, but that is a documentation error, not a hardware gap: a
 # real MP-60 on firmware 5.4.2 echoes `#BACK` at `!VERB(2)` (which stays
 # silent for anything it does not recognise) while rejecting deliberately
 # malformed controls in the same session - see MP_REMOTE_KEYS in
-# mp_series.py for the measurement. The MP and P key sets are therefore
-# identical, not differentiated by BACK as originally assumed.
-EXPECTED_KEYS = frozenset(
+# mp_series.py for the measurement. MULTIVIEW is included for MP (every
+# MP manual documents it with no per-model restriction, confirmed
+# accepted on that same real MP-60) and for the P200 specifically -
+# docs/p-series.md:69 restricts `!MULTIVIEW` to the P200 explicitly
+# ("P200 only"), so P100/P300 do NOT get it - see
+# P100_AND_P300_EXPECTED_KEYS below and P_REMOTE_KEYS/P200_REMOTE_KEYS in
+# p_series.py.
+FULL_EXPECTED_KEYS = frozenset(
     {
         RemoteKey.UP,
         RemoteKey.DOWN,
@@ -72,6 +77,12 @@ EXPECTED_KEYS = frozenset(
     }
 )
 
+# P100 and P300 only - the manual restricts MULTIVIEW to the P200, and
+# there is no hardware measurement or third-party mapping to overrule
+# that restriction with (unlike BACK) - see the note above
+# FULL_EXPECTED_KEYS and P_REMOTE_KEYS in p_series.py.
+P100_AND_P300_EXPECTED_KEYS = FULL_EXPECTED_KEYS - {RemoteKey.MULTIVIEW}
+
 
 def _sent(receiver: Receiver) -> list[str]:
     """Every command that actually reached the mocked transport, in order."""
@@ -89,24 +100,51 @@ class TestPerModelCapability:
     never inferred from anything else - see ModelConfig.remote_keys."""
 
     @pytest.mark.parametrize("receiver_cls", [MP40Receiver, MP50Receiver, MP60Receiver])
-    def test_mp_models_have_the_full_key_set(self, receiver_cls):
+    def test_mp_models_have_the_full_key_set_including_multiview(self, receiver_cls):
+        """Every MP manual documents `!MULTIVIEW` with no per-model
+        restriction, and a real MP-60 accepted it - unlike the P series,
+        where docs/p-series.md restricts it to the P200 (see
+        test_p200_has_multiview_but_p100_and_p300_do_not below)."""
         receiver = receiver_cls(FAKE_IP)
-        assert receiver.available_remote_keys == EXPECTED_KEYS
+        assert receiver.available_remote_keys == FULL_EXPECTED_KEYS
         assert receiver.has_remote_keys is True
 
-    @pytest.mark.parametrize("receiver_cls", [P100Receiver, P200Receiver, P300Receiver])
-    def test_p_models_have_the_full_key_set(self, receiver_cls):
-        receiver = receiver_cls(FAKE_IP)
-        assert receiver.available_remote_keys == EXPECTED_KEYS
+    def test_p200_has_the_full_key_set_including_multiview(self):
+        receiver = P200Receiver(FAKE_IP)
+        assert receiver.available_remote_keys == FULL_EXPECTED_KEYS
         assert receiver.has_remote_keys is True
 
-    def test_mp_and_p_key_sets_are_identical(self):
+    @pytest.mark.parametrize("receiver_cls", [P100Receiver, P300Receiver])
+    def test_p100_and_p300_have_the_full_key_set_minus_multiview(self, receiver_cls):
+        """docs/p-series.md:69 restricts `!MULTIVIEW` to the P200
+        explicitly ("P200 only") - a stated restriction, not an
+        omission, and unlike BACK there is no hardware measurement or
+        third-party mapping to overrule it with. P100/P300 must NOT
+        advertise MULTIVIEW."""
+        receiver = receiver_cls(FAKE_IP)
+        assert receiver.available_remote_keys == P100_AND_P300_EXPECTED_KEYS
+        assert RemoteKey.MULTIVIEW not in receiver.available_remote_keys
+        assert receiver.has_remote_keys is True
+
+    def test_p200_has_multiview_but_p100_and_p300_do_not(self):
+        p200_keys = P200Receiver(FAKE_IP).available_remote_keys
+        assert RemoteKey.MULTIVIEW in p200_keys
+        assert RemoteKey.MULTIVIEW not in P100Receiver(FAKE_IP).available_remote_keys
+        assert RemoteKey.MULTIVIEW not in P300Receiver(FAKE_IP).available_remote_keys
+        # Otherwise identical - P100/P300 are the P200's set minus MULTIVIEW.
+        assert p200_keys - {RemoteKey.MULTIVIEW} == (
+            P100Receiver(FAKE_IP).available_remote_keys
+        )
+
+    def test_mp_and_p200_key_sets_are_identical(self):
         """BACK was originally thought to be P-only, but a real MP-60
-        accepts it too (see MP_REMOTE_KEYS in mp_series.py) - the two
-        families' key sets do not actually differ at all."""
+        accepts it too (see MP_REMOTE_KEYS in mp_series.py) - MP and the
+        P200 specifically end up with identical key sets. P100/P300 are
+        that same set minus MULTIVIEW (see
+        test_p100_and_p300_have_the_full_key_set_minus_multiview)."""
         assert (
             MP60Receiver(FAKE_IP).available_remote_keys
-            == P100Receiver(FAKE_IP).available_remote_keys
+            == P200Receiver(FAKE_IP).available_remote_keys
         )
 
     @pytest.mark.parametrize(
@@ -234,6 +272,18 @@ class TestWireCommandPerModel:
         receiver = _wire(receiver_cls(FAKE_IP))
         receiver.press(RemoteKey.MULTIVIEW)
         assert _sent(receiver) == ["!MULTIVIEW\r"]
+
+    @pytest.mark.parametrize(
+        "receiver_cls", [P100Receiver, P300Receiver], ids=["p100", "p300"]
+    )
+    def test_multiview_is_unsupported_on_p100_and_p300(self, receiver_cls):
+        """docs/p-series.md:69 restricts `!MULTIVIEW` to the P200 - the
+        P100/P300 must raise rather than silently send a command their
+        manual says does not exist on that hardware."""
+        receiver = _wire(receiver_cls(FAKE_IP))
+        with pytest.raises(LyngdorfUnsupportedError):
+            receiver.press(RemoteKey.MULTIVIEW)
+        assert _sent(receiver) == []
 
     def test_digit_sends_parameterised_num_command(self):
         receiver = _wire(MP60Receiver(FAKE_IP))
