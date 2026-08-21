@@ -14,6 +14,7 @@ Protocol Characteristics:
 """
 
 from ..const import Msg
+from ..remote import RemoteKey, RemoteKeyTable
 from .base import ModelConfig, NumericRange
 
 # The MP volume ceiling of +24.0 dB is measured, not just transcribed: on a
@@ -154,26 +155,42 @@ MP_MESSAGES: dict[Msg, str] = {
     Msg.AUDIO_MODE_NEXT: "AUDMODE+",
     Msg.AUDIO_MODE_PREV: "AUDMODE-",
     Msg.AUDIO_MODE_BUTTON: "AUDIO",
-    Msg.CURSOR_UP: "DIRU",
-    Msg.CURSOR_DOWN: "DIRD",
-    Msg.CURSOR_LEFT: "DIRL",
-    Msg.CURSOR_RIGHT: "DIRR",
-    Msg.CURSOR_ENTER: "ENTER",
-    Msg.MENU: "MENU",
-    Msg.INFO: "INFO",
-    Msg.SETTINGS: "SETUP",
-    Msg.NAV_BACK: "BACK",
-    Msg.DIGIT_0: "NUM(0)",
-    Msg.DIGIT_1: "NUM(1)",
-    Msg.DIGIT_2: "NUM(2)",
-    Msg.DIGIT_3: "NUM(3)",
-    Msg.DIGIT_4: "NUM(4)",
-    Msg.DIGIT_5: "NUM(5)",
-    Msg.DIGIT_6: "NUM(6)",
-    Msg.DIGIT_7: "NUM(7)",
-    Msg.DIGIT_8: "NUM(8)",
-    Msg.DIGIT_9: "NUM(9)",
 }
+
+# MP-40/50/60 remote-key wire commands (write-only - see lyngdorf/remote.py).
+# Checked individually against docs/mp-40.md, docs/mp-50.md and
+# docs/mp-60.md, which all document an identical button set - except for
+# `!BACK`, which none of the three manuals mention (they document `!EXIT`
+# only). The manuals are wrong here: probed against a real MP-60 on
+# firmware 5.4.2 at `!VERB(2)` (which echoes every command the device
+# recognises with a leading `#`, and stays silent for anything it
+# doesn't), `!BACK` came back `#BACK` - accepted - while deliberately
+# malformed controls sent in the same session got no echo at all, so the
+# discriminator is sound and this is not noise. `!EXIT`, `!MULTIVIEW` and
+# every other token below were also confirmed accepted the same way. This
+# matches `jsoutter/ha-lyngdorf`, which ships `BACK` for MP models too.
+# Measured on an MP-60 only - MP-40/MP-50 are inferred from the shared
+# manual lineage and the same third-party mapping, not independently
+# measured. `EXIT` is kept alongside `BACK`: both are genuinely accepted,
+# distinct buttons, not two names for the same one. Do not remove `BACK`
+# to "match the manual" - the manual is the thing that's wrong here.
+MP_REMOTE_KEYS = RemoteKeyTable(
+    commands={
+        RemoteKey.UP: "DIRU",
+        RemoteKey.DOWN: "DIRD",
+        RemoteKey.LEFT: "DIRL",
+        RemoteKey.RIGHT: "DIRR",
+        RemoteKey.ENTER: "ENTER",
+        RemoteKey.MENU: "MENU",
+        RemoteKey.BACK: "BACK",
+        RemoteKey.INFO: "INFO",
+        RemoteKey.SETTINGS: "SETUP",
+        RemoteKey.EXIT: "EXIT",
+        RemoteKey.MULTIVIEW: "MULTIVIEW",
+    },
+    # `!NUM(X)` is one parameterised command, not ten literal entries.
+    digit_format="NUM({})",
+)
 
 # Shared MP Setup Command Sequence
 MP_SETUP_MESSAGES: list[str] = [
@@ -277,6 +294,7 @@ MP40_CONFIG = ModelConfig(
     lipsync_default_range=LIPSYNC_DEFAULT_RANGE,
     volume_range=MP_VOLUME_RANGE,
     zone_b_volume_range=MP_VOLUME_RANGE,
+    remote_keys=MP_REMOTE_KEYS,
 )
 
 # MP-50 Hardware Configuration
@@ -367,6 +385,7 @@ MP50_CONFIG = ModelConfig(
     lipsync_default_range=LIPSYNC_DEFAULT_RANGE,
     volume_range=MP_VOLUME_RANGE,
     zone_b_volume_range=MP_VOLUME_RANGE,
+    remote_keys=MP_REMOTE_KEYS,
 )
 
 # MP-60 Hardware Configuration
@@ -462,4 +481,5 @@ MP60_CONFIG = ModelConfig(
     lipsync_default_range=LIPSYNC_DEFAULT_RANGE,
     volume_range=MP_VOLUME_RANGE,
     zone_b_volume_range=MP_VOLUME_RANGE,
+    remote_keys=MP_REMOTE_KEYS,
 )

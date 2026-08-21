@@ -24,6 +24,7 @@ from enum import Enum
 from typing import cast
 
 from ..const import Msg
+from ..remote import RemoteKey
 from .base import ModelCapability, ModelConfig, NumericRange
 from .mp_series import MP40_CONFIG, MP50_CONFIG, MP60_CONFIG
 from .p_series import P100_CONFIG, P200_CONFIG, P300_CONFIG
@@ -331,6 +332,38 @@ class LyngdorfModel(Enum):
     def trim_treble_down_command(self) -> str | None:
         return self._config.trim_treble_down_command()
 
+    def has_remote_keys_feature(self) -> bool:
+        """Check whether this model has any remote-control buttons at all.
+
+        Returns:
+            True if the model documents at least one remote key (the MP
+            and P families), False if it has none (the whole TDAI
+            family, which has no navigation hardware at all)
+        """
+        return bool(self._config.available_remote_keys())
+
+    def available_remote_keys(self) -> frozenset[RemoteKey]:
+        """Every remote key this model's protocol documents at all.
+
+        Returns:
+            frozenset[RemoteKey], empty for the whole TDAI family
+        """
+        return self._config.available_remote_keys()
+
+    def lookup_remote_key(self, key: RemoteKey) -> str:
+        """Lookup the wire command for a given remote key.
+
+        Args:
+            key: Remote key to lookup
+
+        Returns:
+            Wire command string for this model
+
+        Raises:
+            KeyError: If this model does not support the given key
+        """
+        return self._config.lookup_remote_key(key)
+
     @property
     def keepalive_message(self) -> Msg | None:
         """Message type this model uses for connection keep-alive/probing.
@@ -382,6 +415,7 @@ __all__ = [
     "ModelConfig",
     "ModelCapability",
     "NumericRange",
+    "RemoteKey",
     "MP40_CONFIG",
     "MP50_CONFIG",
     "MP60_CONFIG",

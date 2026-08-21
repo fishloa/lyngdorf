@@ -13,6 +13,7 @@ Manual only and has not been verified against real hardware.
 """
 
 from ..const import Msg
+from ..remote import RemoteKey, RemoteKeyTable
 from .base import ModelConfig, NumericRange
 
 # Fallback for Receiver.lipsync_range before a real LIPSYNCRANGE? reply
@@ -78,6 +79,50 @@ P_MESSAGES: dict[Msg, str] = {
     # aren't validated).
     Msg.MAX_VOLUME: "MAXVOL",
 }
+
+# P-series remote-key wire commands (write-only - see lyngdorf/remote.py).
+# Checked against docs/p-series.md. `!BACK` is documented directly for
+# the whole family, unlike the MP manuals, which omit it entirely - but a
+# real MP-60 accepts it too (see MP_REMOTE_KEYS in mp_series.py for the
+# measurement), so MP gets BACK as well now. The rest of this base set -
+# navigation, ENTER, MENU/INFO/SETUP, EXIT, digits - is likewise common
+# to all three P models.
+#
+# `!MULTIVIEW` is deliberately NOT in this base set. docs/p-series.md:69
+# restricts it explicitly - "Multiview button (same as "PiP" on remote,
+# P200 only)" - a stated hardware restriction, not an omission the way
+# MP's missing `!BACK` was. There is no hardware measurement to overrule
+# it with (no P-series device has been available to test, per the module
+# docstring) and no third-party mapping either - unlike BACK,
+# jsoutter/ha-lyngdorf does not implement MULTIVIEW at all. With no
+# contradicting evidence, follow the manual: P100_CONFIG and P300_CONFIG
+# get `P_REMOTE_KEYS` (no MULTIVIEW), P200_CONFIG gets `P200_REMOTE_KEYS`
+# (P_REMOTE_KEYS plus MULTIVIEW). If a P100 or P300 is ever tested and
+# accepts `!MULTIVIEW`, widen `P_REMOTE_KEYS` itself rather than adding a
+# third variant.
+P_REMOTE_KEYS = RemoteKeyTable(
+    commands={
+        RemoteKey.UP: "DIRU",
+        RemoteKey.DOWN: "DIRD",
+        RemoteKey.LEFT: "DIRL",
+        RemoteKey.RIGHT: "DIRR",
+        RemoteKey.ENTER: "ENTER",
+        RemoteKey.MENU: "MENU",
+        RemoteKey.INFO: "INFO",
+        RemoteKey.SETTINGS: "SETUP",
+        RemoteKey.BACK: "BACK",
+        RemoteKey.EXIT: "EXIT",
+    },
+    # `!NUM(X)` is one parameterised command, not ten literal entries.
+    digit_format="NUM({})",
+)
+
+# P200 only (see the note above P_REMOTE_KEYS) - everything the rest of
+# the family has, plus MULTIVIEW.
+P200_REMOTE_KEYS = RemoteKeyTable(
+    commands={**P_REMOTE_KEYS.commands, RemoteKey.MULTIVIEW: "MULTIVIEW"},
+    digit_format=P_REMOTE_KEYS.digit_format,
+)
 
 # Shared P Series Setup Command Sequence
 P_SETUP_MESSAGES: list[str] = [
@@ -154,6 +199,7 @@ P100_CONFIG = ModelConfig(
     lipsync_default_range=P_LIPSYNC_DEFAULT_RANGE,
     volume_range=P_VOLUME_RANGE,
     zone_b_volume_range=P_VOLUME_RANGE,
+    remote_keys=P_REMOTE_KEYS,
 )
 
 # P200 / P300 Hardware Configuration
@@ -195,6 +241,8 @@ P200_CONFIG = ModelConfig(
     lipsync_default_range=P_LIPSYNC_DEFAULT_RANGE,
     volume_range=P_VOLUME_RANGE,
     zone_b_volume_range=P_VOLUME_RANGE,
+    # P200 only - see the MULTIVIEW note above P_REMOTE_KEYS.
+    remote_keys=P200_REMOTE_KEYS,
 )
 
 P300_CONFIG = ModelConfig(
@@ -211,4 +259,5 @@ P300_CONFIG = ModelConfig(
     lipsync_default_range=P_LIPSYNC_DEFAULT_RANGE,
     volume_range=P_VOLUME_RANGE,
     zone_b_volume_range=P_VOLUME_RANGE,
+    remote_keys=P_REMOTE_KEYS,
 )

@@ -35,6 +35,8 @@ All models support:
 - Voicing selection
 - Trim controls (bass, treble, center, height, LFE, surround) - MP and TDAI series
 - Zone B control (MP and P series)
+- Remote-control buttons - cursor navigation, menu/info/setup, digits, exit
+  (MP and P series only - the TDAI family has no navigation hardware at all)
 
 ## Installation
 
@@ -252,6 +254,62 @@ receiver.zone_b_volume_down()
 receiver.zone_b_source = "Apple TV"
 ```
 
+### Remote Control (MP and P Series)
+
+The MP and P series both expose the device's on-screen-menu remote buttons -
+cursor navigation, `MENU`/`INFO`/`SETUP`, `BACK`/`EXIT`, digits - as a small,
+write-only API. (The MP manuals document only `EXIT` and omit `BACK`
+entirely, but a real MP-60 accepts `!BACK` too - the manuals are wrong here,
+not the mapping.) The whole TDAI family has no navigation hardware at all, so
+`has_remote_keys` is `False` and `available_remote_keys` is empty there.
+
+`MULTIVIEW` is the one key that genuinely differs by model, not just by
+family: every MP model has it, but on the P series `docs/p-series.md`
+explicitly restricts it to the **P200 only** - a stated hardware restriction,
+not a documentation gap like `BACK` was, and with no hardware to test a P100
+or P300 against, the manual is followed rather than overruled. So MP-40/50/60
+and the P200 all expose an identical key set including `MULTIVIEW`; the P100
+and P300 expose that same set minus `MULTIVIEW`. Always check
+`available_remote_keys` rather than assuming a key is present because a
+sibling model has it.
+
+```python
+from lyngdorf import RemoteKey
+
+if receiver.has_remote_keys:
+    # Typed single press
+    receiver.press(RemoteKey.MENU)
+    receiver.press(RemoteKey.DOWN)
+    receiver.press(RemoteKey.ENTER)
+
+    # The HA-shaped entry point - takes exactly what
+    # RemoteEntity.async_send_command is handed: an iterable of command
+    # strings, case-insensitive ("up"/"UP"/"Up" all work), plus num_repeats.
+    receiver.send_remote_commands(["up", "up", "enter"])
+    receiver.send_remote_commands(["7"], num_repeats=1)  # -> !NUM(7)
+
+    # What this model actually has, for building a remote entity's
+    # advertised command list or validating user input up front
+    print(sorted(receiver.available_remote_keys))
+```
+
+`send_remote_commands` resolves every command in the batch to a `RemoteKey`
+*before* sending anything - a typo (or a key this model doesn't have) raises
+`LyngdorfUnsupportedError` naming the bad value and what the model does
+support, rather than leaving the device halfway through a menu navigation on
+the way to discovering the mistake. `num_repeats` repeats the *whole resolved
+sequence* as a block - `["1", "2", "3"]` with `num_repeats=2` sends `123123`,
+not `112233` - matching how Home Assistant's own `broadlink`/`harmony`
+integrations interpret the same field. `delay_secs` (also part of
+`RemoteEntity.async_send_command`'s signature) is deliberately not supported -
+the outbound write queue already owns pacing, and a caller-supplied delay on
+top of it would only fight that. An integration should drop that argument
+rather than pass it through.
+
+Remote keys never coalesce, unlike an absolute setter such as volume - each
+press means "one more step," and order/count is the whole meaning of a batch
+(see [Command Pacing & Coalescing](#command-pacing--coalescing) below).
+
 ### Callbacks & Events
 ```python
 # Register for any state change (volume, source, power, now-playing, etc.)
@@ -391,11 +449,11 @@ was already off. Verified against a real MP-60.
 
 ### Typed States
 
-`PlayMode`, `Repeat`, `Control` and `PlaybackState` are importable directly from
-`lyngdorf`:
+`PlayMode`, `Repeat`, `Control`, `PlaybackState` and `RemoteKey` are importable
+directly from `lyngdorf`:
 
 ```python
-from lyngdorf import Control, PlaybackState, PlayMode, Repeat
+from lyngdorf import Control, PlaybackState, PlayMode, RemoteKey, Repeat
 ```
 
 - `Repeat` - `OFF` / `ONE` / `ALL`.
@@ -406,6 +464,12 @@ from lyngdorf import Control, PlaybackState, PlayMode, Repeat
   `SEEK`, ...), as found in `NowPlaying.controls`.
 - `PlaybackState` - `PLAYING` / `PAUSED` / `STOPPED` / `TRANSITIONING`, as found
   in `NowPlaying.state`.
+- `RemoteKey` - a remote-control button name (`UP`, `DOWN`, `ENTER`, `MENU`,
+  `EXIT`, `BACK`, `DIGIT_0`..`DIGIT_9`, ...), as sent to
+  `Receiver.send_remote_commands`/`Receiver.press`. Unlike the three states
+  above, this one is strict, not lenient - an unrecognised value raises rather
+  than being silently accepted, since it's a command going *to* the device,
+  not a state read back *from* one. See [Remote Control](#remote-control-mp-and-p-series).
 
 ### Command Pacing & Coalescing
 

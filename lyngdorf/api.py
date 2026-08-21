@@ -42,6 +42,7 @@ from .const import (
     Msg,
 )
 from .exceptions import LyngdorfUnsupportedError
+from .remote import RemoteKey
 from .states import Control, PlaybackState, PlayMode, Repeat
 from .streaming import (
     NowPlaying,
@@ -894,6 +895,23 @@ class LyngdorfApi:
             _LOGGER.warning(
                 "%s: model %s cannot step treble trim; ignoring", self.host, self._model
             )
+
+    def send_remote_key(self, key: RemoteKey) -> None:
+        """Send one remote-key press to the device.
+
+        Remote keys are write-only and sequential - the device never
+        replies, and order/count is the whole meaning of a batch (see
+        `Receiver.send_remote_commands`) - so a press must never
+        coalesce with another queued one. `_writeCommand` already
+        guarantees that with no extra logic here: coalescing only
+        applies to a wire token that is both shaped like an absolute
+        setter *and* a member of `_absolute_setter_tokens`, which is
+        built from `ABSOLUTE_SETTER_MESSAGES` (`Msg` lookups) alone.
+        Remote keys were pulled out of `Msg` entirely (see
+        `lyngdorf/remote.py`), so a remote key's wire token can never be
+        a member of that set for any model, on any family's protocol.
+        """
+        self._writeCommand(self._model.lookup_remote_key(key))
 
     def _process_event(self, message: str) -> None:
         """Process a realtime event."""

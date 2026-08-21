@@ -6,10 +6,11 @@ Lyngdorf device models must implement.
 :license: MIT, see LICENSE for more details.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Protocol
 
 from ..const import POWER_ON, Msg
+from ..remote import RemoteKey, RemoteKeyTable
 
 
 @dataclass(frozen=True)
@@ -229,6 +230,17 @@ class ModelConfig:
             capability, never narrowed to any live setting - no manual
             documents a Zone B counterpart to `!MAXVOL` (no `!ZMAXVOL`)
             regardless.
+        remote_keys: The write-only `RemoteKey` -> wire-command table for
+            this model (see `lyngdorf/remote.py`) - empty by default,
+            which is exactly right for the whole TDAI family (no
+            navigation hardware at all). The MP and P families each set
+            this explicitly to the full button set their manual
+            documents; this is never inferred from any other capability
+            flag, and never from whether some unrelated `Msg` lookup
+            happens to succeed - see issue #46, which found that kind of
+            inference is exactly how the P series ended up silently
+            supporting no remote keys at all despite its manual
+            documenting a full set.
     """
 
     model_name: str
@@ -259,6 +271,7 @@ class ModelConfig:
     power_state_on: str = POWER_ON
     mute_state_in_parameter: bool = False
     keepalive_message: Msg | None = Msg.DEVICE
+    remote_keys: RemoteKeyTable = field(default_factory=RemoteKeyTable)
 
     def lookup_command(self, key: Msg) -> str:
         """Lookup protocol command for a given message type.
@@ -273,6 +286,27 @@ class ModelConfig:
             KeyError: If message type not supported by this model
         """
         return self.messages[key]
+
+    def available_remote_keys(self) -> frozenset[RemoteKey]:
+        """Every remote key this model's protocol documents at all.
+
+        Empty for the whole TDAI family (see `remote_keys` above).
+        """
+        return self.remote_keys.available_keys()
+
+    def lookup_remote_key(self, key: RemoteKey) -> str:
+        """Lookup the wire command for a given remote key.
+
+        Args:
+            key: Remote key to lookup
+
+        Returns:
+            Wire command string for this model
+
+        Raises:
+            KeyError: If this model does not support the given key
+        """
+        return self.remote_keys.command_for(key)
 
     # Command-shape defaults below are the MP/P family's: a bare `<cmd>+`/
     # `<cmd>-` suffix steps a value up/down, and query/set share one name

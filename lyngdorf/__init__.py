@@ -33,6 +33,7 @@ from .device import (
     async_get_device_serial,
 )
 from .models import NumericRange
+from .remote import RemoteKey
 from .states import Control, PlaybackState, PlayMode, Repeat
 from .streaming import NowPlaying
 
@@ -58,6 +59,7 @@ __all__ = [
     "PlayMode",
     "Repeat",
     "NumericRange",
+    "RemoteKey",
 ]
 
 try:

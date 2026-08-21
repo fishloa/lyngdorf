@@ -1103,21 +1103,15 @@ class TestTDAI2210Receiver:
 
 
 class TestNewMPCommands:
-    """Tests for new MP protocol commands."""
+    """Tests for new MP protocol commands.
 
-    def test_mp_has_navigation_commands(self):
-        """MP series has navigation commands."""
-        from lyngdorf.device import MP60Receiver
-
-        mp60 = MP60Receiver("192.168.1.1")
-
-        assert mp60._model.lookup_command(Msg.CURSOR_UP) == "DIRU"
-        assert mp60._model.lookup_command(Msg.CURSOR_DOWN) == "DIRD"
-        assert mp60._model.lookup_command(Msg.CURSOR_LEFT) == "DIRL"
-        assert mp60._model.lookup_command(Msg.CURSOR_RIGHT) == "DIRR"
-        assert mp60._model.lookup_command(Msg.CURSOR_ENTER) == "ENTER"
-        assert mp60._model.lookup_command(Msg.MENU) == "MENU"
-        assert mp60._model.lookup_command(Msg.NAV_BACK) == "BACK"
+    Navigation/remote-key commands used to be asserted here via
+    `Msg.CURSOR_UP`/`Msg.MENU`/`Msg.NAV_BACK` lookups, but those are no
+    longer `Msg` members at all (see issue #46 - remote keys were pulled
+    out of `Msg` into their own write-only table). See
+    `tests/remote_key_test.py` for their replacement coverage, including
+    the fix for `NAV_BACK`/`BACK` being wrong for MP models.
+    """
 
     def test_mp_has_dts_dialog_commands(self):
         """MP series has DTS Dialog Control."""
@@ -1198,8 +1192,6 @@ class TestNewMPCommands:
             Msg.LOUDNESS,
             Msg.DTS_DIALOG,
             Msg.VIDEO_OUTPUT,
-            Msg.CURSOR_UP,
-            Msg.MENU,
         ):
             assert not tdai._model.supports_message(msg)
 
