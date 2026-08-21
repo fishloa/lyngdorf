@@ -1,8 +1,79 @@
 import asyncio
+import logging
 
 import pytest
+import pytest_asyncio
 
 from lyngdorf.api import LyngdorfApi
+
+_LOGGER = logging.getLogger(__package__)
+
+#: Bound on how long a single receiver's teardown disconnect may take. See
+#: `_guarantee_disconnect` below - this must stay short, since it is spent
+#: on *every* test that connects, and a receiver that genuinely can't stop
+#: (see KNOWN_ISSUES.md) should be reported, not left to stall the suite.
+_DISCONNECT_TEARDOWN_TIMEOUT = 2.0
+
+
+@pytest_asyncio.fixture(autouse=True)
+async def _guarantee_disconnect(monkeypatch):
+    """Regression fixture for issue #45 (see KNOWN_ISSUES.md).
+
+    Connecting a streaming-capable model starts a background now-playing
+    poll (`LyngdorfApi._start_now_playing_poll`) that makes real HTTP calls
+    in a thread-pool executor. If a test fails or returns before calling
+    `async_disconnect()`, nothing ever tells that poll to stop.
+
+    This tracks every `LyngdorfApi` a test connects (by wrapping
+    `async_connect`, so no per-test opt-in is needed) and disconnects each
+    one during teardown - on the failure path as well as the success path.
+
+    This does not make the underlying limitation in KNOWN_ISSUES.md go
+    away: `asyncio.wait_for` cancels the *await*, not the work, so a
+    now-playing poll whose HTTP call is already running in its executor
+    thread at the moment a test fails cannot be interrupted by anything
+    here, or by anything else - that is the one case this fixture cannot
+    rescue. What it does guarantee is that `async_disconnect()` is always
+    *attempted*, on every path, immediately, rather than only on tests
+    that remembered to call it themselves - which is what stops that
+    poll from continuing to retry indefinitely once a test has already
+    moved on, and keeps `LyngdorfApi`'s own state (`connected`, the poll
+    task, the write queue) consistent after a failing test rather than
+    silently left half torn-down.
+
+    The disconnect itself is bounded by `_DISCONNECT_TEARDOWN_TIMEOUT`:
+    if a receiver's `async_disconnect()` doesn't complete in time, this
+    logs a warning and moves on rather than hanging the rest of the
+    suite on it.
+    """
+    connected: list[LyngdorfApi] = []
+    original_connect = LyngdorfApi.async_connect
+
+    async def _tracking_connect(
+        self: LyngdorfApi, *args: object, **kwargs: object
+    ) -> None:
+        if self not in connected:
+            connected.append(self)
+        await original_connect(self, *args, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(LyngdorfApi, "async_connect", _tracking_connect)
+
+    yield
+
+    for api in connected:
+        try:
+            await asyncio.wait_for(
+                api.async_disconnect(), timeout=_DISCONNECT_TEARDOWN_TIMEOUT
+            )
+        except TimeoutError:
+            _LOGGER.warning(
+                "%s: async_disconnect() did not complete within %ss during test "
+                "teardown - a now-playing poll's executor thread is likely still "
+                "running a blocking call that cannot be interrupted mid-flight "
+                "(see KNOWN_ISSUES.md); continuing rather than blocking the suite",
+                api.host,
+                _DISCONNECT_TEARDOWN_TIMEOUT,
+            )
 
 
 @pytest.fixture(autouse=True)
