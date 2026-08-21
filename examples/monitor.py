@@ -75,15 +75,42 @@ def dump_all_state(r: Receiver) -> None:
         print_state("zone_b_available_sources", r.zone_b_available_sources)
         print_state("zone_b_streaming_source", r.zone_b_streaming_source)
 
+    print_state("max_volume", r.max_volume)
+
     if r.model.has_streaming_feature():
         np = r.now_playing
         if np:
             print_now_playing(np)
         else:
             print_state("now_playing", None)
+        print_state("play_mode", r.play_mode)
+        print_state(
+            "available_play_modes", sorted(str(m) for m in r.available_play_modes)
+        )
+        # Transport capability is per-source and changes at runtime: a
+        # stopped device advertises none, AirPlay offers pause/next/prev,
+        # Spotify Connect adds seek. Printed as a group so a source change
+        # shows the whole set moving at once.
+        print_state("transport", transport_summary(r))
+        print_state("position_ms", r.position_ms)
+        print_state("position_percent", r.position_percent)
+
+    print_state("has_remote_keys", r.has_remote_keys)
+    if r.has_remote_keys:
+        print_state(
+            "available_remote_keys", sorted(str(k) for k in r.available_remote_keys)
+        )
 
     print(f"{'=' * 60}\n")
     print("Monitoring for changes... (Ctrl+C to stop)\n")
+
+
+def transport_summary(r: Receiver) -> str:
+    """The device's currently advertised transport capabilities."""
+    return (
+        f"pause={r.can_pause} next={r.can_next} "
+        f"prev={r.can_previous} seek={r.can_seek}"
+    )
 
 
 def print_now_playing(np: NowPlaying) -> None:
@@ -138,6 +165,17 @@ class Monitor:
             self._check("zone_b_mute", self.r.zone_b_mute_enabled)
             self._check("zone_b_source", self.r.zone_b_source)
             self._check("zone_b_streaming_source", self.r.zone_b_streaming_source)
+
+        if self.r.model.has_streaming_feature():
+            self._check("play_mode", self.r.play_mode)
+            # Both of these move when the source changes, which is the
+            # main thing worth watching here: they are what a Home
+            # Assistant integration maps onto supported_features.
+            self._check("transport", transport_summary(self.r))
+            self._check(
+                "available_play_modes",
+                sorted(str(m) for m in self.r.available_play_modes),
+            )
 
     def on_now_playing(self, np: NowPlaying | None) -> None:
         if np:

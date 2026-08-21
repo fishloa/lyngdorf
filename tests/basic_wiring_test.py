@@ -185,6 +185,27 @@ class TestSupportedModels:
         """Test lookup_receiver_model returns None for unknown models."""
         assert lookup_receiver_model("unknown-model") is None
 
+    @pytest.mark.asyncio
+    async def test_every_model_has_an_exported_receiver_class(self):
+        """Every supported model's Receiver class must be importable
+        straight from the package.
+
+        Derived from LyngdorfModel rather than a hand-written list, so
+        adding a model without exporting its class fails here. That is
+        exactly how TDAI2210Receiver came to exist in device.py, be
+        reachable via async_create_receiver, and still be missing from
+        __init__.py while all nine of its siblings were exported -
+        `from lyngdorf import TDAI2210Receiver` raised ImportError.
+        """
+        for model in LyngdorfModel:
+            receiver = await async_create_receiver(FAKE_IP, model)
+            assert receiver is not None
+            name = type(receiver).__name__
+            assert name in lyngdorf.__all__, f"{name} missing from __all__"
+            assert getattr(lyngdorf, name, None) is type(
+                receiver
+            ), f"{name} not importable from the lyngdorf package"
+
 
 class TestLyngdorfModel:
     """Tests for LyngdorfModel enum and configuration."""
