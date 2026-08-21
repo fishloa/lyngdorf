@@ -3,50 +3,48 @@
 Problems that are understood but not fixed. Each entry says what happens, why,
 how to avoid it, and what fixing it would involve.
 
-## Tests can hang for two minutes when connecting a streaming model to a fake host
+## The now-playing poll's HTTP calls are not genuinely cancellable
 
-**Symptom.** A test hangs for 120 seconds or more instead of failing. It looks
-like a flaky or slow test; it is neither. Under CI it may present as a timeout
-with no useful output.
+**Fixed for tests as of issue #45**: `tests/conftest.py`'s `_guarantee_disconnect`
+autouse fixture tracks every `LyngdorfApi` a test connects and calls
+`async_disconnect()` on each one during teardown, whether the test passed,
+failed, or raised. A test no longer has to remember to disconnect itself for
+the suite to stay well-behaved - see `tests/disconnect_guarantee_test.py`.
 
-**Trigger.** All three conditions together:
+**What remains.** Connecting to a streaming-capable model (every model except
+the TDAI-2170 and the P series) starts a now-playing poll loop
+(`LyngdorfApi._start_now_playing_poll`) that makes real HTTP requests using
+`http.client` inside `loop.run_in_executor`. `asyncio.wait_for` cancels the
+*await*, not the work: once a request is actually running in its executor
+thread, nothing - not `task.cancel()`, not `async_disconnect()`, not this
+fixture - can interrupt it mid-flight, because Python will not tear down a
+thread-pool worker that is still inside a blocking call. If a test's own
+failure happens to land while such a call is already in flight (most likely
+against a slow-to-refuse host, e.g. a CI network path that drops packets
+instead of returning a fast connection-refused), that specific call still
+runs to completion in the background on its own schedule.
 
-1. the test calls `async_connect()` on a receiver whose model has a streaming
-   module — every model except the TDAI-2170 and the P series,
-2. the host is not a real device (the suite uses `FAKE_IP = "0.0.0.0"`), and
-3. the test fails, raises, or otherwise returns before reaching
-   `async_disconnect()`.
+`_guarantee_disconnect` does not - and cannot - change that. What it changes
+is what happens *around* it:
 
-**Cause.** Connecting starts the now-playing poll loop
-(`LyngdorfApi._start_now_playing_poll`, called from
-`_async_establish_connection` whenever `has_streaming_feature()` is true). That
-loop makes real HTTP requests to `<host>:8080` using `http.client` inside
-`loop.run_in_executor`.
+- `async_disconnect()` is always attempted, immediately, on every path -
+  previously nothing called it at all once a test failed, so the poll kept
+  retrying indefinitely (`while self._connection_enabled:` never became
+  false), each retry a fresh chance to leave another call stuck.
+- The disconnect attempt itself is bounded (`_DISCONNECT_TEARDOWN_TIMEOUT`,
+  currently 2s): if a receiver's `async_disconnect()` doesn't complete in
+  time, the fixture logs a warning and moves on, rather than blocking the
+  rest of the suite on a thread that refuses to stop.
 
-`asyncio.wait_for` cancels the *await*, not the work. The executor's worker
-thread keeps running the blocking socket call until the operating system gives
-up on it, and Python will not tear down a thread-pool worker that is still
-inside a blocking call. If the test already failed, nothing calls
-`async_disconnect()` to stop the poll task, so teardown waits on a thread that
-cannot be interrupted.
-
-Nothing about this is specific to the streaming work — it predates it, and can
-be reproduced on any commit where the poll loop exists.
-
-**How to avoid it.** Any of these is enough:
-
-- Wrap connecting tests so disconnect always runs, even on failure — a
-  `try`/`finally`, or a fixture that disconnects during teardown. This is the
-  right fix for the test and costs nothing.
-- Test a non-streaming model (`TDAI_2170`, `P_100`, `P_200`, `P_300`) when the
-  test has nothing to do with streaming. No poll loop is started at all.
-- Do not call `async_connect()` when you only need to assert on written
-  commands. Most of the suite attaches a mock `_protocol` directly and never
-  connects, which is faster and avoids this entirely.
+So a stray background thread finishing a request against a fake host in the
+background is now a bounded, logged, one-off cost instead of an unbounded,
+silent, compounding one - but it is a limitation of `http.client`-in-a-thread
+being non-cancellable, not something test-side bookkeeping can fully close.
 
 **Fixing it properly** would mean making the streaming HTTP calls genuinely
-cancellable — either a socket with a short timeout that is polled cooperatively,
+cancellable - either a socket with a short timeout that is polled cooperatively,
 or an async HTTP client rather than `http.client` in a thread. Both are larger
 changes than the problem currently justifies, and the async-client route would
-add a runtime dependency the library has so far avoided. Worth revisiting if the
-same hang starts appearing for reasons other than test authorship.
+add a runtime dependency the library has so far avoided. Worth revisiting if
+this starts costing more than an occasional bounded wait and a warning in test
+output.
