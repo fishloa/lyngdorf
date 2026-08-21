@@ -14,7 +14,7 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v7
     - name: Install poetry
       uses: abatilo/actions-poetry@v2
     - name: Get version from pyproject.toml
@@ -44,7 +44,7 @@ jobs:
       run: |
         poetry config virtualenvs.create true --local
         poetry config virtualenvs.in-project true --local
-    - uses: actions/cache@v4
+    - uses: actions/cache@v6
       if: steps.check_pypi.outputs.exists != 'true'
       name: Cache virtual environment
       with:
