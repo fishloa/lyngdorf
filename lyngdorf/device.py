@@ -1502,11 +1502,20 @@ class Receiver:
                 resolve to a `RemoteKey` this model has, naming the bad
                 value and what this model does support.
 
-        `num_repeats` presses of the same key are enqueued individually
-        - the outbound write queue already paces every write and never
-        coalesces a remote key (see `LyngdorfApi.send_remote_key`), so
-        nothing further is needed here for `num_repeats` presses to
-        reach the device as that many distinct, in-order wire commands.
+        `num_repeats` repeats the whole resolved sequence as a block -
+        `["1", "2", "3"]` with `num_repeats=2` sends `1 2 3 1 2 3`, not
+        `1 1 2 2 3 3` - matching how Home Assistant's own integrations
+        interpret the same field (`broadlink`'s `remote.py` and
+        `harmony`'s `data.py` both repeat the sequence, not each
+        individual command; "the number of times you want to repeat the
+        commands" reads the same way). Do not swap the loop nesting back
+        to per-key repeats - a caller entering a channel number twice
+        (`num_repeats=2` over `["1", "2", "3"]`) must see `123123`
+        reach the device, not `112233`. The outbound write queue already
+        paces every write and never coalesces a remote key (see
+        `LyngdorfApi.send_remote_key`), so nothing further is needed here
+        for the repeated sequence to reach the device as that many
+        distinct, in-order wire commands.
 
         `delay_secs`, which `RemoteEntity.async_send_command` also
         accepts, is deliberately NOT supported here: the write queue
@@ -1527,8 +1536,8 @@ class Receiver:
                 )
             resolved.append(key)
 
-        for key in resolved:
-            for _ in range(num_repeats):
+        for _ in range(num_repeats):
+            for key in resolved:
                 self._api.send_remote_key(key)
 
 

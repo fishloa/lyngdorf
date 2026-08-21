@@ -309,18 +309,44 @@ class TestBatchValidatesBeforeSending:
 
 
 class TestNumRepeats:
-    """`num_repeats` is handled entirely in the library - N enqueues, no
-    timing code - see `Receiver.send_remote_commands`."""
+    """`num_repeats` repeats the WHOLE resolved sequence as a block, not
+    each individual command - matching Home Assistant's own
+    interpretation (see `broadlink`'s `remote.py` and `harmony`'s
+    `data.py`, both of which repeat the sequence rather than each
+    command) - see `Receiver.send_remote_commands`."""
 
     def test_num_repeats_enqueues_that_many_presses(self):
+        """A single-key batch cannot distinguish "repeat the sequence"
+        from "repeat each key" - both nestings produce the same output
+        here. See test_multi_key_batch_repeats_the_whole_sequence below
+        for the test that actually pins the nesting down."""
         receiver = _wire(MP60Receiver(FAKE_IP))
         receiver.send_remote_commands(["up"], num_repeats=3)
         assert _sent(receiver) == ["!DIRU\r"] * 3
 
-    def test_num_repeats_applies_per_key_in_order(self):
+    def test_multi_key_batch_repeats_the_whole_sequence(self):
+        """The defect this pins down: `num_repeats=2` over `["up",
+        "down"]` must send `up down up down` (the sequence repeated as a
+        block), never `up up down down` (each key repeated in place) -
+        the digit-entry equivalent is `["1","2","3"]` reaching the
+        device as `123123`, not `112233`."""
         receiver = _wire(MP60Receiver(FAKE_IP))
         receiver.send_remote_commands(["up", "down"], num_repeats=2)
-        assert _sent(receiver) == ["!DIRU\r", "!DIRU\r", "!DIRD\r", "!DIRD\r"]
+        assert _sent(receiver) == ["!DIRU\r", "!DIRD\r", "!DIRU\r", "!DIRD\r"]
+
+    def test_digit_sequence_repeats_as_a_block_not_per_digit(self):
+        """The exact scenario from the issue: entering "123" twice must
+        produce "123123" on the wire, not "112233"."""
+        receiver = _wire(MP60Receiver(FAKE_IP))
+        receiver.send_remote_commands(["1", "2", "3"], num_repeats=2)
+        assert _sent(receiver) == [
+            "!NUM(1)\r",
+            "!NUM(2)\r",
+            "!NUM(3)\r",
+            "!NUM(1)\r",
+            "!NUM(2)\r",
+            "!NUM(3)\r",
+        ]
 
     def test_num_repeats_zero_sends_nothing(self):
         receiver = _wire(MP60Receiver(FAKE_IP))

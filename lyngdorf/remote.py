@@ -106,6 +106,14 @@ class RemoteKeyTable:
     rather than transcribing the wire format one digit at a time. `None`
     on a model with no digit buttons at all (matching `commands` being
     empty by default on such a model).
+
+    `commands` is a plain `dict`, not something immutable - `RemoteKeyTable`
+    is frozen, but that only stops rebinding the field, not mutating the
+    dict object it points to. Treat it as read-only regardless: the same
+    `RemoteKeyTable` instance (`MP_REMOTE_KEYS`, `P_REMOTE_KEYS` in
+    mp_series.py/p_series.py) is shared across every model in a family, so
+    a mutation to one model's table would silently change every sibling
+    model's capability too.
     """
 
     commands: dict[RemoteKey, str] = field(default_factory=dict)
