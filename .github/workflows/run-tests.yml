@@ -15,9 +15,9 @@ jobs:
       matrix:
         python-version: ["3.11"]
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v7
       - name: Install Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v7
         # see details (matrix, python-version, python-version-file, etc.)
         # https://github.com/actions/setup-python
       - name: Install poetry
@@ -26,7 +26,7 @@ jobs:
         run: |
           poetry config virtualenvs.create true --local
           poetry config virtualenvs.in-project true --local
-      - uses: actions/cache@v3
+      - uses: actions/cache@v6
         name: Define a cache for the virtual environment based on the dependencies lock file
         with:
           path: ./.venv
