@@ -18,8 +18,11 @@ jobs:
       - uses: actions/checkout@v7
       - name: Install Python
         uses: actions/setup-python@v7
-        # see details (matrix, python-version, python-version-file, etc.)
-        # https://github.com/actions/setup-python
+        with:
+          # Without this the matrix above is decorative: setup-python
+          # falls back to the .python-version file, so adding a version
+          # to the matrix would silently run the same Python twice.
+          python-version: ${{ matrix.python-version }}
       - name: Install poetry
         uses: abatilo/actions-poetry@v2
       - name: Setup a local virtual environment (if no poetry.toml file)
