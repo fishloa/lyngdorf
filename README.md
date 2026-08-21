@@ -10,12 +10,12 @@ Python library to control Lyngdorf A/V processors and integrated amplifiers over
 
 ### MP Series (Multichannel Processors)
 - **[MP-40](https://lyngdorf.steinwaylyngdorf.com/lyngdorf-mp-40/)** - Entry-level processor (3 HDMI inputs, 12-channel decoding)
-- **[MP-50](https://lyngdorf.steinwaylyngdorf.com/electronics/)** - Mid-level processor (8 HDMI inputs, 11.1 + 4 aux) — discontinued, no product page remains
+- **[MP-50](https://lyngdorf.steinwaylyngdorf.com/lyngdorf-mp-50/)** - Mid-level processor (8 HDMI inputs, 11.1 + 4 aux)
 - **[MP-60](https://lyngdorf.steinwaylyngdorf.com/lyngdorf-mp-60/)** - Flagship processor (8 HDMI inputs, 16-channel decoding)
 
 ### TDAI Series (Integrated Amplifiers)
 - **[TDAI-1120](https://lyngdorf.steinwaylyngdorf.com/lyngdorf-tdai-1120/)** - Entry-level integrated amplifier
-- **[TDAI-2170](https://lyngdorf.steinwaylyngdorf.com/electronics/)** - Older integrated amplifier model, with a more limited protocol — discontinued
+- **[TDAI-2170](https://lyngdorf.steinwaylyngdorf.com/lyngdorf-tdai-2170/)** - Older integrated amplifier model, with a more limited protocol
 - **[TDAI-2210](https://lyngdorf.steinwaylyngdorf.com/lyngdorf-tdai-2210/)** - Integrated amplifier sharing the TDAI-1120/3400 protocol
 - **[TDAI-3400](https://lyngdorf.steinwaylyngdorf.com/lyngdorf-tdai-3400/)** - Top-of-line networked integrated amplifier
 
