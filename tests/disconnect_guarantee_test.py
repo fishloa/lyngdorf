@@ -30,8 +30,8 @@ from unittest import mock
 
 import pytest
 
+from lyngdorf import create_receiver as async_create_receiver
 from lyngdorf.api import LyngdorfApi
-from lyngdorf.device import async_create_receiver
 from lyngdorf.models import LyngdorfModel
 from lyngdorf.receiver import LyngdorfReceiver
 

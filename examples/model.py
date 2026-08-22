@@ -3,8 +3,8 @@
 Usage:
     python examples/model.py <host>
 
-No disconnect is needed here: async_find_receiver_model opens and closes
-its own short-lived connection and never starts a Receiver, so there is
+No disconnect is needed here: discover_model opens and closes
+its own short-lived connection and never starts a receiver, so there is
 no now-playing poll loop to stop.
 """
 
@@ -12,18 +12,18 @@ import asyncio
 import logging
 import sys
 
-from lyngdorf import async_find_receiver_model
+from lyngdorf import discover_model
 
 logging.basicConfig(level=logging.INFO)
 _LOGGER = logging.getLogger(__name__)
 
 
 async def main(host: str) -> None:
-    model = await async_find_receiver_model(host)
+    model = await discover_model(host)
     if model is None:
         _LOGGER.warning("no supported Lyngdorf model found at %s", host)
     else:
-        _LOGGER.info("found %s at %s", model.model_name, host)
+        _LOGGER.info("found %s at %s", model.config.model_name, host)
 
 
 if __name__ == "__main__":
