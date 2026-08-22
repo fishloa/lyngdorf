@@ -76,6 +76,9 @@ check_untyped_defs = true
 module = [
     "lyngdorf.base",
     "lyngdorf.exceptions",
+    "lyngdorf.streaming",
+    "lyngdorf.streaming.parsers",
+    "lyngdorf.streaming.types",
 ]
 disallow_any_generics = true
 disallow_subclassing_any = true
