@@ -3,10 +3,14 @@ delegation over the NowPlayingEngine protocol, runtime can_* predicates,
 and position_percent math. The transport-write serialisation regression
 test is Task 6 (same file)."""
 
+import asyncio
+import contextlib
 from datetime import UTC, datetime
 
 import pytest
-from streaming_test import TestParseNowPlaying
+from aiohttp import web
+from aiohttp.test_utils import TestServer
+from streaming_test import TestParseNowPlaying, load_fixture
 
 from lyngdorf.api import LyngdorfApi
 from lyngdorf.components import Player, build_player
@@ -237,3 +241,85 @@ class TestPlayerGating:
         verbatim on Player.pause."""
         assert Player.pause.__doc__ is not None
         assert "AirPlay" in Player.pause.__doc__
+
+
+class TestTransportWritesBypassThePollLock:
+    """spec §8: transport writes must NOT queue behind the poll loop's
+    serialisation lock. The poll holds its StreamingClient's asyncio.Lock
+    for the entire ~25s long-poll request; if pause() were routed through
+    that client - the exact consolidation a tidy-minded refactor makes -
+    a user's pause would wait out the poll cycle. 1.x semantics: every
+    transport write takes a fresh connection with Connection: close.
+
+    Mechanism: a fake device whose pollQueue handler BLOCKS until
+    released. With the long poll provably in flight (and the poll
+    client's lock therefore held), pause() must still complete within
+    2 seconds on its own connection.
+    """
+
+    @pytest.mark.asyncio
+    async def test_pause_completes_while_a_long_poll_is_in_flight(self):
+        poll_in_flight = asyncio.Event()
+        release_poll = asyncio.Event()
+        peers: set = set()
+        write_paths: list[str] = []
+
+        async def handle(request: web.Request) -> web.Response:
+            peers.add(request.transport.get_extra_info("peername"))
+            path = request.raw_path
+            if "/api/event/pollQueue" in path:
+                poll_in_flight.set()
+                await release_poll.wait()
+                return web.json_response([])
+            if "/api/event/modifyQueue" in path and "queueId=&" in path:
+                return web.json_response("{test-queue}")
+            if "/api/event/modifyQueue" in path and "subscribe=" in path:
+                return web.Response(text="true", content_type="application/json")
+            if "/api/setData" in path:
+                write_paths.append(path)
+                return web.Response(text="null", content_type="application/json")
+            if "/api/getData" in path and "playTime" in path:
+                return web.json_response(load_fixture("play_time.json"))
+            if "/api/getData" in path and "playMode" in path:
+                return web.json_response(load_fixture("play_mode_current.json"))
+            if "/api/getData" in path:
+                return web.json_response(
+                    [
+                        {
+                            **TestParseNowPlaying.PLAYING_PAYLOAD,
+                            "controls": {"pause": True},
+                        }
+                    ]
+                )
+            if "/api/getRows" in path:
+                return web.json_response(load_fixture("play_modes_roles_value.json"))
+            return web.Response(status=404)
+
+        app = web.Application()
+        app.router.add_route("GET", "/{tail:.*}", handle)
+        server = TestServer(app)
+        await server.start_server()
+        try:
+            api = LyngdorfApi(str(server.host), LyngdorfModel.MP_60)
+            api.streammagic_port = server.port
+            api._connection_enabled = True
+            poll_task = asyncio.ensure_future(api._poll_now_playing())
+            try:
+                await asyncio.wait_for(poll_in_flight.wait(), 5.0)
+                player = build_player(LyngdorfModel.MP_60, api)
+                assert player is not None
+                assert player.can_pause is True
+
+                result = await asyncio.wait_for(player.pause(), 2.0)
+                assert result is True
+                assert not release_poll.is_set()
+                assert any("/api/setData" in p for p in write_paths)
+                assert len(peers) >= 2
+            finally:
+                release_poll.set()
+                api._connection_enabled = False
+                poll_task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await poll_task
+        finally:
+            await server.close()
