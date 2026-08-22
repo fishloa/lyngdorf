@@ -195,7 +195,7 @@ class CapabilityProbeReport:
         working/broken check alone would miss it."""
         return [r for r in self.results if r.key_mismatch]
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, object]:
         """JSON-serializable summary suitable for attaching to a bug report."""
         return {
             "host": self.host,

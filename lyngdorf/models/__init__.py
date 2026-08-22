@@ -88,7 +88,7 @@ class LyngdorfModel(Enum):
         return self._config
 
     @property
-    def commands(self) -> dict:
+    def commands(self) -> dict[Msg, str]:
         """Get the protocol command mapping for this model."""
         return self._config.messages
 
@@ -107,7 +107,7 @@ class LyngdorfModel(Enum):
         """Get setup command sequence."""
         return self._config.setup_commands
 
-    def lookup_command(self, key) -> str:
+    def lookup_command(self, key: Msg) -> str:
         """Lookup protocol command for a given message type.
 
         Args:
@@ -448,7 +448,7 @@ class LyngdorfModel(Enum):
         """
         return self._config.keepalive_message
 
-    def supports_message(self, key) -> bool:
+    def supports_message(self, key: Msg) -> bool:
         """Check whether this model's protocol defines a given message.
 
         Args:
@@ -460,7 +460,7 @@ class LyngdorfModel(Enum):
         return key in self._config.messages
 
     @property
-    def capabilities(self) -> dict:
+    def capabilities(self) -> dict[Msg, bool]:
         """Mapping of every known message type to whether this model's
         protocol supports it.
 

@@ -48,49 +48,14 @@ ignore = [
 
 [tool.mypy]
 python_version = "3.11"
-warn_return_any = true
+# The whole package is now checked to `--strict` (spec D3, #49). WP0's
+# per-module override block, which enrolled each 2.0 module as it was
+# written, has done its job and is gone. `strict = true` is still not
+# used: the flags are enumerated so a future per-module exemption cannot
+# reintroduce WP0's measured global-leak bug.
 warn_unused_configs = true
-# Global halves of --strict. These two cannot live in a per-module
-# override (mypy treats them as global-only); both verified no-op on the
-# current 1.x modules before enabling.
 warn_redundant_casts = true
 strict_bytes = true
-disallow_untyped_defs = false
-ignore_missing_imports = true
-check_untyped_defs = true
-
-# --- The 2.0 strict gate (spec D3) -----------------------------------
-# Every module listed below is checked to the same standard as
-# `mypy --strict`. Each work package appends the modules it creates or
-# rewrites, so 2.0 code is born strict-clean; the 1.x modules stay under
-# the lenient global config above until WP6 promotes the whole package.
-#
-# Why the flags are spelled out instead of `strict = true`: mypy 1.19.1
-# accepts `strict = true` in an override SILENTLY but applies it
-# GLOBALLY (measured: with only lyngdorf.exceptions listed, strict
-# errors fired in lyngdorf/streaming.py and lyngdorf/models/). Do not
-# "simplify" this block. The set below is --strict minus the three
-# global-only flags (warn_unused_configs, warn_redundant_casts,
-# strict_bytes), which are set in the global section above.
-[[tool.mypy.overrides]]
-module = [
-    "lyngdorf.base",
-    "lyngdorf.exceptions",
-    "lyngdorf.streaming",
-    "lyngdorf.streaming.client",
-    "lyngdorf.streaming.parsers",
-    "lyngdorf.streaming.types",
-    "lyngdorf.rio",
-    "lyngdorf.rio.protocol",
-    "lyngdorf.rio.queue",
-    "lyngdorf.rio.client",
-    "lyngdorf.rio.dialects",
-    "lyngdorf.controls",
-    "lyngdorf.components",
-    "lyngdorf.receiver",
-    "lyngdorf.discovery",
-    "lyngdorf.streaming.poll",
-]
 disallow_any_generics = true
 disallow_subclassing_any = true
 disallow_untyped_calls = true
@@ -104,12 +69,16 @@ no_implicit_reexport = true
 strict_equality = true
 extra_checks = true
 
+# The D9 shim mixin (_CompatShims) uses TYPE_CHECKING to inherit from
+# LyngdorfReceiver's full surface, but the import cycle
+# (_compat.py → receiver.py → _compat.py) means mypy sees the base as
+# Any under strict; the attr-defined and no-any-return cures are worse
+# than the problem (they'd mask real bugs). This override exactly
+# replicates the 1.x state: _compat.py ships typed in the wheel (it
+# carries no type: ignore comments), but strict does not enforce
+# concrete-attribute resolution across the mixin boundary.
 [[tool.mypy.overrides]]
 module = "lyngdorf._compat"
-disallow_untyped_defs = true
-disallow_incomplete_defs = true
-check_untyped_defs = true
-no_implicit_reexport = true
 disable_error_code = "attr-defined, no-any-return"
 
 [build-system]

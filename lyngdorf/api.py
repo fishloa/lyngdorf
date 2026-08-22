@@ -103,7 +103,7 @@ class LyngdorfApi(RioClient):
 
     @_global_play_modes.setter
     def _global_play_modes(self, value: frozenset[PlayMode]) -> None:
-        self._ensure_poll()._global_play_modes = value  # type: ignore[assignment]
+        self._ensure_poll()._global_play_modes = value
 
     async def async_connect(self) -> None:
         """Connect to the receiver asynchronously."""
