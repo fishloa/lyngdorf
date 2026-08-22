@@ -56,7 +56,7 @@ Reading the matrix:
 - **Remote keys** counts the buttons the model exposes. MP-40/50/60 and the
   P200 have 21; the P100 and P300 have 20, lacking `MULTIVIEW`, which
   the P-series manual restricts to the P200. The TDAI family has no
-  navigation hardware at all, so `has_remote_keys` is `False` there.
+  navigation hardware at all, so `remote is not None` is `False` there.
 - **Volume / trim ranges** are `NumericRange(min, max, step)`. Note the step:
   the MP and P series adjust trims in 0.1 dB, the TDAI family in whole dB
   only. These ranges are advisory — read the setter docs before treating
@@ -85,23 +85,23 @@ poetry install
 
 ```python
 import asyncio
-from lyngdorf import async_create_receiver, LyngdorfModel
+from lyngdorf import create_receiver, LyngdorfModel
 
 async def main():
     # Auto-detect model (recommended)
-    receiver = await async_create_receiver("192.168.1.100")
+    receiver = await create_receiver("192.168.1.100")
 
     # Or specify model explicitly
-    receiver = await async_create_receiver("192.168.1.100", LyngdorfModel.MP_60)
+    receiver = await create_receiver("192.168.1.100", LyngdorfModel.MP_60)
 
     # Connect to the receiver
-    await receiver.async_connect()
+    await receiver.connect()
 
     # Control the receiver
     receiver.power_on = True
     print(f"Volume: {receiver.volume} dB")
-    receiver.volume = -22.5
-    receiver.mute_enabled = False
+    await receiver.volume.set(-22.5)
+    receiver.muted = False
 
     # Change source
     receiver.source = "HDMI 1"
@@ -110,7 +110,7 @@ async def main():
     receiver.room_perfect_position = "Focus 1"
 
     # Disconnect when done
-    await receiver.async_disconnect()
+    await receiver.disconnect()
 
 asyncio.run(main())
 ```
@@ -126,10 +126,10 @@ print(receiver.power_on)   # Check power state
 
 ### Volume Control
 ```python
-receiver.volume = -25.0   # Set volume in dB
-receiver.volume_up()      # Increase volume
-receiver.volume_down()    # Decrease volume
-receiver.mute_enabled = True  # Mute
+await receiver.volume.set(-25.0)   # Set volume in dB
+await receiver.volume.up()      # Increase volume
+await receiver.volume.down()    # Decrease volume
+receiver.muted = True  # Mute
 
 # volume_range is the model's fixed, documented capability -
 # NumericRange(min, max, step). It differs by family: the MP and P
@@ -154,7 +154,7 @@ print(receiver.max_volume)
 ### Source Selection
 ```python
 # List available sources
-print(receiver.available_sources)
+print(receiver.sources)
 
 # Select source by name
 receiver.source = "HDMI 1"
@@ -163,9 +163,9 @@ receiver.source = "HDMI 1"
 ### Audio/Video Inputs & Stream Types
 ```python
 # Enumerate the possible values before building a closed-option UI
-print(receiver.available_audio_inputs)
-print(receiver.available_video_inputs)
-print(receiver.available_stream_types)
+print(receiver.audio_inputs)
+print(receiver.video_inputs)
+print(receiver.stream_types)
 
 # Current values
 print(receiver.audio_input, receiver.video_input, receiver.streaming_source)
@@ -173,13 +173,13 @@ print(receiver.audio_input, receiver.video_input, receiver.streaming_source)
 
 Empty for a model with no such table at all (e.g. a TDAI has no video inputs).
 An unrecognised wire value deliberately escapes the table rather than being
-added to it - see `available_audio_inputs`'s docstring - so a current value is
+added to it - see `audio_inputs`'s docstring - so a current value is
 not guaranteed to appear in its corresponding `available_*` list.
 
 ### RoomPerfect™ & Voicing
 ```python
 # List available positions
-print(receiver.available_room_perfect_positions)
+print(receiver.room_perfect_positions)
 
 # Select position
 receiver.room_perfect_position = "Focus 1"
@@ -187,7 +187,7 @@ receiver.room_perfect_position = "Global"
 receiver.room_perfect_position = "Bypass"
 
 # List available voicings
-print(receiver.available_voicings)
+print(receiver.voicings)
 
 # Select voicing
 receiver.voicing = "Neutral"
@@ -212,7 +212,7 @@ receiver.trim_bass_down()
 ```python
 # Each adjustable numeric setting has a matching *_range property -
 # NumericRange(min, max, step) - None on a model with no such setting at
-# all (e.g. trim_centre_range is None on every TDAI; every trim range is
+# all (e.g. trims[Trim.CENTER].range is None on every TDAI; every trim range is
 # None on the P series). A UI (e.g. Home Assistant's `number` platform)
 # should build its slider bounds from these instead of hardcoding them -
 # they vary by model, and the MP series' 0.1 dB step genuinely differs
@@ -223,26 +223,26 @@ receiver.trim_bass_down()
 # device itself is the enforcement point (see volume_range's docstring
 # for the reasoning). Do not rely on a setter to reject an out-of-range
 # value.
-print(receiver.trim_bass_range)     # NumericRange(-12.0, 12.0, 0.1) on an MP
-print(receiver.trim_centre_range)   # None on a TDAI - no discrete channel trims
+print(receiver.trims[Trim.BASS].range)     # NumericRange(-12.0, 12.0, 0.1) on an MP
+print(receiver.trims[Trim.CENTER].range)   # None on a TDAI - no discrete channel trims
 
-# lipsync_range is a live property: it starts at the documented default
+# lipsync.range is a live property: it starts at the documented default
 # (NumericRange(0, 500, 1)) and is overwritten once the device answers its
 # own LIPSYNCRANGE? query - re-read it rather than caching it once. None
 # on the TDAI family, which has no lip sync control at all.
-print(receiver.lipsync_range)
-receiver.lipsync = 20   # ms
+print(receiver.lipsync.range)
+await receiver.lipsync.set(20)   # ms
 
 # Every volume/trim_*/lipsync setter sends the value it is given
 # unchanged - it does not check it against its own *_range. It still
 # raises LyngdorfInvalidValueError if the connected model has no such
 # control at all - not an out-of-range value, but a request the model
-# cannot express, e.g. trim_centre on a TDAI (see trim_centre_range
+# cannot express, e.g. trim_centre on a TDAI (see trims[Trim.CENTER].range
 # above: None means no discrete channel trims at all, so there is no
 # command to send).
 from lyngdorf.exceptions import LyngdorfInvalidValueError
 
-tdai = await async_create_receiver("192.168.1.101", LyngdorfModel.TDAI_1120)
+tdai = await create_receiver("192.168.1.101", LyngdorfModel.TDAI_1120)
 try:
     tdai.trim_centre = 0.0
 except LyngdorfInvalidValueError as exc:
@@ -251,9 +251,9 @@ except LyngdorfInvalidValueError as exc:
 
 ### Method-Based Setters
 
-Every property setter above (`volume`, `zone_b_volume`, `lipsync`, the six
+Every property setter above (`volume`, `zone_b.volume.value`, `lipsync`, the six
 trims, `room_perfect_position`, `voicing`) also has a `set_*` method
-equivalent - `set_volume(db)`, `set_zone_b_volume(db)`, `set_lipsync(ms)`,
+equivalent - `set_volume(db)`, `set_zone_b.volume.value(db)`, `set_lipsync(ms)`,
 `set_trim_bass(db)`/`set_trim_treble(db)`/`set_trim_centre(db)`/
 `set_trim_height(db)`/`set_trim_lfe(db)`/`set_trim_surround(db)`,
 `set_room_perfect_position(name)`, `set_voicing(name)`. Each delegates straight
@@ -263,24 +263,24 @@ tables of small callables, where a lambda cannot contain an assignment and
 `lambda r, v: setattr(r, "trim_bass", v)` hides a typo from the type checker.
 
 ```python
-receiver.set_volume(-25.0)
-receiver.set_trim_bass(1.5)
+receiver.volume.set(-25.0)
+receiver.trims[Trim.BASS].set(1.5)
 receiver.set_room_perfect_position("Focus 1")
 ```
 
 ### Zone B Control (MP Series)
 ```python
 # Zone B power
-receiver.zone_b_power_on = True
+receiver.zone_b.power_on = True
 
-# Zone B volume - zone_b_volume_range is None on a model with no Zone B
+# Zone B volume - zone_b.volume.range is None on a model with no Zone B
 # at all (e.g. every TDAI), otherwise identical to volume_range
-receiver.zone_b_volume = -30.0
-receiver.zone_b_volume_up()
-receiver.zone_b_volume_down()
+await receiver.zone_b.volume.set -30.0
+await receiver.zone_b.volume.up()
+await receiver.zone_b.volume.down()
 
 # Zone B source
-receiver.zone_b_source = "Apple TV"
+receiver.zone_b.source = "Apple TV"
 ```
 
 ### Remote Control (MP and P Series)
@@ -290,7 +290,7 @@ cursor navigation, `MENU`/`INFO`/`SETUP`, `BACK`/`EXIT`, digits - as a small,
 write-only API. (The MP manuals document only `EXIT` and omit `BACK`
 entirely, but a real MP-60 accepts `!BACK` too - the manuals are wrong here,
 not the mapping.) The whole TDAI family has no navigation hardware at all, so
-`has_remote_keys` is `False` and `available_remote_keys` is empty there.
+`remote is not None` is `False` and `remote.keys` is empty there.
 
 `MULTIVIEW` is the one key that genuinely differs by model, not just by
 family: every MP model has it, but on the P series `docs/p-series.md`
@@ -299,13 +299,13 @@ not a documentation gap like `BACK` was, and with no hardware to test a P100
 or P300 against, the manual is followed rather than overruled. So MP-40/50/60
 and the P200 all expose an identical key set including `MULTIVIEW`; the P100
 and P300 expose that same set minus `MULTIVIEW`. Always check
-`available_remote_keys` rather than assuming a key is present because a
+`remote.keys` rather than assuming a key is present because a
 sibling model has it.
 
 ```python
 from lyngdorf import RemoteKey
 
-if receiver.has_remote_keys:
+if receiver.remote is not None:
     # Typed single press
     receiver.press(RemoteKey.MENU)
     receiver.press(RemoteKey.DOWN)
@@ -319,7 +319,7 @@ if receiver.has_remote_keys:
 
     # What this model actually has, for building a remote entity's
     # advertised command list or validating user input up front
-    print(sorted(receiver.available_remote_keys))
+    print(sorted(receiver.remote.keys))
 ```
 
 `send_remote_commands` resolves every command in the batch to a `RemoteKey`
@@ -345,14 +345,14 @@ press means "one more step," and order/count is the whole meaning of a batch
 def on_any_change():
     print("Receiver state changed")
 
-unsubscribe = receiver.register_notification_callback(on_any_change)
+unsubscribe = receiver.on_change(on_any_change)
 
 # Detach later - e.g. when a Home Assistant entity is removed, or a config
 # entry is reloaded. Safe to call more than once.
 unsubscribe()
 ```
 
-Every `register_*` method on `Receiver` (`register_notification_callback`,
+Every `register_*` method on `Receiver` (`on_change`,
 `register_position_callback`, `register_position_jump_callback`) returns a plain
 `Callable[[], None]` that removes that registration. The returned unsubscribe is
 idempotent - calling it twice, or after the callback was already removed some
@@ -366,7 +366,7 @@ callbacks across every config-entry reload.
 
 Reacting to one specific wire command (e.g. only `VOL` messages) has no public
 API - that lives on the private `receiver._api.register_callback(...)` and isn't
-part of the supported surface. `register_notification_callback` above is the
+part of the supported surface. `on_change` above is the
 supported way to learn "something changed" and then read whichever properties
 you care about.
 
@@ -374,25 +374,25 @@ you care about.
 
 Models with the embedded streaming module expose now-playing metadata for
 streaming sources such as AirPlay, Spotify Connect, Qobuz and TIDAL. Check
-`receiver.model.has_streaming_feature()` (or the narrower `receiver.has_position`
+`receiver.player is not None` (or the narrower `receiver.player is not None`
 for position specifically) before relying on this - the TDAI-2170 and the P
-series have no streaming module, so `now_playing`, position and transport
+series have no streaming module, so `player.now_playing`, position and transport
 control are all unavailable on those models.
 
 ```python
-now_playing = receiver.now_playing  # NowPlaying, or None if idle/unsupported
-if now_playing is not None:
-    print(f"{now_playing.artist} - {now_playing.title} ({now_playing.source})")
-    print(now_playing.state)  # PlaybackState.PLAYING, .PAUSED, .STOPPED, ...
+player.now_playing = receiver.player.now_playing  # NowPlaying, or None if idle/unsupported
+if player.now_playing is not None:
+    print(f"{player.now_playing.artist} - {player.now_playing.title} ({player.now_playing.source})")
+    print(player.now_playing.state)  # PlaybackState.PLAYING, .PAUSED, .STOPPED, ...
 ```
 
 `NowPlaying` also carries `album`, `art_url`, `duration_ms`, the `controls` the
-current source offers right now (see Transport Control below), and `play_modes`.
+current source offers right now (see Transport Control below), and `player.play_modes`.
 
 ### Playback Position
 
 ```python
-print(receiver.position_ms, receiver.position_updated_at, receiver.position_percent)
+print(receiver.player.position_ms, receiver.player.position_updated_at, receiver.position_percent)
 ```
 
 Position is reported through two different callbacks, for two different kinds of
@@ -401,16 +401,16 @@ consumer:
 ```python
 # Fires on every raw update - about once a second while playing. For a
 # live-counting UI that wants a smooth per-second value.
-def on_position(position_ms):
-    print(f"Position: {position_ms} ms")
+def on_position(player.position_ms):
+    print(f"Position: {player.position_ms} ms")
 
 receiver.register_position_callback(on_position)
 
 # Fires only on discontinuities: a seek, a track change, a play/pause, or the
 # reported position drifting from where it should be. Does NOT fire for
 # ordinary once-a-second progress.
-def on_position_jump(position_ms):
-    print(f"Position jumped to {position_ms} ms")
+def on_position_jump(player.position_ms):
+    print(f"Position jumped to {player.position_ms} ms")
 
 unsubscribe = receiver.register_position_jump_callback(on_position_jump)
 ```
@@ -423,33 +423,33 @@ the jump callback only fires when something actually changed.
 ### Transport Control
 
 ```python
-if receiver.can_pause:
-    await receiver.async_pause()
+if receiver.player.can_pause:
+    await receiver.player.pause()
 
-if receiver.can_next:
-    await receiver.async_next()
+if receiver.player.can_next:
+    await receiver.player.next_track()
 
-if receiver.can_seek:
-    await receiver.async_seek(30_000)  # milliseconds
+if receiver.player.can_seek:
+    await receiver.player.seek(30_000)  # milliseconds
 ```
 
 **Capabilities are per-source and change at runtime.** The device advertises what
 the *current* source supports, not a fixed list for the model: AirPlay offers only
-`can_pause` / `can_next` / `can_previous`; Spotify Connect adds `can_seek` and five
+`player.can_pause` / `player.can_next` / `player.can_previous`; Spotify Connect adds `player.can_seek` and five
 play modes; a stopped device advertises nothing, so every `can_*` property reads
-`False`. Always check the relevant `can_*` property (or `available_play_modes` /
-`available_repeat_modes`) before calling - calling something the current source
+`False`. Always check the relevant `can_*` property (or `player.player.play_modes` /
+`player.repeat_modes`) before calling - calling something the current source
 doesn't offer raises `LyngdorfUnsupportedError` (from `lyngdorf.exceptions`)
 rather than returning `False`, because the device accepts unsupported commands
 silently (an unrecognised play mode still returns HTTP 200 and is stored), so a
 return value could never tell a caller whether anything actually happened.
 
-> **Warning:** `async_pause()` is source-dependent, and on some sources it is
+> **Warning:** `player.pause()` is source-dependent, and on some sources it is
 > destructive. On a source the device streams itself (Spotify Connect) it
 > toggles: pause, then resume. On AirPlay and other controller-driven sources it
 > instead **ends the session** - the device cannot restart it, and there is no
 > separate resume command; only the controlling phone or app can start it again.
-> Check `receiver.can_pause` and know your source before calling it.
+> Check `receiver.player.can_pause` and know your source before calling it.
 
 Shuffle and repeat can be set independently - each call carries the other setting
 over unchanged rather than leaving it to the device to infer:
@@ -461,13 +461,13 @@ await receiver.async_set_shuffle(True)
 await receiver.async_set_repeat(Repeat.ALL)
 
 # Or set both at once:
-await receiver.async_set_play_mode(PlayMode(shuffle=True, repeat=Repeat.ALL))
+await receiver.async_set_player.play_mode(PlayMode(shuffle=True, repeat=Repeat.ALL))
 ```
 
-`available_play_modes`, `available_repeat_modes` and `can_shuffle` report what the
+`player.player.play_modes`, `player.repeat_modes` and `player.can_shuffle` report what the
 current source actually allows.
 
-`available_play_modes` is a union of two device-reported lists, not a straight
+`player.player.play_modes` is a union of two device-reported lists, not a straight
 read of either one - each is a partial view of the same six-value shuffle/repeat
 grid. The current source's own `controls.playMode` omits `normal`; the device's
 global `settings:/mediaPlayer/playModes` list omits the repeat-all variants.
@@ -571,7 +571,7 @@ poetry run pytest -v
 Streaming HTTP calls are genuinely cancellable as of the 2.0 aiohttp port,
 so the old two-minute-hang caveat is retired (see
 [KNOWN_ISSUES.md](KNOWN_ISSUES.md)'s resolved section);
-`tests/conftest.py` still guarantees `async_disconnect()` on every test's
+`tests/conftest.py` still guarantees `disconnect()` on every test's
 teardown.
 
 ### Code Quality
