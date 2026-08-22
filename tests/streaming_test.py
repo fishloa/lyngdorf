@@ -9,12 +9,13 @@ what the hardware actually sends.
 import asyncio
 import contextlib
 import json
-from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
-from threading import Event, Thread
 from urllib.parse import unquote
 
 import pytest
+import pytest_asyncio
+from aiohttp import web
+from aiohttp.test_utils import TestServer
 
 from lyngdorf.api import LyngdorfApi
 from lyngdorf.const import LyngdorfModel
@@ -426,127 +427,130 @@ class TestParsePlayModes:
 # -- Fake HTTP server for integration tests --
 
 
-class _NowPlayingHandler(BaseHTTPRequestHandler):
-    """Minimal stub of the StreamMagic :8080 API."""
+class FakeStreamMagicServer:
+    """In-loop stand-in for the streaming module's :8080 API.
 
-    server: "FakeStreamMagicServer"
+    Same routes and knobs as the old threaded-HTTPServer fake, but served
+    by aiohttp.test_utils.TestServer so the client under test, the
+    long-poll scripting and the tests all share one event loop - no
+    threads, no cross-thread signalling.
 
-    def log_message(self, format, *args):
-        pass
+    The payloads served are real captures from an MP-60 (see
+    `tests/fixtures/`), so parsers are tested against what the hardware
+    actually sends.
+    """
+
+    def __init__(self) -> None:
+        self.keep_alive: bool = True
+        self.connections: int = 0
+        self.queue_id: str = "{test-queue-123}"
+        self.get_data_response: object = [TestParseNowPlaying.PLAYING_PAYLOAD]
+        self.position_response: object = load_fixture("play_time.json")
+        # A real device capture (`settings:/mediaPlayer/playMode`,
+        # roles=value) rather than a hand-written approximation.
+        self.play_mode_response: object = load_fixture("play_mode_current.json")
+        # The shape `async_fetch_play_modes` actually receives - it
+        # requests `roles=value`, giving single-element rows. The
+        # `roles=title,value` two-element shape is exercised explicitly by
+        # test_fetch_play_modes_title_value_shape.
+        self.play_modes_response: object = load_fixture("play_modes_roles_value.json")
+        self.poll_response: list = []
+        self.last_path: str = ""
+        self.fail_writes: bool = False
+
+        # -- scripted pollQueue sequence, for TestPollRefetchDecision --
+        # `poll_batches`, when set, overrides `poll_response`: call N of
+        # pollQueue returns `poll_batches[N-1]` (the last entry repeats
+        # once exhausted). `poll_signal` lets a test wait, without
+        # sleeping, for a specific call count to be reached.
+        self.poll_batches: list | None = None
+        self.poll_calls: int = 0
+        self.poll_signal: asyncio.Event | None = None
+        self.poll_signal_at: int = 0
+        self.now_playing_fetch_count: int = 0
+
+        self._seen_peers: set = set()
+        self._test_server: TestServer | None = None
 
     @property
-    def protocol_version(self):  # type: ignore[override]
-        """HTTP/1.1 offers keep-alive; HTTP/1.0 does not."""
-        return "HTTP/1.1" if self.server.keep_alive else "HTTP/1.0"
+    def server_address(self) -> tuple[str, int]:
+        assert self._test_server is not None
+        return (self._test_server.host, self._test_server.port)
 
-    def setup(self):
-        """Called once per TCP connection - counts real sockets."""
-        self.server.connections += 1
-        super().setup()
+    async def handle(self, request: web.Request) -> web.Response:
+        # Count real TCP connections by client (ip, port): one kept-alive
+        # socket serves many requests but has exactly one peername -
+        # the aiohttp equivalent of the old handler's per-connection
+        # setup() counter. Tests reset `connections = 0` between phases.
+        peer = request.transport.get_extra_info("peername")
+        if peer not in self._seen_peers:
+            self._seen_peers.add(peer)
+            self.connections += 1
+        # raw_path preserves percent-encoding, exactly like the old
+        # handler's self.path - tests unquote() it before asserting, and
+        # Task 7's byte-identical wire test asserts it raw.
+        self.last_path = request.raw_path
+        response = self._route(request.raw_path)
+        if not self.keep_alive:
+            # Emulate a device that declines reuse: `Connection: close`
+            # on every response (the old fake spoke HTTP/1.0 instead;
+            # same observable effect - one connection per request).
+            response.force_close()
+        return response
 
-    def _respond(self, body: bytes) -> None:
-        self.send_response(200)
-        self.send_header("Content-Type", "application/json")
-        # Keep-alive needs exact framing or the client cannot find the
-        # start of the next response and closes anyway.
-        self.send_header("Content-Length", str(len(body)))
-        self.end_headers()
-        self.write(body)
-
-    def do_GET(self):
-        self.server.last_path = self.path
-        if "/api/setData" in self.path:
-            if self.server.fail_writes:
-                body = b'{"error":{"title":"Error","message":"failed"}}'
-                self.send_response(500)
-                self.send_header("Content-Type", "application/json")
-                self.send_header("Content-Length", str(len(body)))
-                self.end_headers()
-                self.write(body)
-            else:
-                self._respond(b"null")
-            return
-        if "/api/getData" in self.path and "playTime" in self.path:
-            self._respond(json.dumps(self.server.position_response).encode())
-        elif "/api/getData" in self.path and "playMode" in self.path:
-            self._respond(json.dumps(self.server.play_mode_response).encode())
-        elif "/api/getData" in self.path:
-            # The full-payload now-playing fetch. Counted separately because
-            # it is the expensive request the poll loop must NOT make on
-            # every position/play-mode tick - see TestPollRefetchDecision.
-            self.server.now_playing_fetch_count += 1
-            self._respond(json.dumps(self.server.get_data_response).encode())
-        elif "/api/getRows" in self.path:
-            self._respond(json.dumps(self.server.play_modes_response).encode())
-        elif "/api/event/modifyQueue" in self.path and "queueId=&" in self.path:
-            self._respond(json.dumps(self.server.queue_id).encode())
-        elif "/api/event/modifyQueue" in self.path and "subscribe=" in self.path:
-            self._respond(b"true")
-        elif "/api/event/pollQueue" in self.path:
-            self.server.poll_calls += 1
+    def _route(self, path: str) -> web.Response:
+        if "/api/setData" in path:
+            if self.fail_writes:
+                return web.Response(
+                    status=500,
+                    text='{"error":{"title":"Error","message":"failed"}}',
+                    content_type="application/json",
+                )
+            return web.Response(text="null", content_type="application/json")
+        if "/api/getData" in path and "playTime" in path:
+            return web.json_response(self.position_response)
+        if "/api/getData" in path and "playMode" in path:
+            return web.json_response(self.play_mode_response)
+        if "/api/getData" in path:
+            # The full-payload now-playing fetch. Counted separately
+            # because it is the expensive request the poll loop must NOT
+            # make on every position/play-mode tick - see
+            # TestPollRefetchDecision.
+            self.now_playing_fetch_count += 1
+            return web.json_response(self.get_data_response)
+        if "/api/getRows" in path:
+            return web.json_response(self.play_modes_response)
+        if "/api/event/modifyQueue" in path and "queueId=&" in path:
+            return web.json_response(self.queue_id)
+        if "/api/event/modifyQueue" in path and "subscribe=" in path:
+            return web.Response(text="true", content_type="application/json")
+        if "/api/event/pollQueue" in path:
+            self.poll_calls += 1
             # Signal at a caller-chosen call count - e.g. "2" means the
             # second long-poll request has landed, which can only happen
             # once the loop has fully finished processing the first
             # response (including any refetch it triggered).
-            if (
-                self.server.poll_signal is not None
-                and self.server.poll_calls == self.server.poll_signal_at
-            ):
-                self.server.poll_signal.set()
-            if self.server.poll_batches is not None:
-                idx = min(self.server.poll_calls - 1, len(self.server.poll_batches) - 1)
-                body = self.server.poll_batches[idx] if self.server.poll_batches else []
+            if self.poll_signal is not None and self.poll_calls == self.poll_signal_at:
+                self.poll_signal.set()
+            if self.poll_batches is not None:
+                idx = min(self.poll_calls - 1, len(self.poll_batches) - 1)
+                body = self.poll_batches[idx] if self.poll_batches else []
             else:
-                body = self.server.poll_response
-            self._respond(json.dumps(body).encode())
-        else:
-            self.send_response(404)
-            self.send_header("Content-Length", "0")
-            self.end_headers()
-
-    def write(self, data: bytes) -> None:
-        self.wfile.write(data)
+                body = self.poll_response
+            return web.json_response(body)
+        return web.Response(status=404)
 
 
-class FakeStreamMagicServer(HTTPServer):
-    keep_alive: bool = True
-    connections: int = 0
-    queue_id: str = "{test-queue-123}"
-    get_data_response: object = [TestParseNowPlaying.PLAYING_PAYLOAD]
-    position_response: object = load_fixture("play_time.json")
-    # A real device capture (`settings:/mediaPlayer/playMode`, roles=value)
-    # rather than a hand-written approximation.
-    play_mode_response: object = load_fixture("play_mode_current.json")
-    # This is the shape `async_fetch_play_modes` actually receives - it
-    # requests `roles=value`, giving single-element rows.
-    # `play_modes_roles_title_value.json` (the `roles=title,value`
-    # two-element-row shape) is used explicitly by tests that check the
-    # parser also handles that shape - see
-    # `test_fetch_play_modes_title_value_shape` below.
-    play_modes_response: object = load_fixture("play_modes_roles_value.json")
-    poll_response: list = []
-    last_path: str = ""
-    fail_writes: bool = False
-
-    # -- scripted pollQueue sequence, for TestPollRefetchDecision --
-    # `poll_batches`, when set, overrides `poll_response`: call N of
-    # pollQueue returns `poll_batches[N-1]` (the last entry repeats once
-    # exhausted). `poll_signal` lets a test wait, without sleeping, for a
-    # specific call count to be reached.
-    poll_batches: list | None = None
-    poll_calls: int = 0
-    poll_signal: Event | None = None
-    poll_signal_at: int = 0
-    now_playing_fetch_count: int = 0
-
-
-@pytest.fixture()
-def fake_server():
-    server = FakeStreamMagicServer(("127.0.0.1", 0), _NowPlayingHandler)
-    thread = Thread(target=server.serve_forever, daemon=True)
-    thread.start()
-    yield server
-    server.shutdown()
+@pytest_asyncio.fixture()
+async def fake_server():
+    fake = FakeStreamMagicServer()
+    app = web.Application()
+    app.router.add_route("GET", "/{tail:.*}", fake.handle)
+    server = TestServer(app)
+    await server.start_server()
+    fake._test_server = server
+    yield fake
+    await server.close()
 
 
 # -- HTTP helper integration tests --
@@ -1319,7 +1323,7 @@ class TestPollRefetchDecision:
         """Run the poll loop through exactly one event batch, then stop it.
 
         `batch` is served as the first pollQueue response; an empty batch
-        follows. Waits - via a `threading.Event` set the instant the
+        follows. Waits - via an `asyncio.Event` set the instant the
         *second* pollQueue request lands, never a sleep - because that
         second request cannot be sent until every `await` triggered by
         processing the first batch (including any refetch) has finished.
@@ -1327,7 +1331,7 @@ class TestPollRefetchDecision:
         host, port = fake_server.server_address
         fake_server.poll_batches = [batch, []]
         fake_server.poll_calls = 0
-        fake_server.poll_signal = Event()
+        fake_server.poll_signal = asyncio.Event()
         fake_server.poll_signal_at = 2
         fake_server.now_playing_fetch_count = 0
 
@@ -1337,11 +1341,10 @@ class TestPollRefetchDecision:
 
         task = asyncio.ensure_future(api._poll_now_playing())
         try:
-            loop = asyncio.get_running_loop()
-            await loop.run_in_executor(None, fake_server.poll_signal.wait, 5.0)
-            assert (
-                fake_server.poll_signal.is_set()
-            ), "poll loop never reached a second cycle"
+            try:
+                await asyncio.wait_for(fake_server.poll_signal.wait(), 5.0)
+            except TimeoutError:
+                pytest.fail("poll loop never reached a second cycle")
         finally:
             api._connection_enabled = False
             task.cancel()
