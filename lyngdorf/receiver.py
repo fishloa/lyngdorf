@@ -1,0 +1,732 @@
+"""LyngdorfReceiver: the entire 2.0 public receiver surface (design §2.2).
+
+Pure assembly plus cached state (design §4): owns the internal
+LyngdorfApi (wire client + streaming engine), builds the components from
+ModelConfig, and defines the wire-callback methods - value conversion
+only, no protocol framing, no socket code.
+
+Write semantics, stated once and inherited by every setter's docstring by
+reference: an `await` returns when the command has been QUEUED for paced
+delivery, not when the device has acted. The authoritative new state
+arrives through the device's own notification and is observable via the
+properties / on_change. `async def` is the loop requirement made visible
+(issue #51), not a promise of confirmation.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import logging
+from collections.abc import Callable, Mapping, Sequence
+
+from .api import LyngdorfApi
+from .base import CountingNumberDict, register_in_list
+from .components import (
+    Player,
+    Remote,
+    ZoneB,
+    build_player,
+    build_remote,
+    build_zone_b,
+)
+from .const import LyngdorfModel, Msg
+from .controls import (
+    NumericControl,
+    SteppableControl,
+    Trim,
+    build_lipsync,
+    build_trims,
+    build_volume,
+)
+from .exceptions import LyngdorfInvalidValueError
+from .models import NumericRange
+from .rio import (
+    MP_DIALECT,
+    P_DIALECT,
+    TDAI_2170_DIALECT,
+    TDAI_DIALECT,
+    Dialect,
+    resolve_attr,
+)
+from .states import PlayMode
+from .streaming import NowPlaying
+
+_LOGGER = logging.getLogger(__package__)
+
+
+def convert_decibel(value: float | str, scale: float = 10.0) -> float:
+    """Convert a wire-protocol numeric parameter to dB.
+
+    `scale` is how many wire units make up 1 dB. Volume is always in
+    tenths of a dB on both the MP and TDAI families, so the default of
+    10.0 covers every volume call site unchanged. Bass/treble trim is
+    NOT uniform across families - the MP series shares volume's tenths
+    encoding but the TDAI series' `!BASS`/`!TREBLE` are whole dB only
+    (see ModelConfig.trim_bass_treble_scale) - so callers on that path
+    must pass the model's own scale explicitly rather than relying on
+    this default. See issue #41.
+    """
+    return float(value) / scale
+
+
+# Which family dialect each model registers with (was the receiver
+# subclass hierarchy's _dialect class attributes - spec §2.9: the ten
+# subclasses die; this mapping is what replaces their only real content).
+_DIALECTS: dict[LyngdorfModel, Dialect] = {
+    LyngdorfModel.MP_40: MP_DIALECT,
+    LyngdorfModel.MP_50: MP_DIALECT,
+    LyngdorfModel.MP_60: MP_DIALECT,
+    LyngdorfModel.P_100: P_DIALECT,
+    LyngdorfModel.P_200: P_DIALECT,
+    LyngdorfModel.P_300: P_DIALECT,
+    LyngdorfModel.TDAI_1120: TDAI_DIALECT,
+    LyngdorfModel.TDAI_2210: TDAI_DIALECT,
+    LyngdorfModel.TDAI_3400: TDAI_DIALECT,
+    LyngdorfModel.TDAI_2170: TDAI_2170_DIALECT,
+}
+
+
+class LyngdorfReceiver:
+    """A Lyngdorf A/V processor or integrated amplifier.
+
+    Write semantics, stated once and inherited by every setter's docstring by
+    reference: an `await` returns when the command has been QUEUED for paced
+    delivery, not when the device has acted. The authoritative new state
+    arrives through the device's own notification and is observable via the
+    properties / on_change. `async def` is the loop requirement made visible
+    (issue #51), not a promise of confirmation.
+    """
+
+    def __init__(self, host: str, model: LyngdorfModel) -> None:
+        self._host = host
+        self._model = model
+        self._api = LyngdorfApi(host, model)
+        self._dialect = _DIALECTS[model]
+
+        # Components and controls - structural capability (design §5):
+        # built once, from ModelConfig, via the WP3 factories.
+        self._volume = build_volume(self._api)
+        self._trims = build_trims(self._api)
+        self._lipsync = build_lipsync(self._api)
+        self._zone_b = build_zone_b(self._api)
+        self._player = build_player(model, self._api)
+        self._remote = build_remote(self._api)
+
+        # Flat cached state (design §2.2's non-component members).
+        config = model.config
+        self._audio_inputs = config.audio_inputs
+        self._video_inputs = config.video_inputs
+        self._stream_types = config.stream_types
+        self._sources = CountingNumberDict()
+        self._sound_modes = CountingNumberDict()
+        self._room_perfect_positions = CountingNumberDict()
+        self._voicings = CountingNumberDict()
+        self._name: str | None = None
+        self._power_on: bool | None = None
+        self._max_volume: float | None = None
+        self._muted: bool | None = None
+        self._source: str | None = None
+        self._sound_mode: str | None = None
+        self._audio_input: str | None = None
+        self._video_input: str | None = None
+        self._audio_info: str | None = None
+        self._video_info: str | None = None
+        self._streaming_source: str | None = None
+        self._room_perfect_position: str | None = None
+        self._voicing: str | None = None
+        self._notification_callbacks: list[Callable[[], None]] = []
+
+        # Dialect tables address zone_b internals by dotted path; alias
+        # them so resolve_attr's "self._zone_b_sources" resolves.
+        if self._zone_b is not None:
+            self._zone_b_sources = self._zone_b._sources
+
+        # Wired here rather than in connect: it is pure Python
+        # object plumbing (turning an api-level now-playing update into
+        # the Receiver's notification callback) with no dependency on an
+        # actual socket connection, so capability properties like
+        # `can_pause` stay live even before `connect` is called.
+        if self._player is not None:
+            self._api.register_now_playing_callback(self._now_playing_changed)
+            # Play mode changes only on user action (a shuffle/repeat toggle
+            # from the front panel or the controlling app), so forwarding
+            # every change to the notification callbacks is cheap and
+            # correct - unlike position, which is NOT wired this way (see
+            # `position_ms`/`register_position_jump_callback` below):
+            # position arrives about once a second while playing, and
+            # forwarding that would mean a Home Assistant entity state
+            # write every second for a value the frontend already
+            # extrapolates from `position_ms` plus `position_updated_at`.
+            # The asymmetry is deliberate, not an oversight - do not "fix"
+            # it by adding position here too.
+            self._api.register_play_mode_callback(self._play_mode_changed)
+
+    # -- identity / lifecycle ---------------------------------------------
+
+    @property
+    def host(self) -> str:
+        """The device's host/IP - required at construction, so typed
+        honestly (was str | None in 1.x)."""
+        return self._host
+
+    @property
+    def model(self) -> LyngdorfModel:
+        return self._model
+
+    @property
+    def name(self) -> str | None:
+        """The device-reported name, or None before the first reply."""
+        return self._name
+
+    @property
+    def connected(self) -> bool:
+        return self._api.connected
+
+    async def connect(self) -> None:
+        """Register wire callbacks and open the :84 connection.
+
+        Keeps the 1.x sequence exactly (design §8): register -> connect
+        (paced setup burst, monitor, poll start for streaming models all
+        inside the api's connect)."""
+        self._register_callbacks()
+        await self._api.async_connect()
+
+    async def disconnect(self) -> None:
+        await self._api.async_disconnect()
+
+    def on_change(self, callback: Callable[[], None]) -> Callable[[], None]:
+        """Fires on any state change. Returns an idempotent unsubscribe;
+        duplicate registration collapses to one entry. (Was
+        register_notification_callback - unchanged semantics.)"""
+        return register_in_list(self._notification_callbacks, callback)
+
+    # -- power ---------------------------------------------------------------
+
+    @property
+    def power_on(self) -> bool | None:
+        return self._power_on
+
+    async def set_power(self, on: bool) -> None:
+        self._api.power_on(on)
+
+    # -- volume & mute --------------------------------------------------------
+
+    @property
+    def volume(self) -> SteppableControl:
+        """Main-zone volume - see NumericControl.range for the advisory
+        contract, and max_volume for the live user ceiling."""
+        return self._volume
+
+    @property
+    def max_volume(self) -> float | None:
+        """The device's current MAXVOL setting, in dB, or None on models
+        that do not report it. The MP and P families both map
+        Msg.MAX_VOLUME (docs/mp-40.md, docs/mp-50.md, docs/mp-60.md,
+        docs/p-series.md all document `!MAXVOL`) - contrary to issue #40's
+        original premise that this was MP-only. The TDAI family's manuals
+        (docs/tdai-1120.md, docs/tdai-2170.md, docs/tdai-3400.md) document
+        no MAXVOL command at all, so it stays None there.
+
+        The vendor-documented bounds are not reliable enough to validate
+        against: docs/mp-40.md/docs/mp-60.md give -55.0..-20.0 dB while
+        docs/p-series.md gives -55.0..+24.0 dB for the very same command,
+        and a real MP-60 on firmware 5.4.2 answered !MAXVOL(0), i.e.
+        0.0 dB - outside the MP-40/MP-60 documented range. The device's
+        own control websocket (a separate, richer status channel some
+        models expose) independently confirms this: it reports
+        `max_volume: {"min": -55.0, "max": 24.0, ...}`, matching
+        docs/p-series.md and confirming docs/mp-40.md/docs/mp-60.md's
+        `-55.0..-20.0` is simply wrong. `0.0 dB` is a genuine value from
+        that device, not a sentinel meaning "no limit". This value is
+        therefore read and surfaced as-is, never validated against any
+        range, and NOT used to narrow `volume_range` (see that property's
+        docstring for why) - do not add either.
+
+        This is a user-settable safety ceiling, not the hardware's
+        physical volume range - it can be changed at runtime from the
+        front panel or the official app, the same way
+        `homeassistant-projects/hass-lyngdorf`'s get_max()/set_max() work
+        against this same command. Do not treat it as a fixed slider
+        maximum; poll or subscribe to notification callbacks rather than
+        caching it once.
+        """
+        return self._max_volume
+
+    @property
+    def muted(self) -> bool | None:
+        return self._muted
+
+    async def set_muted(self, muted: bool) -> None:
+        self._api.mute_enabled(muted)
+
+    # -- selections (one shape each) -------------------------------------------
+
+    @property
+    def source(self) -> str | None:
+        return self._source
+
+    @property
+    def sources(self) -> list[str]:
+        return list(self._sources.values())
+
+    async def set_source(self, name: str) -> None:
+        """Raises LyngdorfInvalidValueError for a name not in sources
+        (unchanged 1.x semantics - the wire carries an index)."""
+        index = self._sources.lookupIndex(name)
+        if index < 0:
+            raise LyngdorfInvalidValueError(
+                f"{name} is not a valid source name, and cannot be chosen"
+            )
+        self._api.change_source(index)
+
+    @property
+    def sound_mode(self) -> str | None:
+        return self._sound_mode
+
+    @property
+    def sound_modes(self) -> list[str]:
+        return list(self._sound_modes.values())
+
+    async def set_sound_mode(self, name: str) -> None:
+        index = self._sound_modes.lookupIndex(name)
+        if index < 0:
+            raise LyngdorfInvalidValueError(
+                f"{name} is not a valid sound mode name, and cannot be chosen"
+            )
+        self._api.change_sound_mode(index)
+
+    @property
+    def room_perfect_position(self) -> str | None:
+        return self._room_perfect_position
+
+    @property
+    def room_perfect_positions(self) -> list[str]:
+        return list(self._room_perfect_positions.values())
+
+    async def set_room_perfect_position(self, name: str) -> None:
+        index = self._room_perfect_positions.lookupIndex(name)
+        if index < 0:
+            raise LyngdorfInvalidValueError(
+                f"{name} is not a valid RoomPerfect position, and cannot be chosen"
+            )
+        self._api.change_room_perfect_position(index)
+
+    @property
+    def voicing(self) -> str | None:
+        return self._voicing
+
+    @property
+    def voicings(self) -> list[str]:
+        return list(self._voicings.values())
+
+    async def set_voicing(self, name: str) -> None:
+        index = self._voicings.lookupIndex(name)
+        if index < 0:
+            raise LyngdorfInvalidValueError(
+                f"{name} is not a valid voicing, and cannot be chosen"
+            )
+        self._api.change_voicing(index)
+
+    # -- informational reads (None/empty when the model has no such thing) ----
+
+    @property
+    def audio_input(self) -> str | None:
+        return self._audio_input
+
+    @property
+    def audio_inputs(self) -> list[str]:
+        return list(self._audio_inputs.values())
+
+    @property
+    def audio_information(self) -> str | None:
+        return self._audio_info
+
+    @property
+    def video_input(self) -> str | None:
+        return self._video_input
+
+    @property
+    def video_inputs(self) -> list[str]:
+        return list(self._video_inputs.values())
+
+    @property
+    def video_information(self) -> str | None:
+        return self._video_info
+
+    @property
+    def streaming_source(self) -> str | None:
+        return self._streaming_source
+
+    @property
+    def stream_types(self) -> list[str]:
+        return list(self._stream_types.values())
+
+    # -- numeric controls ------------------------------------------------------
+
+    @property
+    def trims(self) -> Mapping[Trim, NumericControl]:
+        """Only the bands this model has appear as keys (design §5);
+        narrow steppability with isinstance(ctl, SteppableControl)."""
+        return self._trims
+
+    @property
+    def lipsync(self) -> NumericControl | None:
+        """None on the whole TDAI family. .range is the LIVE LIPSYNCRANGE
+        value, seeded from the documented default."""
+        return self._lipsync
+
+    # -- components -------------------------------------------------------------
+
+    @property
+    def zone_b(self) -> ZoneB | None:
+        return self._zone_b
+
+    @property
+    def player(self) -> Player | None:
+        return self._player
+
+    @property
+    def remote(self) -> Remote | None:
+        return self._remote
+
+    # -- wire-callback registration ---------------------------------------
+
+    def _register_callback(
+        self, msg: Msg, callback: Callable[[str, str], None]
+    ) -> None:
+        """Register a callback for a message, skipping cleanly if the
+        connected model's protocol doesn't define that message.
+
+        Model-specific registration (which messages apply to a given
+        family, and under what shape) is handled by the per-family
+        dialect groups in _register_callbacks. This catch is a safety net
+        for anything not covered by those groups - so an unexpected
+        protocol gap degrades a single feature instead of breaking
+        connection setup entirely.
+        """
+        try:
+            command = self._model.config.lookup_command(msg)
+        except KeyError:
+            _LOGGER.warning(
+                "Model %s does not support message %s; skipping callback registration",
+                self._model,
+                msg,
+            )
+            return
+        self._api.register_callback(command, callback)
+
+    def _register_dialect_group(self, group: Sequence[tuple[Msg, str]]) -> None:
+        for msg, attr in group:
+            self._register_callback(msg, resolve_attr(self, attr))
+
+    def _register_callbacks(self) -> None:
+        """Register every wire callback for this model. Sync and
+        idempotent-by-construction on the api's dispatch registry; called
+        by connect(), and directly by tests that drive _process_event
+        without a socket."""
+        self._register_callback(Msg.DEVICE, self._name_callback)
+        self._register_callback(Msg.VOLUME, self._volume_callback)
+        self._register_callback(Msg.MAX_VOLUME, self._max_volume_callback)
+        self._register_callback(Msg.POWER, self._power_callback)
+        for group in (
+            self._dialect.mute,
+            self._dialect.source,
+            self._dialect.room_perfect_position,
+            self._dialect.voicing,
+            self._dialect.video,
+            self._dialect.zone_b,
+            self._dialect.surround_trim,
+        ):
+            self._register_dialect_group(group)
+        self._register_callback(Msg.TRIM_BASS, self._trim_bass_callback)
+        self._register_callback(Msg.TRIM_TREBLE, self._trim_treble_callback)
+        self._register_callback(Msg.AUDIO_TYPE, self._audio_info_callback)
+        self._register_callback(Msg.AUDIO_MODES_COUNT, self._sound_modes.count_callback)
+        self._register_callback(Msg.AUDIO_MODE, self._sound_mode_callback)
+        self._register_callback(Msg.LIP_SYNC, self._lipsync_callback)
+        self._register_callback(Msg.LIP_SYNC_MIN_MAX, self._lipsync_range_callback)
+
+    # -- wire callbacks --------------------------------------------------------
+
+    def _name_callback(self, param1: str, param2: str) -> None:
+        if param1 != self._name:
+            self._name = param1
+
+    def _volume_callback(self, param1: str, ignored: str) -> None:
+        self._volume._update_value(convert_decibel(param1))
+        self._notify_notification_callbacks()
+
+    def _max_volume_callback(self, param1: str, ignored: str) -> None:
+        self._max_volume = convert_decibel(param1)
+        self._notify_notification_callbacks()
+
+    def _zone_b_volume_callback(self, param1: str, ignored: str) -> None:
+        if (zb := self._zone_b) is not None:
+            zb.volume._update_value(convert_decibel(param1))
+        self._notify_notification_callbacks()
+
+    def _mute_callback(self, param1: str, param2: str) -> None:
+        self._muted = param1 == "ON"
+        self._notify_notification_callbacks()
+
+    def _mute_on_callback(self, param1: str, param2: str) -> None:
+        self._muted = True
+        self._notify_notification_callbacks()
+
+    def _mute_off_callback(self, param1: str, param2: str) -> None:
+        self._muted = False
+        self._notify_notification_callbacks()
+
+    def _zone_b_mute_on_callback(self, param1: str, param2: str) -> None:
+        if (zb := self._zone_b) is not None:
+            zb._update_muted(True)
+        self._notify_notification_callbacks()
+
+    def _zone_b_mute_off_callback(self, param1: str, param2: str) -> None:
+        if (zb := self._zone_b) is not None:
+            zb._update_muted(False)
+        self._notify_notification_callbacks()
+
+    def _source_callback(self, param1: str, param2: str) -> None:
+        if self._sources.is_full():
+            self._source = param2
+            self._notify_notification_callbacks()
+        else:
+            self._sources.add(int(param1), param2)
+
+    def _source_name_callback(self, param1: str, param2: str) -> None:
+        index_str, _, name = param1.partition(",")
+        name = name.strip('"')
+        if self._sources.is_full():
+            self._source = name
+            self._notify_notification_callbacks()
+        else:
+            self._sources.add(int(index_str), name)
+
+    def _sources_enabled_callback(self, param1: str, param2: str) -> None:
+        from .rio import populate_fixed_list
+
+        populate_fixed_list(
+            self._sources, self._model.config.fixed_sources or {}, param1
+        )
+
+    def _fixed_source_callback(self, param1: str, param2: str) -> None:
+        self._source = self._sources.get(int(param1))
+        self._notify_notification_callbacks()
+
+    def _zone_b_source_callback(self, param1: str, param2: str) -> None:
+        if (zb := self._zone_b) is not None:
+            if zb._sources.is_full():
+                zb._update_source(param2)
+            else:
+                zb._sources.add(int(param1), param2)
+        self._notify_notification_callbacks()
+
+    def _audio_input_callback(self, param1: str, param2: str) -> None:
+        if int(param1) in self._audio_inputs:
+            self._audio_input = self._audio_inputs[int(param1)]
+        else:
+            self._audio_input = f"audio-{param1}"
+        self._notify_notification_callbacks()
+
+    def _zone_b_audio_input_callback(self, param1: str, param2: str) -> None:
+        if (zb := self._zone_b) is not None:
+            if int(param1) in self._audio_inputs:
+                zb._update_audio_input(self._audio_inputs[int(param1)])
+            else:
+                zb._update_audio_input(f"audio-{param1}")
+        self._notify_notification_callbacks()
+
+    def _video_input_callback(self, param1: str, param2: str) -> None:
+        if int(param1) in self._video_inputs:
+            self._video_input = self._video_inputs[int(param1)]
+        else:
+            self._video_input = f"video-{param1}"
+        self._notify_notification_callbacks()
+
+    def _stream_type_callback(self, param1: str, param2: str) -> None:
+        if int(param1) in self._stream_types:
+            self._streaming_source = self._stream_types[int(param1)]
+        else:
+            self._streaming_source = f"video-{param1}"
+        self._notify_notification_callbacks()
+
+    def _zone_b_stream_type_callback(self, param1: str, param2: str) -> None:
+        if (zb := self._zone_b) is not None:
+            if int(param1) in self._stream_types:
+                zb._update_streaming_source(self._stream_types[int(param1)])
+            else:
+                zb._update_streaming_source(f"video-{param1}")
+        self._notify_notification_callbacks()
+
+    def _audio_info_callback(self, param1: str, param2: str) -> None:
+        self._audio_info = param1
+        self._notify_notification_callbacks()
+
+    def _video_info_callback(self, param1: str, param2: str) -> None:
+        self._video_info = param1
+        self._notify_notification_callbacks()
+
+    def _sound_mode_callback(self, param1: str, param2: str) -> None:
+        if self._sound_modes.is_full():
+            self._sound_mode = param2
+            self._notify_notification_callbacks()
+        else:
+            self._sound_modes.add(int(param1), param2)
+
+    def _power_callback(self, param1: str, param2: str) -> None:
+        self._power_on = self._model.config.power_state_on == param1
+        if self._power_on:
+            self._requery_mute()
+        self._api.set_power_state(self._power_on)
+        self._notify_notification_callbacks()
+
+    def _requery_mute(self) -> None:
+        mute_cmd = self._model.config.lookup_command(Msg.MUTE)
+        self._api._writeCommand(f"{mute_cmd}?")
+
+    def _zone_b_power_callback(self, param1: str, param2: str) -> None:
+        if (zb := self._zone_b) is not None:
+            zb._update_power(self._model.config.power_state_on == param1)
+            if self._model.config.power_state_on == param1:
+                self._requery_zone_b_mute()
+        self._notify_notification_callbacks()
+
+    def _requery_zone_b_mute(self) -> None:
+        if self._zone_b is None:
+            return
+        try:
+            mute_cmd = self._model.config.lookup_command(Msg.ZONE_B_MUTE)
+            self._api._writeCommand(f"{mute_cmd}?")
+        except KeyError:
+            pass
+
+    def _room_perfect_position_callback(self, param1: str, param2: str) -> None:
+        if self._room_perfect_positions.is_full():
+            self._room_perfect_position = param2
+            self._notify_notification_callbacks()
+        else:
+            self._room_perfect_positions.add(int(param1), param2)
+
+    def _room_perfect_position_name_callback(self, param1: str, param2: str) -> None:
+        index_str, _, name = param1.partition(",")
+        name = name.strip('"')
+        if self._room_perfect_positions.is_full():
+            self._room_perfect_position = name
+            self._notify_notification_callbacks()
+        else:
+            self._room_perfect_positions.add(int(index_str), name)
+
+    def _room_perfect_positions_present_callback(
+        self, param1: str, param2: str
+    ) -> None:
+        from .rio import populate_fixed_list
+
+        populate_fixed_list(
+            self._room_perfect_positions,
+            self._model.config.room_perfect_positions or {},
+            param1,
+        )
+
+    def _fixed_room_perfect_position_callback(self, param1: str, param2: str) -> None:
+        self._room_perfect_position = self._room_perfect_positions.get(int(param1))
+        self._notify_notification_callbacks()
+
+    def _voicing_callback(self, param1: str, param2: str) -> None:
+        if self._voicings.is_full():
+            self._voicing = param2
+            self._notify_notification_callbacks()
+        else:
+            self._voicings.add(int(param1), param2)
+
+    def _voicing_name_callback(self, param1: str, param2: str) -> None:
+        index_str, _, name = param1.partition(",")
+        name = name.strip('"')
+        if self._voicings.is_full():
+            self._voicing = name
+            self._notify_notification_callbacks()
+        else:
+            self._voicings.add(int(index_str), name)
+
+    def _voicings_enabled_callback(self, param1: str, param2: str) -> None:
+        from .rio import populate_fixed_list
+
+        populate_fixed_list(
+            self._voicings, self._model.config.fixed_voicings or {}, param1
+        )
+
+    def _fixed_voicing_callback(self, param1: str, param2: str) -> None:
+        self._voicing = self._voicings.get(int(param1))
+        self._notify_notification_callbacks()
+
+    def _lipsync_callback(self, param1: str, param2: str) -> None:
+        if (ls := self._lipsync) is not None:
+            ls._update_value(float(param1))
+        self._notify_notification_callbacks()
+
+    def _lipsync_range_callback(self, param1: str, ignored: str) -> None:
+        min_str, _, max_str = param1.partition(",")
+        if (ls := self._lipsync) is not None:
+            ls._update_range(
+                NumericRange(min=float(min_str), max=float(max_str), step=1.0)
+            )
+        self._notify_notification_callbacks()
+
+    def _trim_bass_callback(self, param1: str, ignored: str) -> None:
+        if (ctl := self._trims.get(Trim.BASS)) is not None:
+            ctl._update_value(
+                convert_decibel(param1, self._model.config.trim_bass_treble_scale)
+            )
+        self._notify_notification_callbacks()
+
+    def _trim_treble_callback(self, param1: str, ignored: str) -> None:
+        if (ctl := self._trims.get(Trim.TREBLE)) is not None:
+            ctl._update_value(
+                convert_decibel(param1, self._model.config.trim_bass_treble_scale)
+            )
+        self._notify_notification_callbacks()
+
+    def _trim_centre_callback(self, param1: str, ignored: str) -> None:
+        if (ctl := self._trims.get(Trim.CENTER)) is not None:
+            ctl._update_value(convert_decibel(param1))
+        self._notify_notification_callbacks()
+
+    def _trim_height_callback(self, param1: str, ignored: str) -> None:
+        if (ctl := self._trims.get(Trim.HEIGHT)) is not None:
+            ctl._update_value(convert_decibel(param1))
+        self._notify_notification_callbacks()
+
+    def _trim_lfe_callback(self, param1: str, ignored: str) -> None:
+        if (ctl := self._trims.get(Trim.LFE)) is not None:
+            ctl._update_value(convert_decibel(param1))
+        self._notify_notification_callbacks()
+
+    def _trim_surround_callback(self, param1: str, ignored: str) -> None:
+        if (ctl := self._trims.get(Trim.SURROUND)) is not None:
+            ctl._update_value(convert_decibel(param1))
+        self._notify_notification_callbacks()
+
+    def _now_playing_changed(self, np: NowPlaying | None) -> None:
+        self._notify_notification_callbacks()
+
+    def _play_mode_changed(self, mode: PlayMode | None) -> None:
+        self._notify_notification_callbacks()
+
+    def _notify_notification_callbacks(self) -> None:
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            for callback in self._notification_callbacks:
+                try:
+                    callback()
+                except Exception:
+                    _LOGGER.exception("Event callback caused an unhandled exception")
+            return
+        asyncio.create_task(self._async_notify_notification_callbacks())
+
+    async def _async_notify_notification_callbacks(self) -> None:
+        for callback in self._notification_callbacks:
+            try:
+                callback()
+            except Exception:
+                _LOGGER.exception("Event callback caused an unhandled exception")
