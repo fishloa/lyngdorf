@@ -251,6 +251,45 @@ every legacy call site.
 
 ---
 
+## The measured minimum: what the bump PR actually costs
+
+Measured against a real Home Assistant integration migrating to this
+release — the minimum change that keeps its CI green with 2.0.0 installed
+and **everything else untouched**, which is the state `dev` sits in
+between the version bump and each later platform PR.
+
+```
+15 files changed, +36 / −31        91 passed, 0 failed
+```
+
+Nine production files, and **seven of those changes are a single import
+line**. The entire non-import production delta is four edits:
+
+- `register_notification_callback` now returns an unsubscribe; keep it and
+  call it, instead of `un_register_notification_callback`
+- `receiver.volume` → `receiver.volume.value` (two sites)
+- `receiver.lipsync` → `receiver.lipsync.value if receiver.lipsync else None`
+
+Everything else **defers**. `now_playing`, `position_ms`, `shuffle`,
+`repeat`, `can_shuffle`, `available_repeat_modes`,
+`register_position_jump_callback`, every `zone_b_*`, every `trim_*`,
+`set_volume`, `send_remote_commands`, the steppers — all still work
+through shims, untouched, green. You migrate them when you touch that
+platform, not to get onto 2.0.
+
+Two consequences worth stating, both measured rather than assumed:
+
+- **Shim `DeprecationWarning`s do not fail Home Assistant CI.** Core
+  escalates only `sqlalchemy.exc.SAWarning` and one `usefixtures`
+  `UserWarning`; there is no blanket `DeprecationWarning` filter. That run
+  emitted 476 shim warnings and stayed green.
+- **The intermediate state is shippable.** `dev` can carry 2.0.0 with
+  every platform still on shims, tests green, users unaffected. That is
+  the claim the whole deprecation layer rests on, and it is now a
+  measurement rather than an argument.
+
+---
+
 ## Migrating your test suite — the part no inventory predicts
 
 Every list in this document is derived from *member names*. Your test
@@ -264,9 +303,12 @@ the bulk of it is unavoidable rather than deferrable.
 ### A deliberate removal still costs adaptation work
 
 `un_register_notification_callback` is listed as **removed**, which reads
-like a one-line deletion. Adapting to it — moving two call sites to the
-unsubscribe returned by `on_change` — accounted for **472 test failures**,
-more than every other cause in that migration combined.
+like a one-line deletion — and in production it genuinely is two lines.
+But a broken *teardown* multiplies: leaving it unadapted produced **472
+test failures**, one line amplified across every test that tears down an
+entity.
+
+So the cost is not the edit, it is the blast radius when you miss it.
 
 The lesson generalises: a removal's row in a table says nothing about the
 size of its blast radius. Grep for each removed name across your *tests*
@@ -277,13 +319,15 @@ a shared fixture or helper appears once and detonates everywhere.
 
 `now_playing`, `position_ms`, `shuffle`, `repeat`, `can_shuffle`,
 `available_repeat_modes` and `register_position_jump_callback` are all
-shimmed, so they keep working — right up until you migrate the platform
-that uses them. Then they all move to `player.*` **at once**, because
-they relocated to the same component.
+shimmed, so they keep working indefinitely — and they are **not** part of
+the bump PR. Nothing above forces you to touch them.
 
-So the deferral is real but lumpy: you defer the whole cluster or none of
-it. Plan the platform migration around the component boundary, not around
-individual names.
+When you *do* migrate the platform that uses them, they move to
+`player.*` **at once**, because they relocated to the same component. So
+the deferral is real but lumpy: you defer the whole cluster or none of
+it. Plan each platform PR around the component boundary rather than
+around individual names — and note that this is a choice about how to
+stage your own work, not a cost 2.0 imposes on you.
 
 ### Mock-introspecting test helpers break SILENTLY
 
