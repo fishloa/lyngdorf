@@ -32,6 +32,7 @@ from .device import (
     async_create_receiver,
     async_find_receiver_model,
     async_get_device_serial,
+    lookup_receiver_model,
 )
 from .models import NumericRange
 from .remote import RemoteKey
@@ -55,6 +56,7 @@ __all__ = [
     "async_create_receiver",
     "async_find_receiver_model",
     "async_get_device_serial",
+    "lookup_receiver_model",
     "NowPlaying",
     "Control",
     "PlaybackState",

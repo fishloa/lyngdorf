@@ -12,7 +12,7 @@ import asyncio
 import logging
 import sys
 
-from lyngdorf.device import async_find_receiver_model
+from lyngdorf import async_find_receiver_model
 
 logging.basicConfig(level=logging.INFO)
 _LOGGER = logging.getLogger(__name__)

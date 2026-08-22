@@ -20,12 +20,12 @@ import signal
 import sys
 from datetime import datetime
 
-from lyngdorf.device import (
+from lyngdorf import (
+    NowPlaying,
     Receiver,
     async_create_receiver,
     lookup_receiver_model,
 )
-from lyngdorf.streaming import NowPlaying
 
 
 def ts() -> str:

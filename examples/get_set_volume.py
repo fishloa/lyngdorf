@@ -8,7 +8,7 @@ import asyncio
 import logging
 import sys
 
-from lyngdorf.device import Receiver, async_create_receiver
+from lyngdorf import Receiver, async_create_receiver
 
 logging.basicConfig(level=logging.INFO)
 _LOGGER = logging.getLogger(__name__)
