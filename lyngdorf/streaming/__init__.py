@@ -56,7 +56,6 @@ device's own web client uses.
 
 from .client import (
     StreamingClient,
-    StreamMagicSession,
     _smoip_get,
     _smoip_status,
     async_activate_control,
@@ -85,7 +84,6 @@ from .types import NowPlaying
 __all__ = [
     "NowPlaying",
     "StreamingClient",
-    "StreamMagicSession",
     "_coerce_ms",
     "_coerce_play_mode",
     "_decode_json",

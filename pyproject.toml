@@ -77,6 +77,7 @@ module = [
     "lyngdorf.base",
     "lyngdorf.exceptions",
     "lyngdorf.streaming",
+    "lyngdorf.streaming.client",
     "lyngdorf.streaming.parsers",
     "lyngdorf.streaming.types",
 ]

@@ -46,7 +46,7 @@ from .remote import RemoteKey
 from .states import Control, PlaybackState, PlayMode, Repeat
 from .streaming import (
     NowPlaying,
-    StreamMagicSession,
+    StreamingClient,
     async_activate_control,
     async_fetch_now_playing,
     async_fetch_play_mode,
@@ -1300,7 +1300,7 @@ class LyngdorfApi:
         # position makes this loop iterate about once a second, so a
         # connection per request would burn ~86,400 sockets a day on
         # hardware that has few to spare.
-        session = StreamMagicSession(self.host, port)
+        session = StreamingClient(self.host, port)
 
         try:
             while self._connection_enabled:
@@ -1399,9 +1399,10 @@ class LyngdorfApi:
                     await asyncio.sleep(backoff)
                     backoff = min(30.0, backoff * 2)
         finally:
-            # The task is cancelled on disconnect; without this the
-            # kept-alive socket would linger on the device.
-            session.close()
+            # The task is cancelled on disconnect; without this the owned
+            # ClientSession (and its kept-alive socket) would linger on
+            # the device.
+            await session.close()
 
     def _update_now_playing(self, np: NowPlaying | None) -> None:
         if np != self._now_playing:

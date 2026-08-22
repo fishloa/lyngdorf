@@ -25,7 +25,6 @@ from lyngdorf.states import Control, PlaybackState, PlayMode, Repeat
 from lyngdorf.streaming import (
     NowPlaying,
     StreamingClient,
-    StreamMagicSession,
     _coerce_ms,
     _coerce_play_mode,
     _unwrap_value,
@@ -735,157 +734,6 @@ async def test_fetch_play_modes_connection_error():
     assert await async_fetch_play_modes("127.0.0.1", port=1, timeout=0.5) == frozenset()
 
 
-class TestStreamMagicSession:
-    """Connection reuse.
-
-    Subscribing to position makes the poll loop iterate roughly once a
-    second. Without reuse that is a fresh TCP socket every second -
-    ~86,400 a day - against embedded hardware with few to spare, which is
-    enough to destabilise a device. These tests pin the socket count, not
-    just the responses.
-    """
-
-    @pytest.mark.asyncio
-    async def test_reuses_one_connection(self, fake_server):
-        host, port = fake_server.server_address
-        session = StreamMagicSession(str(host), port)
-        fake_server.connections = 0
-        try:
-            for _ in range(5):
-                assert await session.get("/api/getData?path=x", 5.0) is not None
-        finally:
-            session.close()
-        assert fake_server.connections == 1
-        assert session.reused_connection is True
-
-    @pytest.mark.asyncio
-    async def test_falls_back_when_keep_alive_unsupported(self, fake_server):
-        """Some devices may not offer keep-alive; those must still work."""
-        fake_server.keep_alive = False
-        host, port = fake_server.server_address
-        session = StreamMagicSession(str(host), port)
-        fake_server.connections = 0
-        try:
-            for _ in range(5):
-                assert await session.get("/api/getData?path=x", 5.0) is not None
-        finally:
-            session.close()
-        assert fake_server.connections == 5
-        assert session.reused_connection is False
-
-    @pytest.mark.asyncio
-    async def test_recovers_when_device_drops_kept_alive_connection(self, fake_server):
-        """A connection idle between requests may be dropped server-side;
-        that must surface as a retry, not a failed request."""
-        host, port = fake_server.server_address
-        session = StreamMagicSession(str(host), port)
-        try:
-            assert await session.get("/api/getData?path=x", 5.0) is not None
-            # Simulate the device hanging up on the idle socket.
-            session._conn.sock.close()  # type: ignore[union-attr]
-            assert await session.get("/api/getData?path=x", 5.0) is not None
-        finally:
-            session.close()
-
-    @pytest.mark.asyncio
-    async def test_returns_none_on_connection_error(self):
-        session = StreamMagicSession("127.0.0.1", 1)
-        assert await session.get("/api/getData?path=x", 0.5) is None
-
-    @pytest.mark.asyncio
-    async def test_gives_up_on_keep_alive_after_repeated_failures(self, fake_server):
-        """#31 reports a TDAI-3400 that dislikes keep-alive. A device that
-        keeps failing reuse must be left alone, not retried forever."""
-        host, port = fake_server.server_address
-        session = StreamMagicSession(str(host), port)
-        try:
-            # The first request opens a fresh connection, so it cannot
-            # fail a reuse; every one after it can.
-            assert await session.get("/api/getData?path=x", 5.0) is not None
-            for _ in range(session.MAX_REUSE_FAILURES):
-                session._conn.sock.close()  # type: ignore[union-attr]
-                assert await session.get("/api/getData?path=x", 5.0) is not None
-            assert session.keep_alive_disabled is True
-
-            # From here on, every request gets its own connection.
-            fake_server.connections = 0
-            for _ in range(3):
-                assert await session.get("/api/getData?path=x", 5.0) is not None
-            assert fake_server.connections == 3
-        finally:
-            session.close()
-
-    @pytest.mark.asyncio
-    async def test_successful_reuse_clears_the_failure_tally(self, fake_server):
-        """An occasional stale socket over a long session must not
-        accumulate into a false verdict against the device."""
-        host, port = fake_server.server_address
-        session = StreamMagicSession(str(host), port)
-        try:
-            assert await session.get("/api/getData?path=x", 5.0) is not None
-            for _ in range(session.MAX_REUSE_FAILURES * 2):
-                session._conn.sock.close()  # type: ignore[union-attr]
-                # Fails the reuse, retries on a fresh connection.
-                assert await session.get("/api/getData?path=x", 5.0) is not None
-                # A clean reuse straight after clears the tally.
-                assert await session.get("/api/getData?path=x", 5.0) is not None
-            assert session.keep_alive_disabled is False
-        finally:
-            session.close()
-
-    @pytest.mark.asyncio
-    async def test_close_is_idempotent(self, fake_server):
-        host, port = fake_server.server_address
-        session = StreamMagicSession(str(host), port)
-        await session.get("/api/getData?path=x", 5.0)
-        session.close()
-        session.close()
-
-    @pytest.mark.asyncio
-    async def test_reopens_after_close(self, fake_server):
-        host, port = fake_server.server_address
-        session = StreamMagicSession(str(host), port)
-        try:
-            assert await session.get("/api/getData?path=x", 5.0) is not None
-            session.close()
-            assert await session.get("/api/getData?path=x", 5.0) is not None
-        finally:
-            session.close()
-
-    @pytest.mark.asyncio
-    async def test_helpers_accept_a_session(self, fake_server):
-        """The poll loop drives every helper through one connection."""
-        host, port = fake_server.server_address
-        session = StreamMagicSession(str(host), port)
-        fake_server.connections = 0
-        try:
-            assert await async_fetch_now_playing(str(host), port, session=session)
-            assert await async_fetch_position(str(host), port, session=session)
-            qid = await async_init_now_playing_queue(str(host), port, session=session)
-            assert qid is not None
-            assert await async_subscribe_now_playing(
-                str(host), qid, port, session=session
-            )
-            assert (
-                await async_poll_now_playing_events(
-                    str(host), qid, port, timeout=1.0, session=session
-                )
-                is not None
-            )
-        finally:
-            session.close()
-        assert fake_server.connections == 1
-
-    @pytest.mark.asyncio
-    async def test_helpers_without_session_still_work(self, fake_server):
-        """Omitting the session keeps the old connection-per-request path."""
-        host, port = fake_server.server_address
-        fake_server.connections = 0
-        assert await async_fetch_now_playing(str(host), port) is not None
-        assert await async_fetch_position(str(host), port) is not None
-        assert fake_server.connections == 2
-
-
 # -- raw one-shot servers for connection-death shapes ----------------------
 #
 # A well-behaved aiohttp test server cannot close a socket mid-request on
@@ -1128,6 +976,39 @@ class TestStreamingClient:
             await client.close()
 
     @pytest.mark.asyncio
+    async def test_helpers_accept_a_session(self, fake_server):
+        """The poll loop drives every helper through one connection."""
+        host, port = fake_server.server_address
+        session = StreamingClient(str(host), port)
+        fake_server.connections = 0
+        try:
+            assert await async_fetch_now_playing(str(host), port, session=session)
+            assert await async_fetch_position(str(host), port, session=session)
+            qid = await async_init_now_playing_queue(str(host), port, session=session)
+            assert qid is not None
+            assert await async_subscribe_now_playing(
+                str(host), qid, port, session=session
+            )
+            assert (
+                await async_poll_now_playing_events(
+                    str(host), qid, port, timeout=1.0, session=session
+                )
+                is not None
+            )
+        finally:
+            await session.close()
+        assert fake_server.connections == 1
+
+    @pytest.mark.asyncio
+    async def test_helpers_without_session_still_work(self, fake_server):
+        """Omitting the session keeps the old connection-per-request path."""
+        host, port = fake_server.server_address
+        fake_server.connections = 0
+        assert await async_fetch_now_playing(str(host), port) is not None
+        assert await async_fetch_position(str(host), port) is not None
+        assert fake_server.connections == 2
+
+    @pytest.mark.asyncio
     async def test_request_path_reaches_the_wire_unreencoded(self, fake_server):
         """Byte-identical wire contract: the exact bytes `quote()`
         produces must reach the device. yarl re-normalizes URLs by
@@ -1142,6 +1023,29 @@ class TestStreamingClient:
             await client.close()
         assert fake_server.last_path == path
         assert "player%3Aplayer/data" in fake_server.last_path
+
+
+@pytest.mark.asyncio
+async def test_non_streaming_model_never_allocates_a_session(monkeypatch):
+    """spec §8: a non-streaming model (TDAI-2170, P series) never creates
+    a ClientSession when none was injected - the poll loop is the only
+    thing that constructs a StreamingClient, and it never starts on such
+    a model. Counted by instrumenting ClientSession construction itself,
+    so any allocation on any code path is caught."""
+    created = []
+    real_init = aiohttp.ClientSession.__init__
+
+    def counting_init(self, *args, **kwargs):
+        created.append(self)
+        real_init(self, *args, **kwargs)
+
+    monkeypatch.setattr(aiohttp.ClientSession, "__init__", counting_init)
+
+    api = LyngdorfApi("127.0.0.1", LyngdorfModel.TDAI_2170)
+    api.set_power_state(True)  # the only poll trigger short of connect()
+    await asyncio.sleep(0)
+    assert api._now_playing_task is None
+    assert created == []
 
 
 @pytest.mark.asyncio

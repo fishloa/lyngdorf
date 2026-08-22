@@ -30,7 +30,7 @@ from lyngdorf.exceptions import LyngdorfUnsupportedError
 from lyngdorf.states import Control, PlaybackState, PlayMode, Repeat
 from lyngdorf.streaming import (
     NowPlaying,
-    StreamMagicSession,
+    StreamingClient,
     _smoip_status,
     _unwrap_value,
     async_activate_control,
@@ -45,12 +45,12 @@ from lyngdorf.streaming import (
 def _garbage_response_server() -> tuple[str, int, socket.socket]:
     """A raw one-shot TCP server that answers with a non-HTTP response.
 
-    Forces `http.client` to raise `http.client.BadStatusLine` (an
-    `HTTPException` subclass) out of `getresponse()`, on what is - from
-    `StreamMagicSession`'s point of view - a brand-new connection. This is
-    the exact "fresh connection" shape #37's fix wave requires writes to
-    survive: a device replying with garbage (or a truncated/odd response)
-    must not escape as an unhandled exception.
+    Forces aiohttp to raise ClientResponseError (an aiohttp.ClientError)
+    out of the response parse, on what is - from the client's point of
+    view - a brand-new connection. This is the exact "fresh connection"
+    shape #37's fix wave requires writes to survive: a device replying
+    with garbage (or a truncated/odd response) must not escape as an
+    unhandled exception.
     """
     srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     srv.bind(("127.0.0.1", 0))
@@ -95,13 +95,13 @@ async def test_status_helper_none_on_connection_error():
 @pytest.mark.asyncio
 async def test_session_status_reuses_connection(fake_server: FakeStreamMagicServer):
     host, port = fake_server.server_address
-    session = StreamMagicSession(str(host), port)
+    session = StreamingClient(str(host), port)
     fake_server.connections = 0
     try:
         for _ in range(3):
             assert await session.get_status("/api/getData?path=x", 5.0) == 200
     finally:
-        session.close()
+        await session.close()
     assert fake_server.connections == 1
 
 
@@ -161,7 +161,7 @@ class TestTransportWireFormat:
     @pytest.mark.asyncio
     async def test_uses_session_when_given(self, fake_server: FakeStreamMagicServer):
         host, port = fake_server.server_address
-        session = StreamMagicSession(str(host), port)
+        session = StreamingClient(str(host), port)
         fake_server.connections = 0
         try:
             for control in (Control.PAUSE, Control.NEXT_TRACK, Control.PREVIOUS_TRACK):
@@ -169,16 +169,17 @@ class TestTransportWireFormat:
                     str(host), control, port, session=session
                 )
         finally:
-            session.close()
+            await session.close()
         assert fake_server.connections == 1
 
 
-class TestWritesSurviveHttpException:
-    """`http.client.HTTPException` (e.g. `BadStatusLine`) on a fresh
-    connection must not escape any write path - `async_activate_control`,
-    `async_seek` and `async_set_play_mode` all document "returns False on
-    rejection or network failure rather than raising", and that promise
-    held for `OSError`/`TimeoutError` but not for a malformed HTTP response.
+class TestWritesSurviveMalformedResponse:
+    """A malformed HTTP response (aiohttp raises ClientResponseError, an
+    aiohttp.ClientError) on a fresh connection must not escape any write
+    path - `async_activate_control`, `async_seek` and
+    `async_set_play_mode` all document "returns False on rejection or
+    network failure rather than raising". Scripted on a raw TCP server
+    answering garbage instead of an HTTP status line.
     """
 
     @pytest.mark.asyncio
@@ -192,14 +193,15 @@ class TestWritesSurviveHttpException:
 
     @pytest.mark.asyncio
     async def test_session_get_status_returns_none_on_fresh_connection(self):
-        """The session path: `_conn` is None going in, so this is exactly
-        the fresh-connection case - no reused-connection retry applies."""
+        """The client path: no request has been made yet, so this is
+        exactly the fresh-connection case - the stale-keep-alive retry
+        does not apply to a parse error and must not loop on it."""
         host, port, srv = _garbage_response_server()
-        session = StreamMagicSession(host, port)
+        session = StreamingClient(host, port)
         try:
             assert await session.get_status("/api/getData?path=x", 2.0) is None
         finally:
-            session.close()
+            await session.close()
             srv.close()
 
     @pytest.mark.asyncio
