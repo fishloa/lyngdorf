@@ -86,6 +86,7 @@ module = [
     "lyngdorf.rio.client",
     "lyngdorf.rio.dialects",
     "lyngdorf.controls",
+    "lyngdorf.components",
 ]
 disallow_any_generics = true
 disallow_subclassing_any = true
