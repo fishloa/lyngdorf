@@ -144,7 +144,7 @@ class Receiver:
         # the Receiver's notification callback) with no dependency on an
         # actual socket connection, so capability properties like
         # `can_pause` stay live even before `async_connect` is called.
-        if self._model.has_streaming_feature():
+        if self._model.config.has_streaming:
             self._api.register_now_playing_callback(self._now_playing_changed)
             # Play mode changes only on user action (a shuffle/repeat toggle
             # from the front panel or the controlling app), so forwarding
@@ -497,7 +497,7 @@ class Receiver:
         Advisory only, like `volume_range` - see that property's
         docstring for why `zone_b_volume`'s setter no longer enforces it.
         """
-        if not self._model.has_zone_b_feature():
+        if not self._model.config.has_zone_b:
             return None
         return self._model.zone_b_volume_range()
 
@@ -781,7 +781,7 @@ class Receiver:
 
     def _requery_zone_b_mute(self) -> None:
         """Re-query Zone B mute status. See _requery_mute / #26."""
-        if not self._model.has_zone_b_feature():
+        if not self._model.config.has_zone_b:
             return
         try:
             mute_cmd = self._model.lookup_command(Msg.ZONE_B_MUTE)
@@ -1286,7 +1286,7 @@ class Receiver:
         some models have - the TDAI-2170 and the P series have no
         streaming hardware, so there is nothing to report on those.
         """
-        return self._model.has_streaming_feature()
+        return self._model.config.has_streaming
 
     @property
     def position_ms(self) -> int | None:
@@ -1452,7 +1452,7 @@ class Receiver:
         remote entity at all in that case, rather than one that
         advertises but supports nothing.
         """
-        return self._model.has_remote_keys_feature()
+        return bool(self._model.config.available_remote_keys())
 
     def press(self, key: RemoteKey) -> None:
         """Press a single remote key.

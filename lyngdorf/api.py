@@ -216,7 +216,7 @@ class LyngdorfApi(RioClient):
         # fallback, which applies here since no drain task exists yet).
         # Starting the queue earlier would pace the same burst twice over.
         self._start_write_queue()
-        if self._model.has_streaming_feature():
+        if self._model.config.has_streaming:
             self._start_now_playing_poll()
         _LOGGER.debug("%s: connection complete", self.host)
 
@@ -295,7 +295,7 @@ class LyngdorfApi(RioClient):
         Called on every power notification, including repeats, so both
         start and stop must be idempotent - they are.
         """
-        if not self._model.has_streaming_feature():
+        if not self._model.config.has_streaming:
             return
 
         if power_on:
@@ -409,7 +409,7 @@ class LyngdorfApi(RioClient):
         with a device that has grown a mode this library does not model,
         by degrading to "unknown" rather than raising.
         """
-        if not self._model.has_streaming_feature():
+        if not self._model.config.has_streaming:
             return None
         return self._play_mode
 
@@ -439,7 +439,7 @@ class LyngdorfApi(RioClient):
     @property
     def available_controls(self) -> frozenset[Control]:
         """Transport actions the current source offers, or empty."""
-        if not self._model.has_streaming_feature() or self._now_playing is None:
+        if not self._model.config.has_streaming or self._now_playing is None:
             return frozenset()
         return self._now_playing.controls
 
@@ -467,7 +467,7 @@ class LyngdorfApi(RioClient):
         union instead is not a guess: every member of it comes from
         something the device itself declared.
         """
-        if not self._model.has_streaming_feature() or self._now_playing is None:
+        if not self._model.config.has_streaming or self._now_playing is None:
             return frozenset()
         return self._now_playing.play_modes | self._global_play_modes
 

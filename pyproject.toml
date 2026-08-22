@@ -102,6 +102,14 @@ no_implicit_reexport = true
 strict_equality = true
 extra_checks = true
 
+[[tool.mypy.overrides]]
+module = "lyngdorf._compat"
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+check_untyped_defs = true
+no_implicit_reexport = true
+disable_error_code = "attr-defined, no-any-return"
+
 [build-system]
 requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"
