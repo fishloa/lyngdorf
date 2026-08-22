@@ -30,6 +30,7 @@ EXPECTED_ALL = {
     "UnsupportedModelError",
     "create_receiver",
     "discover_model",
+    "lookup_model",
     "discover_ssdp_location",
     "fetch_device_serial",
 }
@@ -114,7 +115,6 @@ async def test_legacy_get_device_serial_returns_none_without_a_location(monkeypa
         "P200Receiver",
         "P300Receiver",
         "supported_models",
-        "lookup_receiver_model",
     ],
 )
 def test_removals_stay_dead(name):

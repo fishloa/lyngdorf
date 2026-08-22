@@ -18,11 +18,11 @@ from aiohttp.test_utils import TestServer
 
 from lyngdorf.discovery import (
     UnsupportedModelError,
-    _lookup_model,
     create_receiver,
     discover_model,
     discover_ssdp_location,
     fetch_device_serial,
+    lookup_model,
 )
 from lyngdorf.exceptions import LyngdorfError
 from lyngdorf.models import LyngdorfModel
@@ -194,7 +194,7 @@ class TestLookupModel:
         ],
     )
     def test_lookup(self, name, expected):
-        assert _lookup_model(name) is expected
+        assert lookup_model(name) is expected
 
 
 class TestCreateReceiver:

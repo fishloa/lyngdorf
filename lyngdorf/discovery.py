@@ -93,7 +93,7 @@ async def discover_model(host: str, timeout: float = 5.0) -> LyngdorfModel | Non
     if not 0 <= start < end:
         _LOGGER.warning("Unexpected DEVICE reply from %s: %r", host, message.strip())
         return None
-    model = _lookup_model(message[start + 1 : end].strip('"'))
+    model = lookup_model(message[start + 1 : end].strip('"'))
     if model is None:
         _LOGGER.warning("Model at %s is not supported: %r", host, message.strip())
     return model
@@ -201,11 +201,23 @@ async def fetch_device_serial(
     return None
 
 
-def _lookup_model(model_name: str) -> LyngdorfModel | None:
+def lookup_model(model_name: str) -> LyngdorfModel | None:
     """Look up a LyngdorfModel by its string model name.
 
     Case-insensitive: ``"mp-60"``, ``"MP-60"`` and ``"Mp-60"`` all
     resolve to ``LyngdorfModel.MP_60``.
+
+    Public, and deliberately distinct from `discover_model`: this is a
+    pure string lookup with no I/O, for resolving a model name a caller
+    already holds - a stored config value, an SSDP `modelName` field.
+    `discover_model` is an async network probe against a live device.
+    They are not interchangeable, and a consumer resolving a persisted
+    setting must not be forced to touch the network to do it.
+
+    Was `lookup_receiver_model` in 1.x; that name is shimmed. It was
+    briefly private during the 2.0 rewrite, which broke every consumer
+    that resolves a stored model at setup - caught by running a real
+    integration against the branch.
     """
     search = model_name.lower()
     for model in LyngdorfModel:

@@ -507,38 +507,51 @@ class _CompatShims:
         return self._stepper_trim(Trim.SURROUND, "trim_surround_down", "down")
 
     # ---- shape 4: already-async renames ------------------------------------
+    # These are the ONE category that must be real `async def`, and the
+    # reason is not obvious. MagicMock(spec=Cls) chooses AsyncMock vs
+    # MagicMock by asking inspect.iscoroutinefunction of the CLASS
+    # attribute. A sync-bodied shim returning a coroutine is not one, so
+    # a spec'd mock yields a plain MagicMock and every consumer's
+    # `await receiver.async_connect()` raises "MagicMock can't be
+    # awaited" - measured at 120 failures in a real integration suite.
+    #
+    # It does not apply to the sync->async shims above: those were sync
+    # in 1.x, so an unmigrated caller does not await them, and an
+    # `async def` there would be a silent warning-less no-op. These
+    # eight were ALREADY async in 1.x, so every caller already awaits
+    # and there is no un-awaited hazard to protect against.
 
-    def async_connect(self) -> Coroutine[Any, Any, None]:
+    async def async_connect(self) -> None:
         _deprecated("async_connect", "connect")
-        return self.connect()
+        return await self.connect()
 
-    def async_disconnect(self) -> Coroutine[Any, Any, None]:
+    async def async_disconnect(self) -> None:
         _deprecated("async_disconnect", "disconnect")
-        return self.disconnect()
+        return await self.disconnect()
 
-    def async_pause(self) -> Coroutine[Any, Any, bool]:
+    async def async_pause(self) -> bool:
         _deprecated("async_pause", "player.pause")
         if self.player is None:
-            return _noop_raise_unsupported()
-        return self.player.pause()
+            return await _noop_raise_unsupported()
+        return await self.player.pause()
 
-    def async_next(self) -> Coroutine[Any, Any, bool]:
+    async def async_next(self) -> bool:
         _deprecated("async_next", "player.next_track")
         if self.player is None:
-            return _noop_raise_unsupported()
-        return self.player.next_track()
+            return await _noop_raise_unsupported()
+        return await self.player.next_track()
 
-    def async_previous(self) -> Coroutine[Any, Any, bool]:
+    async def async_previous(self) -> bool:
         _deprecated("async_previous", "player.previous_track")
         if self.player is None:
-            return _noop_raise_unsupported()
-        return self.player.previous_track()
+            return await _noop_raise_unsupported()
+        return await self.player.previous_track()
 
-    def async_seek(self, position_ms: int) -> Coroutine[Any, Any, bool]:
+    async def async_seek(self, position_ms: int) -> bool:
         _deprecated("async_seek", "player.seek")
         if self.player is None:
-            return _noop_raise_unsupported()
-        return self.player.seek(position_ms)
+            return await _noop_raise_unsupported()
+        return await self.player.seek(position_ms)
 
     def async_set_play_mode(self, mode: PlayMode) -> Coroutine[Any, Any, bool]:
         _deprecated("async_set_play_mode", "player.set_play_mode")
@@ -546,17 +559,17 @@ class _CompatShims:
             return _noop_raise_unsupported()
         return self.player.set_play_mode(mode)
 
-    def async_set_shuffle(self, shuffle: bool) -> Coroutine[Any, Any, bool]:
+    async def async_set_shuffle(self, shuffle: bool) -> bool:
         _deprecated("async_set_shuffle", "player.set_shuffle")
         if self.player is None:
-            return _noop_raise_unsupported()
-        return self.player.set_shuffle(shuffle)
+            return await _noop_raise_unsupported()
+        return await self.player.set_shuffle(shuffle)
 
-    def async_set_repeat(self, repeat: Repeat) -> Coroutine[Any, Any, bool]:
+    async def async_set_repeat(self, repeat: Repeat) -> bool:
         _deprecated("async_set_repeat", "player.set_repeat")
         if self.player is None:
-            return _noop_raise_unsupported()
-        return self.player.set_repeat(repeat)
+            return await _noop_raise_unsupported()
+        return await self.player.set_repeat(repeat)
 
     # ---- shape 5: callback renames ------------------------------------------
 
@@ -727,6 +740,11 @@ MODULE_SHIMS: dict[str, str] = {
     "Receiver": "LyngdorfReceiver",
     "async_create_receiver": "create_receiver",
     "async_find_receiver_model": "discover_model",
+    # Pure string lookup, NOT discover_model - that is an async network
+    # probe. A consumer resolving a stored config value must not be made
+    # to touch the device to do it. Briefly deleted during the 2.0
+    # rewrite, which stopped every such consumer starting at all.
+    "lookup_receiver_model": "lookup_model",
     "async_get_device_serial": "discover_ssdp_location + fetch_device_serial",
 }
 

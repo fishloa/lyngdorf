@@ -149,13 +149,22 @@ class TestAlreadyAsyncAndCallbackShims:
         coroutine back. Do NOT assert the unawaited-warning shape's
         rationale against these; it does not apply (they never had a
         sync body to lose)."""
+        import asyncio
+        import contextlib
         import inspect
 
         r = _receiver()
-        with pytest.warns(DeprecationWarning, match="async_connect"):
-            coro = r.async_connect()
+        # Real `async def` shims, so the body - and the warning - runs on
+        # AWAIT, not on call. That shape is required: MagicMock(spec=Cls)
+        # asks iscoroutinefunction of the class attribute, and a
+        # sync-bodied shim here yields a non-awaitable MagicMock in every
+        # consumer's spec'd mock. Warning at await is correct because
+        # this category's callers always await.
+        coro = r.async_connect()
         assert inspect.iscoroutine(coro)
-        coro.close()
+        with pytest.warns(DeprecationWarning, match="async_connect"):
+            with contextlib.suppress(Exception):
+                asyncio.new_event_loop().run_until_complete(coro)
 
     def test_callback_shim_returns_the_unsubscribe(self):
         r = _receiver()
@@ -195,6 +204,7 @@ class TestModuleShimCompleteness:
             "Receiver",
             "async_create_receiver",
             "async_find_receiver_model",
+            "lookup_receiver_model",
             "async_get_device_serial",
         }
     )

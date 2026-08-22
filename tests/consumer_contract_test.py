@@ -7,6 +7,7 @@ wholesale when the consumer sends a new inventory - never hand-edit.
 """
 
 import asyncio
+import contextlib
 import inspect
 import json
 import warnings
@@ -209,10 +210,18 @@ def test_already_async_shim_warns_and_returns_coroutine(receiver, name):
         args = (PlayMode.NORMAL,)
     else:
         args = ()
-    with pytest.warns(DeprecationWarning):
-        coro = getattr(receiver, name)(*args)
+    # These are real `async def` shims (see
+    # test_already_async_shim_is_a_real_coroutine_function for why that
+    # matters), so the body - and therefore the warning - runs on AWAIT,
+    # not on call. Callers of this category always await, so warning at
+    # await is the correct moment. Contrast the sync->async categories
+    # above, which must warn on call because their callers may never
+    # await at all.
+    coro = getattr(receiver, name)(*args)
     assert inspect.iscoroutine(coro)
-    coro.close()
+    with pytest.warns(DeprecationWarning):
+        with contextlib.suppress(Exception):
+            asyncio.get_event_loop_policy().new_event_loop().run_until_complete(coro)
 
 
 # -- category 5: callback renames --------------------------------------------
@@ -485,3 +494,43 @@ def test_shim_set_matches_spec_rows_exactly():
     )
     for name in _compat.SHIMMED_MODEL_FEATURE_CHECKS:
         assert hasattr(LyngdorfModel.MP_60, name), name
+
+
+# ---------------------------------------------------------------------------
+# The two shim shapes must not drift into each other. Both directions are
+# pinned because each failure mode is silent in a different way.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("name", FIXTURE["shimmed_methods_already_async"])
+def test_already_async_shim_is_a_real_coroutine_function(name):
+    """Not merely "returns a coroutine" - a genuine `async def`.
+
+    MagicMock(spec=Cls) picks AsyncMock vs MagicMock by asking
+    inspect.iscoroutinefunction of the CLASS attribute. A sync-bodied
+    shim returning a coroutine is not one, so a spec'd mock hands the
+    consumer a plain MagicMock and every `await receiver.async_connect()`
+    raises "MagicMock can't be awaited". Measured at 120 failures in a
+    real integration suite; invisible on hardware and invisible to the
+    rest of this file, which calls the real object.
+    """
+    assert inspect.iscoroutinefunction(getattr(LyngdorfReceiver, name)), (
+        f"{name} was already async in 1.x, so its shim must be a real "
+        f"async def or spec'd consumer mocks cannot await it"
+    )
+
+
+@pytest.mark.parametrize(
+    "name", FIXTURE["shimmed_write_methods"] + FIXTURE["shimmed_steppers"]
+)
+def test_sync_to_async_shim_is_not_a_coroutine_function(name):
+    """The inverse, and equally load-bearing.
+
+    These were sync in 1.x, so an unmigrated caller does not await them.
+    An `async def` here would never run its body - a silent, warningless
+    no-op. Sync-bodied means the DeprecationWarning fires on call.
+    """
+    assert not inspect.iscoroutinefunction(getattr(LyngdorfReceiver, name)), (
+        f"{name} was sync in 1.x; an async def shim would be a silent "
+        f"no-op for any caller that does not await it"
+    )

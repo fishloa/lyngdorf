@@ -24,6 +24,7 @@ from .discovery import (
     discover_model,
     discover_ssdp_location,
     fetch_device_serial,
+    lookup_model,
 )
 from .exceptions import (
     LyngdorfError,
@@ -59,6 +60,7 @@ __all__ = [
     "UnsupportedModelError",
     "create_receiver",
     "discover_model",
+    "lookup_model",
     "discover_ssdp_location",
     "fetch_device_serial",
 ]
@@ -87,6 +89,7 @@ def __getattr__(name: str) -> object:
 
 _MODULE_SHIM_TARGETS = {
     "Receiver": LyngdorfReceiver,
+    "lookup_receiver_model": lookup_model,
     "async_create_receiver": create_receiver,
     "async_find_receiver_model": discover_model,
     "async_get_device_serial": _compat.legacy_get_device_serial,
