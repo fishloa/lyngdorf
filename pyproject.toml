@@ -80,6 +80,8 @@ module = [
     "lyngdorf.streaming.client",
     "lyngdorf.streaming.parsers",
     "lyngdorf.streaming.types",
+    "lyngdorf.rio",
+    "lyngdorf.rio.protocol",
 ]
 disallow_any_generics = true
 disallow_subclassing_any = true
