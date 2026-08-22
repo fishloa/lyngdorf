@@ -29,6 +29,7 @@ mind rather than as an unconditional bug signal.
 
 import asyncio
 import logging
+import warnings
 from dataclasses import dataclass, field
 
 from .const import DEFAULT_LYNGDORF_PORT, Msg
@@ -246,7 +247,7 @@ class CapabilityProbeReport:
         return "\n".join(lines)
 
 
-async def async_probe_device_capabilities(
+async def probe_capabilities(
     host: str,
     model: LyngdorfModel | None = None,
     port: int = DEFAULT_LYNGDORF_PORT,
@@ -329,3 +330,16 @@ async def _read_reply_until_quiet(
             break
         chunks.append(chunk)
     return b"".join(chunks)
+
+
+def __getattr__(name: str) -> object:
+    # D9 shim — deleted in 2.1 with _compat.py.
+    if name == "async_probe_device_capabilities":
+        warnings.warn(
+            "async_probe_device_capabilities is deprecated and will be "
+            "removed in lyngdorf 2.1; use probe_capabilities",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return probe_capabilities
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

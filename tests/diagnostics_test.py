@@ -1,3 +1,4 @@
+import inspect
 from unittest import mock
 
 import pytest
@@ -8,7 +9,7 @@ from lyngdorf.diagnostics import (
     CapabilityProbeReport,
     ProbeResult,
     _all_candidate_tokens,
-    async_probe_device_capabilities,
+    probe_capabilities,
 )
 from lyngdorf.models import LyngdorfModel
 
@@ -144,7 +145,7 @@ class TestAsyncProbeDeviceCapabilities:
             new_callable=mock.AsyncMock,
             return_value=(reader, writer),
         ):
-            report = await async_probe_device_capabilities(
+            report = await probe_capabilities(
                 FAKE_IP,
                 model=LyngdorfModel.TDAI_3400,
                 per_command_timeout=0.01,
@@ -179,7 +180,7 @@ class TestAsyncProbeDeviceCapabilities:
             new_callable=mock.AsyncMock,
             return_value=(reader, writer),
         ):
-            report = await async_probe_device_capabilities(
+            report = await probe_capabilities(
                 FAKE_IP, model=None, per_command_timeout=0.01
             )
 
@@ -216,7 +217,7 @@ class TestAsyncProbeDeviceCapabilities:
             new_callable=mock.AsyncMock,
             return_value=(reader, writer),
         ):
-            report = await async_probe_device_capabilities(
+            report = await probe_capabilities(
                 FAKE_IP,
                 model=LyngdorfModel.TDAI_1120,
                 per_command_timeout=0.05,
@@ -282,3 +283,17 @@ class TestModelCapabilities:
 
     def test_supports_message_false_for_zone_b_on_tdai(self):
         assert LyngdorfModel.TDAI_3400.supports_message(Msg.ZONE_B_VOLUME) is False
+
+
+class TestDiagnosticsShim:
+    def test_probe_capabilities_is_the_new_name(self):
+        from lyngdorf import diagnostics
+
+        assert inspect.iscoroutinefunction(diagnostics.probe_capabilities)
+
+    def test_old_name_is_a_warning_shim(self):
+        from lyngdorf import diagnostics
+
+        with pytest.warns(DeprecationWarning, match="probe_capabilities"):
+            fn = diagnostics.async_probe_device_capabilities
+        assert fn is diagnostics.probe_capabilities

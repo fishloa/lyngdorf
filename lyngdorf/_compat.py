@@ -713,3 +713,7 @@ SHIMMED_MODEL_FEATURE_CHECKS: frozenset[str] = frozenset(
         "has_mute_state_in_parameter",
     }
 )
+
+DIAGNOSTICS_SHIMS: dict[str, str] = {
+    "async_probe_device_capabilities": "probe_capabilities",
+}
