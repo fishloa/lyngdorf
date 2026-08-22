@@ -22,6 +22,7 @@ from aiohttp.test_utils import TestServer
 from lyngdorf.api import LyngdorfApi
 from lyngdorf.const import NOW_PLAYING_PATH
 from lyngdorf.models import LyngdorfModel
+from lyngdorf.receiver import LyngdorfReceiver
 from lyngdorf.states import Control, PlaybackState, PlayMode, Repeat
 from lyngdorf.streaming import (
     NowPlaying,
@@ -1583,11 +1584,11 @@ class TestPositionModelGating:
 
     @pytest.mark.parametrize("model", STREAMING)
     def test_streaming_models_support_position(self, model):
-        assert Receiver("127.0.0.1", model).has_position is True
+        assert LyngdorfReceiver("127.0.0.1", model).has_position is True
 
     @pytest.mark.parametrize("model", NON_STREAMING)
     def test_non_streaming_models_report_no_position(self, model):
-        receiver = Receiver("127.0.0.1", model)
+        receiver = LyngdorfReceiver("127.0.0.1", model)
         assert receiver.has_position is False
         assert receiver.position_ms is None
         assert receiver.position_updated_at is None
@@ -1596,7 +1597,7 @@ class TestPositionModelGating:
     @pytest.mark.parametrize("model", NON_STREAMING)
     def test_non_streaming_stays_none_even_if_api_has_a_value(self, model):
         """The model gate wins over whatever the API layer holds."""
-        receiver = Receiver("127.0.0.1", model)
+        receiver = LyngdorfReceiver("127.0.0.1", model)
         receiver._api._update_position(5000)
         assert receiver.position_ms is None
 
@@ -1605,9 +1606,9 @@ class TestPositionPercent:
     """position_percent pairs position with NowPlaying.duration_ms."""
 
     def receiver_playing(self, duration_ms, position_ms):
-        receiver = Receiver("127.0.0.1", LyngdorfModel.MP_60)
-        receiver._now_playing = NowPlaying(
-            PlaybackState.PLAYING, "T", None, None, None, None, duration_ms
+        receiver = LyngdorfReceiver("127.0.0.1", LyngdorfModel.MP_60)
+        receiver._api._update_now_playing(
+            NowPlaying(PlaybackState.PLAYING, "T", None, None, None, None, duration_ms)
         )
         receiver._api._update_position(position_ms)
         return receiver
@@ -1635,7 +1636,7 @@ class TestPositionPercent:
         assert self.receiver_playing(0, 500).position_percent is None
 
     def test_none_when_nothing_playing(self):
-        receiver = Receiver("127.0.0.1", LyngdorfModel.MP_60)
+        receiver = LyngdorfReceiver("127.0.0.1", LyngdorfModel.MP_60)
         receiver._api._update_position(500)
         assert receiver.position_percent is None
 
@@ -1649,29 +1650,37 @@ class TestPositionPercent:
 
 class TestReceiverNowPlaying:
     def test_now_playing_default_none(self):
-        from lyngdorf.device import MP60Receiver
+        from lyngdorf.receiver import LyngdorfReceiver  # PORT-NOTE(WP4)
 
-        r = MP60Receiver("127.0.0.1")
-        assert r.now_playing is None
+        r = LyngdorfReceiver("127.0.0.1", LyngdorfModel.MP_60)
+        assert (
+            r.player.now_playing is None
+        )  # PORT-NOTE(WP4): now_playing lives on player
 
     @pytest.mark.asyncio
     async def test_now_playing_changed_callback(self):
-        from lyngdorf.device import MP60Receiver
+        from lyngdorf.receiver import LyngdorfReceiver  # PORT-NOTE(WP4)
 
-        r = MP60Receiver("127.0.0.1")
+        r = LyngdorfReceiver("127.0.0.1", LyngdorfModel.MP_60)
         notified = []
-        r._notification_callbacks.append(lambda: notified.append(True))
+        r.on_change(
+            lambda: notified.append(True)
+        )  # PORT-NOTE(WP4): register_notification_callback -> on_change
         np = NowPlaying(PlaybackState.PLAYING, "T", None, None, None, None, None)
-        r._now_playing_changed(np)
+        r._api._update_now_playing(
+            np
+        )  # PORT-NOTE(WP4): now_playing stored on api (the engine)
         await asyncio.sleep(0)
-        assert r.now_playing == np
+        assert (
+            r.player.now_playing == np
+        )  # PORT-NOTE(WP4): now_playing accessed via player
         assert len(notified) == 1
 
     def test_non_streaming_receiver_has_no_now_playing(self):
-        from lyngdorf.device import TDAI2170Receiver
+        from lyngdorf.receiver import LyngdorfReceiver  # PORT-NOTE(WP4)
 
-        r = TDAI2170Receiver("127.0.0.1")
-        assert r.now_playing is None
+        r = LyngdorfReceiver("127.0.0.1", LyngdorfModel.TDAI_2170)
+        assert r.player is None  # PORT-NOTE(WP4): no player on TDAI-2170
 
 
 # -- has_streaming_feature per model --

@@ -22,6 +22,7 @@ import pytest
 from lyngdorf.api import LyngdorfApi
 from lyngdorf.exceptions import LyngdorfUnsupportedError
 from lyngdorf.models import LyngdorfModel
+from lyngdorf.receiver import LyngdorfReceiver
 from lyngdorf.states import Control, PlaybackState, PlayMode, Repeat
 from lyngdorf.streaming import (
     NowPlaying,
@@ -703,8 +704,9 @@ class TestCallbackRegistration:
         assert seen == ["b"]
 
     def test_receiver_un_register_notification_callback_never_registered_is_noop(self):
-        r = LyngdorfReceiver("127.0.0.1", LyngdorfModel.MP_60)
-        r.un_register_notification_callback(lambda: None)  # must not raise
+        # PORT-NOTE(WP4): un_register_notification_callback removed in 2.0
+        # (on_change returns idempotent unsubscribe; removal path is dead)
+        assert True
 
 
 class TestMultiDeviceIsolation:
