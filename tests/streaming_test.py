@@ -10,19 +10,21 @@ import asyncio
 import contextlib
 import json
 from pathlib import Path
-from urllib.parse import unquote
+from urllib.parse import quote, unquote
 
+import aiohttp
 import pytest
 import pytest_asyncio
 from aiohttp import web
 from aiohttp.test_utils import TestServer
 
 from lyngdorf.api import LyngdorfApi
-from lyngdorf.const import LyngdorfModel
+from lyngdorf.const import NOW_PLAYING_PATH, LyngdorfModel
 from lyngdorf.device import Receiver
 from lyngdorf.states import Control, PlaybackState, PlayMode, Repeat
 from lyngdorf.streaming import (
     NowPlaying,
+    StreamingClient,
     StreamMagicSession,
     _coerce_ms,
     _coerce_play_mode,
@@ -882,6 +884,264 @@ class TestStreamMagicSession:
         assert await async_fetch_now_playing(str(host), port) is not None
         assert await async_fetch_position(str(host), port) is not None
         assert fake_server.connections == 2
+
+
+# -- raw one-shot servers for connection-death shapes ----------------------
+#
+# A well-behaved aiohttp test server cannot close a socket mid-request on
+# cue, so the stale-keep-alive and never-responds shapes are scripted on
+# raw asyncio servers instead (in-loop, no threads).
+
+_RAW_BODY = b'{"ok": true}'
+_RAW_OK = (
+    b"HTTP/1.1 200 OK\r\n"
+    b"Content-Type: application/json\r\n"
+    b"Content-Length: " + str(len(_RAW_BODY)).encode() + b"\r\n"
+    b"\r\n" + _RAW_BODY
+)
+
+
+async def _read_http_request(reader: asyncio.StreamReader) -> bytes:
+    data = b""
+    while b"\r\n\r\n" not in data:
+        chunk = await reader.read(1024)
+        if not chunk:
+            return b""
+        data += chunk
+    return data
+
+
+class TestStreamingClient:
+    """The aiohttp transport: session ownership, one-socket reuse, and
+    failure behaviour.
+
+    Subscribing to position makes the poll loop iterate roughly once a
+    second. Without reuse that is a fresh TCP socket every second -
+    ~86,400 a day - against embedded hardware with few to spare (#29/#31),
+    which is enough to destabilise a device. These tests pin the socket
+    count, not just the responses.
+    """
+
+    @pytest.mark.asyncio
+    async def test_ownership_decided_at_construction(self):
+        """spec §8: `_owns_session = session is None`, decided at
+        construction - and construction allocates nothing (lazy)."""
+        owned = StreamingClient("127.0.0.1", 8080)
+        assert owned._owns_session is True
+        assert owned._owned is None  # no ClientSession until first request
+
+        injected = aiohttp.ClientSession()
+        try:
+            client = StreamingClient("127.0.0.1", 8080, session=injected)
+            assert client._owns_session is False
+            assert client._owned is None
+        finally:
+            await injected.close()
+
+    @pytest.mark.asyncio
+    async def test_owned_session_created_lazily_and_closed(self, fake_server):
+        """The owned ClientSession appears on first request, not in
+        __init__ (it needs a running loop, and a client that never issues
+        a request must never allocate one), and close() closes it."""
+        host, port = fake_server.server_address
+        client = StreamingClient(str(host), port)
+        assert client._owned is None
+        assert await client.get("/api/getData?path=x", 5.0) is not None
+        owned = client._owned
+        assert owned is not None
+        await client.close()
+        assert owned.closed is True
+        assert client._owned is None
+
+    @pytest.mark.asyncio
+    async def test_injected_session_is_used_and_never_closed(self, fake_server):
+        """The injected path, exercised with an instrumented session (the
+        #50 test note): every request must ride the injected session, no
+        owned session may appear, and close() must never touch it."""
+        host, port = fake_server.server_address
+        requests_seen = []
+        trace = aiohttp.TraceConfig()
+
+        async def on_start(session, ctx, params):
+            requests_seen.append(str(params.url))
+
+        trace.on_request_start.append(on_start)
+        injected = aiohttp.ClientSession(trace_configs=[trace])
+        try:
+            client = StreamingClient(str(host), port, session=injected)
+            for _ in range(3):
+                assert await client.get("/api/getData?path=x", 5.0) is not None
+            assert len(requests_seen) == 3  # they rode the injected session
+            assert client._owned is None  # no session of our own appeared
+            await client.close()
+            assert injected.closed is False  # never closed by the library
+            # ...and the client is still usable afterwards:
+            assert await client.get("/api/getData?path=x", 5.0) is not None
+        finally:
+            await injected.close()
+
+    @pytest.mark.asyncio
+    async def test_reuses_one_connection(self, fake_server):
+        host, port = fake_server.server_address
+        client = StreamingClient(str(host), port)
+        fake_server.connections = 0
+        try:
+            for _ in range(5):
+                assert await client.get("/api/getData?path=x", 5.0) is not None
+        finally:
+            await client.close()
+        assert fake_server.connections == 1
+
+    @pytest.mark.asyncio
+    async def test_concurrent_requests_hold_one_socket(self, fake_server):
+        """#29/#31: the serialisation lock, not connector limits, keeps
+        this at one socket - concurrent callers must queue rather than
+        open a second connection on the device. (Connector limits would
+        be global on an injected shared session and must not be touched.)
+        """
+        host, port = fake_server.server_address
+        client = StreamingClient(str(host), port)
+        fake_server.connections = 0
+        try:
+            results = await asyncio.gather(
+                *(client.get("/api/getData?path=x", 5.0) for _ in range(5))
+            )
+            assert all(r is not None for r in results)
+        finally:
+            await client.close()
+        assert fake_server.connections == 1
+
+    @pytest.mark.asyncio
+    async def test_fresh_connection_per_request_when_device_declines_keep_alive(
+        self, fake_server
+    ):
+        """aiohttp honours `Connection: close` per response natively - no
+        manual latch (the old MAX_REUSE_FAILURES machinery is gone). A
+        device that declines reuse costs one connection per request,
+        exactly the old fallback behaviour."""
+        fake_server.keep_alive = False
+        host, port = fake_server.server_address
+        client = StreamingClient(str(host), port)
+        fake_server.connections = 0
+        try:
+            for _ in range(5):
+                assert await client.get("/api/getData?path=x", 5.0) is not None
+        finally:
+            await client.close()
+        assert fake_server.connections == 5
+
+    @pytest.mark.asyncio
+    async def test_recovers_when_device_drops_kept_alive_connection(self):
+        """A device may drop the socket idle between long-poll cycles.
+        The request that went down the reused connection gets one clean
+        retry on a fresh one (aiohttp surfaces the death as
+        ServerDisconnectedError; recent aiohttp additionally retries
+        idempotent requests internally - either way the caller sees
+        success and the device sees exactly two connections)."""
+        connections = []
+
+        async def handler(reader, writer):
+            connections.append(writer)
+            if len(connections) == 1:
+                await _read_http_request(reader)
+                writer.write(_RAW_OK)
+                await writer.drain()
+                # Read the SECOND request off the reused socket, then die
+                # without answering - the stale-keep-alive shape.
+                await _read_http_request(reader)
+                writer.close()
+                return
+            req = await _read_http_request(reader)
+            if req:
+                writer.write(_RAW_OK)
+                await writer.drain()
+            writer.close()
+
+        server = await asyncio.start_server(handler, "127.0.0.1", 0)
+        port = server.sockets[0].getsockname()[1]
+        client = StreamingClient("127.0.0.1", port)
+        try:
+            assert await client.get("/api/x", 5.0) == {"ok": True}
+            assert await client.get("/api/x", 5.0) == {"ok": True}
+            assert len(connections) == 2
+        finally:
+            await client.close()
+            server.close()
+
+    @pytest.mark.asyncio
+    async def test_failure_on_every_connection_is_not_retried_forever(self):
+        """A device that hangs up on every request must produce None
+        after a bounded number of attempts - one clean retry, not a loop.
+        (aiohttp may add one internal retry of its own depending on
+        version, so the bound is a ceiling, not an exact count.)"""
+        attempts = []
+
+        async def handler(reader, writer):
+            attempts.append(1)
+            writer.close()
+
+        server = await asyncio.start_server(handler, "127.0.0.1", 0)
+        port = server.sockets[0].getsockname()[1]
+        client = StreamingClient("127.0.0.1", port)
+        try:
+            assert await client.get("/api/x", 2.0) is None
+            assert 1 <= len(attempts) <= 4
+        finally:
+            await client.close()
+            server.close()
+
+    @pytest.mark.asyncio
+    async def test_returns_none_on_connection_error(self):
+        client = StreamingClient("127.0.0.1", 1)
+        try:
+            assert await client.get("/api/getData?path=x", 0.5) is None
+            assert await client.get_status("/api/getData?path=x", 0.5) is None
+        finally:
+            await client.close()
+
+    @pytest.mark.asyncio
+    async def test_get_status_reports_raw_status(self, fake_server):
+        """Writes read the bare status - a successful activate returns a
+        body of literal `null`, which parses to None exactly like a
+        failure, so only the status distinguishes them."""
+        host, port = fake_server.server_address
+        client = StreamingClient(str(host), port)
+        try:
+            assert await client.get_status("/api/getData?path=x", 5.0) == 200
+            assert await client.get_status("/nope", 5.0) == 404
+        finally:
+            await client.close()
+
+    @pytest.mark.asyncio
+    async def test_close_is_idempotent_and_reopens_lazily(self, fake_server):
+        """disconnect/reconnect: close() is safe to repeat, and a later
+        request lazily recreates the owned session (spec §8: 'reconnect
+        recreates it lazily')."""
+        host, port = fake_server.server_address
+        client = StreamingClient(str(host), port)
+        try:
+            assert await client.get("/api/getData?path=x", 5.0) is not None
+            await client.close()
+            await client.close()
+            assert await client.get("/api/getData?path=x", 5.0) is not None
+        finally:
+            await client.close()
+
+    @pytest.mark.asyncio
+    async def test_request_path_reaches_the_wire_unreencoded(self, fake_server):
+        """Byte-identical wire contract: the exact bytes `quote()`
+        produces must reach the device. yarl re-normalizes URLs by
+        default (measured: %3A comes back out as ':'), so the client must
+        build its URL with encoded=True. Pins the raw request target."""
+        host, port = fake_server.server_address
+        client = StreamingClient(str(host), port)
+        path = f"/api/getData?path={quote(NOW_PLAYING_PATH)}&roles=value"
+        try:
+            assert await client.get(path, 5.0) is not None
+        finally:
+            await client.close()
+        assert fake_server.last_path == path
+        assert "player%3Aplayer/data" in fake_server.last_path
 
 
 @pytest.mark.asyncio

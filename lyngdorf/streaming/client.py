@@ -16,6 +16,9 @@ from collections.abc import Callable
 from typing import TypeVar
 from urllib.parse import quote
 
+import aiohttp
+from yarl import URL
+
 from ..const import (
     CONTROL_PATH,
     NOW_PLAYING_PATH,
@@ -37,6 +40,157 @@ from .types import NowPlaying
 _LOGGER = logging.getLogger(__package__)
 
 _T = TypeVar("_T")
+
+
+class StreamingClient:
+    """Serialized aiohttp access to one device's streaming module.
+
+    Subscribing to playback position makes the long-poll queue return
+    about once a second, so a connection-per-request costs roughly
+    86,400 TCP sockets a day against embedded hardware that has few to
+    spare (#29/#31). This holds one warm connection and reuses it: the
+    requests are serialized by `_lock`, so aiohttp's per-host pool never
+    grows past one connection. Deliberately NOT enforced via connector
+    limits - a limit would be global on an injected shared session
+    (typically Home Assistant's, shared by every integration in the
+    process) and must not be touched.
+
+    Session ownership (issue #50, `inject-websession`): decided at
+    construction - `_owns_session = session is None`. An injected
+    session is used for every request and is never closed by this class;
+    an owned session is created lazily on first use (a ClientSession
+    needs a running event loop, and a client that never issues a
+    request - e.g. on a non-streaming model - must never allocate one)
+    and is closed by `close()`. A request after `close()` lazily
+    recreates the owned session, so reconnect needs no special handling.
+
+    A device may drop the kept-alive socket while it sits idle between
+    long-poll cycles; that surfaces on the next request as
+    `aiohttp.ServerDisconnectedError`, which gets one clean retry
+    (recent aiohttp versions also retry idempotent requests internally,
+    but the dependency floor is aiohttp>=3.0.0, so the rule is enforced
+    here rather than assumed). Anything else - timeout, refused
+    connection, malformed response - returns None, matching every
+    helper's never-raises contract for this reverse-engineered API.
+
+    Keep-alive history, so it is not re-litigated: the old
+    http.client-based session carried a MAX_REUSE_FAILURES latch for
+    #31's report that a TDAI-3400 replies chunked and "dislikes
+    keep-alive". A field test on a real TDAI-3400 by @svwhisper then
+    showed 20 sequential position fetches reusing a single open
+    connection (one steady ESTABLISHED socket, no TIME_WAIT, zero reuse
+    failures), walking that report back. aiohttp honours
+    `Connection: close` per response natively, so a device that declines
+    reuse simply gets a fresh connection per request - the old fallback
+    behaviour - and the manual latch is gone.
+    """
+
+    def __init__(
+        self,
+        host: str,
+        port: int = STREAMMAGIC_PORT,
+        *,
+        session: aiohttp.ClientSession | None = None,
+    ) -> None:
+        self._host = host
+        self._port = port
+        self._injected = session
+        self._owns_session = session is None
+        # Created lazily on first request, never here: a ClientSession
+        # needs a running event loop, and an instance that never issues
+        # a request must never allocate one.
+        self._owned: aiohttp.ClientSession | None = None
+        self._lock = asyncio.Lock()
+
+    def _session(self) -> aiohttp.ClientSession:
+        if not self._owns_session:
+            assert self._injected is not None
+            return self._injected
+        if self._owned is None or self._owned.closed:
+            self._owned = aiohttp.ClientSession()
+        return self._owned
+
+    async def get(self, path_and_query: str, timeout: float) -> object | None:
+        """GET a path and parse the JSON response, reusing the connection.
+
+        Returns None on any network/parse failure or non-200 rather than
+        raising, matching `_smoip_get`.
+        """
+        async with self._lock:
+            result = await self._perform(path_and_query, timeout)
+        if result is None:
+            return None
+        status, body = result
+        if status != 200:
+            return None
+        return _decode_json(body, self._host, path_and_query)
+
+    async def get_status(self, path_and_query: str, timeout: float) -> int | None:
+        """GET a path and return the HTTP status rather than the body.
+
+        Writes need this: a successful `activate` returns a body of
+        literal `null`, which parses to None exactly like a failure, so
+        only the status distinguishes them.
+        """
+        async with self._lock:
+            result = await self._perform(path_and_query, timeout)
+        return result[0] if result is not None else None
+
+    async def _perform(
+        self, path_and_query: str, timeout: float
+    ) -> tuple[int, str] | None:
+        """One request, with one clean retry on a stale kept-alive socket.
+
+        A connection idle since the last request may have been dropped
+        by the device without us noticing, which aiohttp surfaces as
+        `ServerDisconnectedError` when we try to reuse it. That gets one
+        clean retry; a second disconnect stands as a failure.
+
+        The URL is built with encoded=True so the exact percent-encoding
+        the call sites produce with `quote()` reaches the wire
+        unchanged - yarl would otherwise re-normalize it (measured: it
+        decodes %3A back to ':'), silently changing the request shapes
+        verified against a real device.
+        """
+        url = URL(f"http://{self._host}:{self._port}{path_and_query}", encoded=True)
+        client_timeout = aiohttp.ClientTimeout(total=timeout + 1)
+        for attempt in (1, 2):
+            try:
+                session = self._session()
+                async with session.get(url, timeout=client_timeout) as resp:
+                    body = await resp.read()
+                    return resp.status, body.decode(errors="replace")
+            except aiohttp.ServerDisconnectedError:
+                if attempt == 1:
+                    _LOGGER.debug(
+                        "%s: kept-alive connection was stale, retrying",
+                        self._host,
+                    )
+                    continue
+                _LOGGER.debug(
+                    "%s: StreamMagic request to %s failed",
+                    self._host,
+                    path_and_query,
+                )
+                return None
+            except (TimeoutError, OSError, aiohttp.ClientError):
+                _LOGGER.debug(
+                    "%s: StreamMagic request to %s failed",
+                    self._host,
+                    path_and_query,
+                )
+                return None
+        return None
+
+    async def close(self) -> None:
+        """Close the owned session, if any. Never touches an injected one.
+
+        Safe to call repeatedly; a later request lazily recreates the
+        owned session (reconnect needs no special handling).
+        """
+        if self._owned is not None:
+            await self._owned.close()
+            self._owned = None
 
 
 class StreamMagicSession:
