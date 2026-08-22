@@ -85,6 +85,7 @@ module = [
     "lyngdorf.rio.queue",
     "lyngdorf.rio.client",
     "lyngdorf.rio.dialects",
+    "lyngdorf.controls",
 ]
 disallow_any_generics = true
 disallow_subclassing_any = true
