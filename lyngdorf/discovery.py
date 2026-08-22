@@ -14,6 +14,7 @@ the other two do not, and must not gain one (spec §2.1, restated in D9).
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import socket
 from typing import Any
@@ -57,31 +58,45 @@ async def discover_model(host: str, timeout: float = 5.0) -> LyngdorfModel | Non
         TimeoutError: If connection times out
         OSError: If connection is refused
     """
-    from .rio import LyngdorfProtocol
-
+    # The device does not volunteer its identity on connect - it must be
+    # asked. An earlier 2.0 draft opened the connection and read a
+    # `protocol.banner` attribute that has never existed, silenced by a
+    # `type: ignore[attr-defined]`; it raised AttributeError on every call
+    # and was caught only by running it against a real MP-60. Hence the
+    # explicit request/response below, and no ignore comment.
+    writer = None
     try:
-        _, protocol = await asyncio.wait_for(
-            asyncio.get_event_loop().create_connection(
-                lambda: LyngdorfProtocol(
-                    on_message=lambda _: None,
-                    on_connection_lost=lambda: None,
-                ),
-                host,
-                DEFAULT_LYNGDORF_PORT,
-            ),
-            timeout=timeout,
+        reader, writer = await asyncio.wait_for(
+            asyncio.open_connection(host, DEFAULT_LYNGDORF_PORT), timeout=timeout
         )
+        writer.write(b"!DEVICE?\r")
+        await writer.drain()
+        buf = await asyncio.wait_for(reader.readuntil(b"\r"), timeout=timeout)
     except (ConnectionRefusedError, OSError) as ex:
         _LOGGER.error("Connection refused during model discovery: %s", ex)
+        return None
+    except asyncio.IncompleteReadError:
+        _LOGGER.warning("Connection to %s closed before a complete reply", host)
         return None
     except TimeoutError as ex:
         _LOGGER.error("Timeout during model discovery: %s", ex)
         raise
-
-    try:
-        return _lookup_model(protocol.banner)  # type: ignore[attr-defined]
     finally:
-        protocol.close()
+        if writer is not None:
+            writer.close()
+            with contextlib.suppress(Exception):
+                await writer.wait_closed()
+
+    # Reply shape: `!DEVICE("MP-60")` - take what is between the parens.
+    message = buf.decode("utf-8", errors="replace").lstrip("!")
+    start, end = message.find("("), message.find(")")
+    if not 0 <= start < end:
+        _LOGGER.warning("Unexpected DEVICE reply from %s: %r", host, message.strip())
+        return None
+    model = _lookup_model(message[start + 1 : end].strip('"'))
+    if model is None:
+        _LOGGER.warning("Model at %s is not supported: %r", host, message.strip())
+    return model
 
 
 async def discover_ssdp_location(host: str, timeout: float = 5.0) -> str | None:
