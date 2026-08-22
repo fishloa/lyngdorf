@@ -568,10 +568,11 @@ poetry install
 poetry run pytest -v
 ```
 
-See [KNOWN_ISSUES.md](KNOWN_ISSUES.md) before writing a test that calls
-`async_connect()` on a streaming-capable model against a fake host - without a
-guaranteed `async_disconnect()`, that combination can hang the test for two
-minutes.
+Streaming HTTP calls are genuinely cancellable as of the 2.0 aiohttp port,
+so the old two-minute-hang caveat is retired (see
+[KNOWN_ISSUES.md](KNOWN_ISSUES.md)'s resolved section);
+`tests/conftest.py` still guarantees `async_disconnect()` on every test's
+teardown.
 
 ### Code Quality
 ```bash
