@@ -7,7 +7,17 @@ how to talk to the device; it never imports from `device`, `api`, or
 """
 
 from .protocol import LyngdorfProtocol
+from .queue import (
+    _ABSOLUTE_SETTER_SHAPE,
+    _absolute_setter_tokens_for_model,
+    _coalesce_key,
+    _QueuedWrite,
+)
 
 __all__ = [
     "LyngdorfProtocol",
+    "_ABSOLUTE_SETTER_SHAPE",
+    "_QueuedWrite",
+    "_absolute_setter_tokens_for_model",
+    "_coalesce_key",
 ]

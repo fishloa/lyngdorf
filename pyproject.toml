@@ -82,6 +82,7 @@ module = [
     "lyngdorf.streaming.types",
     "lyngdorf.rio",
     "lyngdorf.rio.protocol",
+    "lyngdorf.rio.queue",
 ]
 disallow_any_generics = true
 disallow_subclassing_any = true
