@@ -15,12 +15,17 @@ Remote, the streaming engine's transport methods for Player.
 from __future__ import annotations
 
 from collections.abc import Callable, Iterable
+from datetime import datetime
+from typing import Protocol
 
 from .base import CountingNumberDict
 from .controls import SteppableControl
 from .exceptions import LyngdorfInvalidValueError, LyngdorfUnsupportedError
+from .models import LyngdorfModel
 from .remote import RemoteKey, resolve_remote_key
 from .rio import RioClient
+from .states import Control, PlayMode, Repeat
+from .streaming import NowPlaying
 
 
 class ZoneB:
@@ -276,3 +281,270 @@ def build_remote(rio: RioClient) -> Remote | None:
         keys=keys,
         send_key=rio.send_remote_key,
     )
+
+
+class NowPlayingEngine(Protocol):
+    """What Player consumes from the streaming engine - structural,
+    deliberately.
+
+    In WP3/WP4 the engine is the 1.x LyngdorfApi, which already satisfies
+    every member with no edits; when WP5 relocates the poll loop into
+    streaming/poll.py (with the session plumbing that must edit the same
+    code anyway), the relocated poller satisfies this same protocol and
+    Player does not change. Player is this protocol's only consumer.
+    """
+
+    @property
+    def now_playing(self) -> NowPlaying | None: ...
+    @property
+    def position_ms(self) -> int | None: ...
+    @property
+    def position_updated_at(self) -> datetime | None: ...
+    @property
+    def play_mode(self) -> PlayMode | None: ...
+    @property
+    def shuffle(self) -> bool | None: ...
+    @property
+    def repeat(self) -> Repeat | None: ...
+    @property
+    def available_controls(self) -> frozenset[Control]: ...
+    @property
+    def available_play_modes(self) -> frozenset[PlayMode]: ...
+    @property
+    def can_shuffle(self) -> bool: ...
+    @property
+    def available_repeat_modes(self) -> frozenset[Repeat]: ...
+
+    def register_position_callback(
+        self, callback: Callable[[int | None], None]
+    ) -> Callable[[], None]: ...
+    def register_position_jump_callback(
+        self, callback: Callable[[int | None], None]
+    ) -> Callable[[], None]: ...
+
+    async def async_pause(self) -> bool: ...
+    async def async_next(self) -> bool: ...
+    async def async_previous(self) -> bool: ...
+    async def async_seek(self, position_ms: int) -> bool: ...
+    async def async_set_play_mode(self, mode: PlayMode) -> bool: ...
+    async def async_set_shuffle(self, shuffle: bool) -> bool: ...
+    async def async_set_repeat(self, repeat: Repeat) -> bool: ...
+
+
+class Player:
+    """The embedded streaming module's surface (:8080) - design §2.5.
+
+    None on models without the module (build_player). Model capability
+    ends there: everything on this class is RUNTIME capability, varying
+    with the current source, and stays a live predicate (design §5
+    tier 2) - a Player that exists still legitimately offers nothing
+    while stopped. Transport methods keep their 1.x bool return
+    ("HTTP accepted vs network failure", decision D7) and keep raising
+    LyngdorfUnsupportedError when the current source does not offer the
+    control, because the device answers HTTP 200 to anything and a
+    return value alone can never mean "honoured".
+
+    Transport writes deliberately do NOT ride the poll loop's
+    StreamingClient (design §8): each takes a fresh connection with an
+    explicit Connection: close, so a pause never waits behind an
+    in-flight ~25 s long poll. That property lives in the engine's
+    transport methods and the session-less write helpers they call -
+    preserved by delegation here, and pinned by
+    tests/player_test.py::TestTransportWritesBypassThePollLock.
+    """
+
+    def __init__(self, engine: NowPlayingEngine) -> None:
+        self._engine = engine
+
+    # -- now playing -------------------------------------------------------
+
+    @property
+    def now_playing(self) -> NowPlaying | None:
+        """Current now-playing metadata, or None if idle/unavailable."""
+        return self._engine.now_playing
+
+    # -- position ----------------------------------------------------------
+
+    @property
+    def position_ms(self) -> int | None:
+        """Elapsed playback position in milliseconds, or None if unknown.
+
+        Pair with `NowPlaying.duration_ms` for a progress percentage.
+        Tracked separately from `now_playing` because it updates about
+        once a second, which would otherwise churn that object and every
+        metadata consumer along with it.
+        """
+        return self._engine.position_ms
+
+    @property
+    def position_updated_at(self) -> datetime | None:
+        """When `position_ms` was last refreshed from the device.
+
+        Lets a consumer extrapolate the current position between updates
+        instead of displaying a value that visibly lags.
+        """
+        return self._engine.position_updated_at
+
+    @property
+    def position_percent(self) -> float | None:
+        """Fraction of the current track played, 0.0-1.0.
+
+        None when either position or duration is unknown, or when the
+        duration is zero - live streams report a duration of 0, and a
+        progress fraction is meaningless for them.
+        """
+        now_playing = self._engine.now_playing
+        duration = now_playing.duration_ms if now_playing else None
+        position_ms = self._engine.position_ms
+        if position_ms is None or not duration:
+            return None
+        return min(1.0, position_ms / duration)
+
+    def on_position(self, callback: Callable[[int | None], None]) -> Callable[[], None]:
+        """Register a callback, returning a callable that unregisters it.
+
+        Fires on every raw position change, including the ordinary
+        once-a-second progression while playing - for a consumer that
+        genuinely wants a live counter. For a consumer where each call
+        costs something (a Home Assistant entity state write, say), use
+        `on_position_jump` instead.
+
+        The returned unsubscribe is idempotent - calling it twice, or after
+        the callback has already been removed, is a no-op rather than an
+        error, because teardown paths run more than once in practice.
+        """
+        return self._engine.register_position_callback(callback)
+
+    def on_position_jump(
+        self, callback: Callable[[int | None], None]
+    ) -> Callable[[], None]:
+        """Register a callback for position *discontinuities* only.
+
+        Fires when the position does something other than advance with the
+        clock: a seek, a track change, a play or pause, or the stream
+        drifting from where it should be. It does not fire for the ordinary
+        once-a-second progression, so a consumer that writes state on every
+        call stays cheap.
+
+        Use this rather than `on_position` when each call costs something -
+        a Home Assistant entity state write, say, which fans out over
+        websockets and re-evaluates every automation bound to that entity.
+
+        The returned unsubscribe is idempotent - calling it twice, or after
+        the callback has already been removed, is a no-op rather than an
+        error, because teardown paths run more than once in practice.
+        """
+        return self._engine.register_position_jump_callback(callback)
+
+    # -- per-source, runtime-varying transport capability ------------------
+
+    @property
+    def can_pause(self) -> bool:
+        """Whether the current source offers pause. Narrows and widens as
+        the source changes; False whenever nothing is playing."""
+        return Control.PAUSE in self._engine.available_controls
+
+    @property
+    def can_next(self) -> bool:
+        """Whether the current source offers skip-forward."""
+        return Control.NEXT_TRACK in self._engine.available_controls
+
+    @property
+    def can_previous(self) -> bool:
+        """Whether the current source offers skip-back."""
+        return Control.PREVIOUS_TRACK in self._engine.available_controls
+
+    @property
+    def can_seek(self) -> bool:
+        """Whether the current source offers seek.
+
+        AirPlay does not; Spotify Connect does. Note the payload's `live`
+        and `audioType` fields say nothing useful about this - both
+        sources report `live: true`.
+        """
+        return Control.SEEK in self._engine.available_controls
+
+    @property
+    def can_shuffle(self) -> bool:
+        """Whether shuffle can be toggled independently of repeat."""
+        return self._engine.can_shuffle
+
+    # -- transport ---------------------------------------------------------
+
+    async def pause(self) -> bool:
+        """Toggle pause on the current source.
+
+        The device has no separate resume: on a source it streams itself
+        this pauses a playing track and resumes a paused one. On AirPlay
+        and other controller-driven sources it instead ends the session,
+        which cannot be undone from the device.
+        """
+        return await self._engine.async_pause()
+
+    async def next_track(self) -> bool:
+        """Skip to the next track."""
+        return await self._engine.async_next()
+
+    async def previous_track(self) -> bool:
+        """Skip to the previous track."""
+        return await self._engine.async_previous()
+
+    async def seek(self, position_ms: int) -> bool:
+        """Seek to an absolute position, in milliseconds."""
+        return await self._engine.async_seek(position_ms)
+
+    # -- play mode ---------------------------------------------------------
+
+    @property
+    def play_mode(self) -> PlayMode | None:
+        """Current shuffle/repeat mode, or None if unknown/unavailable."""
+        return self._engine.play_mode
+
+    @property
+    def play_modes(self) -> frozenset[PlayMode]:
+        """Shuffle/repeat modes the current source offers, or empty.
+
+        The union of the per-source and global lists - each is a partial
+        view of the same 2x3 grid, and taking either alone made `normal`
+        unreachable (measured on a real MP-60; the full evidence comment
+        lives on the engine's available_play_modes and travels with it
+        when WP5 relocates the poll state)."""
+        return self._engine.available_play_modes
+
+    @property
+    def shuffle(self) -> bool | None:
+        """Current shuffle setting, or None if unknown/unavailable."""
+        return self._engine.shuffle
+
+    @property
+    def repeat(self) -> Repeat | None:
+        """Current repeat setting, or None if unknown/unavailable."""
+        return self._engine.repeat
+
+    @property
+    def repeat_modes(self) -> frozenset[Repeat]:
+        """Repeat values reachable from the current shuffle setting."""
+        return self._engine.available_repeat_modes
+
+    async def set_play_mode(self, mode: PlayMode) -> bool:
+        """Set the combined shuffle/repeat mode."""
+        return await self._engine.async_set_play_mode(mode)
+
+    async def set_shuffle(self, shuffle: bool) -> bool:
+        """Set shuffle, carrying the current repeat setting over
+        unchanged (see the engine's async_set_shuffle for the full
+        validation contract)."""
+        return await self._engine.async_set_shuffle(shuffle)
+
+    async def set_repeat(self, repeat: Repeat) -> bool:
+        """Set repeat, carrying the current shuffle setting over
+        unchanged."""
+        return await self._engine.async_set_repeat(repeat)
+
+
+def build_player(model: LyngdorfModel, engine: NowPlayingEngine) -> Player | None:
+    """The Player component, or None on a model without the embedded
+    streaming module (TDAI-2170, the whole P series - design §2.5)."""
+    if not model.config.has_streaming:
+        return None
+    return Player(engine)
