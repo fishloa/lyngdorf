@@ -50,9 +50,45 @@ ignore = [
 python_version = "3.11"
 warn_return_any = true
 warn_unused_configs = true
+# Global halves of --strict. These two cannot live in a per-module
+# override (mypy treats them as global-only); both verified no-op on the
+# current 1.x modules before enabling.
+warn_redundant_casts = true
+strict_bytes = true
 disallow_untyped_defs = false
 ignore_missing_imports = true
 check_untyped_defs = true
+
+# --- The 2.0 strict gate (spec D3) -----------------------------------
+# Every module listed below is checked to the same standard as
+# `mypy --strict`. Each work package appends the modules it creates or
+# rewrites, so 2.0 code is born strict-clean; the 1.x modules stay under
+# the lenient global config above until WP6 promotes the whole package.
+#
+# Why the flags are spelled out instead of `strict = true`: mypy 1.19.1
+# accepts `strict = true` in an override SILENTLY but applies it
+# GLOBALLY (measured: with only lyngdorf.exceptions listed, strict
+# errors fired in lyngdorf/streaming.py and lyngdorf/models/). Do not
+# "simplify" this block. The set below is --strict minus the three
+# global-only flags (warn_unused_configs, warn_redundant_casts,
+# strict_bytes), which are set in the global section above.
+[[tool.mypy.overrides]]
+module = [
+    "lyngdorf.base",
+    "lyngdorf.exceptions",
+]
+disallow_any_generics = true
+disallow_subclassing_any = true
+disallow_untyped_calls = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+check_untyped_defs = true
+disallow_untyped_decorators = true
+warn_unused_ignores = true
+warn_return_any = true
+no_implicit_reexport = true
+strict_equality = true
+extra_checks = true
 
 [build-system]
 requires = ["poetry-core"]

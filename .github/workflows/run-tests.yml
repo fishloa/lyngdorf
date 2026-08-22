@@ -41,6 +41,10 @@ jobs:
       - name: Lint with Ruff
         run: poetry run ruff check lyngdorf/ tests/
       - name: Type check with mypy
-        run: poetry run mypy lyngdorf/ --ignore-missing-imports
+        # All configuration - including the per-module 2.0 strict gate -
+        # lives in pyproject.toml. The CLI adds nothing, so CI and local
+        # runs check exactly the same thing. CI's mypy comes from
+        # poetry.lock (1.19.1), matching the pinned local binary.
+        run: poetry run mypy lyngdorf/
       - name: Run the automated tests
         run: poetry run pytest -v
