@@ -5,6 +5,8 @@ import pytest
 import pytest_asyncio
 
 from lyngdorf.api import LyngdorfApi
+from lyngdorf.const import LyngdorfModel
+from lyngdorf.rio import RioClient
 
 _LOGGER = logging.getLogger(__package__)
 
@@ -104,3 +106,22 @@ async def flush_write_queue(api: LyngdorfApi, max_iterations: int = 200) -> None
         f"write queue for {api.host} did not drain within {max_iterations} "
         "event loop iterations"
     )
+
+
+class RecordingRio(RioClient):
+    """RioClient test double that records wire commands instead of
+    queueing them.
+
+    Unit tests for the 2.0 controls/components assert the EXACT wire
+    strings the real per-model writer methods produce - the writers
+    themselves run for real (scale math, token lookup, TDAI overrides);
+    only the queue/transport underneath is replaced. Pacing and
+    coalescing are covered separately by command_queue_test.py.
+    """
+
+    def __init__(self, model: LyngdorfModel) -> None:
+        super().__init__("127.0.0.1", model)
+        self.writes: list[str] = []
+
+    def _writeCommand(self, command: str) -> None:
+        self.writes.append(command)

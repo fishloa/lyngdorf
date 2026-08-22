@@ -16,10 +16,11 @@ a caller never sees a scale or a wire token.
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from enum import StrEnum
 
 from .models import NumericRange
+from .rio import RioClient
 
 
 class Trim(StrEnum):
@@ -150,3 +151,146 @@ class SteppableControl(NumericControl):
     async def down(self) -> None:
         """Step the control down by one device-defined increment."""
         self._send_down()
+
+
+# ---------------------------------------------------------------------------
+# Per-model factories. The receiver layer (WP4) calls these once at
+# construction; capability is thereby structural (design §5): a model
+# without a control never has the object at all.
+# ---------------------------------------------------------------------------
+
+
+def build_volume(rio: RioClient) -> SteppableControl:
+    """The main-zone volume control for `rio`'s model.
+
+    SteppableControl statically, not per-model: every supported model
+    steps volume - MP/P via the VOL+/VOL- suffix convention, the TDAI
+    family via its literal VOLUP/VOLDN tokens (design §2.3, pinned by
+    test_every_model_steps_volume). If a future model cannot step volume,
+    that is a real capability change and this return type must change
+    with it.
+    """
+    volume_range = rio._model.config.volume_range
+    assert volume_range is not None, "every supported model documents a volume range"
+    return SteppableControl(
+        initial_range=volume_range,
+        send_set=rio.volume,
+        send_up=rio.volume_up,
+        send_down=rio.volume_down,
+    )
+
+
+def build_trims(rio: RioClient) -> Mapping[Trim, NumericControl]:
+    """The trim mapping for `rio`'s model - only the bands the model has
+    appear as keys (design §5: `Trim.CENTER in trims` replaces 1.x's
+    `trim_centre_range is None`).
+
+    Capability is keyed off the ModelConfig range fields - the same
+    source 1.x's `_require_capability` gated on (a band exists iff its
+    documented range does). Bass/treble steppability comes from the
+    family-overridden `has_*_trim_step()` predicates; the discrete
+    channel trims are MP-only and always step where they exist at all,
+    so they are unconditionally SteppableControl.
+
+    The mapping is genuinely mixed (MP trims all step, TDAI bass/treble
+    do not), so consumers hold it base-typed and narrow with
+    `isinstance(ctl, SteppableControl)` - design §2.3/§6.3.
+    """
+    config = rio._model.config
+    trims: dict[Trim, NumericControl] = {}
+
+    if (bass_range := config.trim_bass_range) is not None:
+        if config.has_bass_trim_step():
+            trims[Trim.BASS] = SteppableControl(
+                initial_range=bass_range,
+                send_set=rio.change_trim_bass,
+                send_up=rio.trim_bass_up,
+                send_down=rio.trim_bass_down,
+            )
+        else:
+            trims[Trim.BASS] = NumericControl(
+                initial_range=bass_range, send_set=rio.change_trim_bass
+            )
+
+    if (treble_range := config.trim_treble_range) is not None:
+        if config.has_treble_trim_step():
+            trims[Trim.TREBLE] = SteppableControl(
+                initial_range=treble_range,
+                send_set=rio.change_trim_treble,
+                send_up=rio.trim_treble_up,
+                send_down=rio.trim_treble_down,
+            )
+        else:
+            trims[Trim.TREBLE] = NumericControl(
+                initial_range=treble_range, send_set=rio.change_trim_treble
+            )
+
+    channel_trims: tuple[
+        tuple[
+            Trim,
+            NumericRange | None,
+            Callable[[float], None],
+            Callable[[], None],
+            Callable[[], None],
+        ],
+        ...,
+    ] = (
+        (
+            Trim.CENTER,
+            config.trim_centre_range,
+            rio.change_trim_centre,
+            rio.trim_centre_up,
+            rio.trim_centre_down,
+        ),
+        (
+            Trim.HEIGHT,
+            config.trim_height_range,
+            rio.change_trim_height,
+            rio.trim_height_up,
+            rio.trim_height_down,
+        ),
+        (
+            Trim.LFE,
+            config.trim_lfe_range,
+            rio.change_trim_lfe,
+            rio.trim_lfe_up,
+            rio.trim_lfe_down,
+        ),
+        (
+            Trim.SURROUND,
+            config.trim_surround_range,
+            rio.change_trim_surround,
+            rio.trim_surround_up,
+            rio.trim_surround_down,
+        ),
+    )
+    for band, band_range, send_set, send_up, send_down in channel_trims:
+        if band_range is not None:
+            trims[band] = SteppableControl(
+                initial_range=band_range,
+                send_set=send_set,
+                send_up=send_up,
+                send_down=send_down,
+            )
+
+    return trims
+
+
+def build_lipsync(rio: RioClient) -> NumericControl | None:
+    """The lipsync control, or None on a model with no lip sync control
+    at all (the whole TDAI family - design §2.2).
+
+    The range is seeded from the documented default
+    (ModelConfig.lipsync_default_range); the receiver layer overwrites it
+    via `_update_range` when the device answers a LIPSYNCRANGE? query
+    (queried at startup on the MP and P families). Base NumericControl -
+    no model steps lipsync.
+    """
+    default_range = rio._model.config.lipsync_default_range
+    if default_range is None:
+        return None
+
+    def send(value: float) -> None:
+        rio.change_lipsync(int(value))
+
+    return NumericControl(initial_range=default_range, send_set=send)

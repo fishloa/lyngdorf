@@ -3,8 +3,17 @@ hierarchy and the Trim enum (spec §2.3), plus (from Task 2 onward) the
 per-model factories."""
 
 import pytest
+from conftest import RecordingRio
 
-from lyngdorf.controls import NumericControl, SteppableControl, Trim
+from lyngdorf.const import LyngdorfModel
+from lyngdorf.controls import (
+    NumericControl,
+    SteppableControl,
+    Trim,
+    build_lipsync,
+    build_trims,
+    build_volume,
+)
 from lyngdorf.models import NumericRange
 
 TEST_RANGE = NumericRange(min=-12.0, max=12.0, step=0.1)
@@ -88,3 +97,222 @@ class TestSteppableControl:
         await control.down()
         await control.set(-3.0)
         assert calls == ["up", "down", "set:-3.0"]
+
+
+# Trim band -> the ModelConfig range field that gates it. The American
+# public key deliberately maps to the British-spelled internal field
+# (spec §2.3's scope-of-rename ruling).
+TRIM_RANGE_FIELDS: dict[Trim, str] = {
+    Trim.BASS: "trim_bass_range",
+    Trim.TREBLE: "trim_treble_range",
+    Trim.CENTER: "trim_centre_range",
+    Trim.HEIGHT: "trim_height_range",
+    Trim.LFE: "trim_lfe_range",
+    Trim.SURROUND: "trim_surround_range",
+}
+
+
+class TestVolumeFactory:
+    @pytest.mark.parametrize("model", list(LyngdorfModel))
+    def test_every_model_steps_volume(self, model):
+        """spec §2.3's static-typing claim, VERIFIED against ModelConfig
+        rather than trusted: `volume` is annotated SteppableControl
+        because every supported model has volume step commands (MP/P via
+        VOL+/VOL-, TDAI via literal VOLUP/VOLDN). If this fails for a
+        future model, that is a real capability change and the annotation
+        must change with it - do not paper over it here."""
+        assert model.config.volume_up_command()
+        assert model.config.volume_down_command()
+        control = build_volume(RecordingRio(model))
+        assert isinstance(control, SteppableControl)
+
+    @pytest.mark.parametrize("model", list(LyngdorfModel))
+    def test_volume_range_comes_from_model_config(self, model):
+        control = build_volume(RecordingRio(model))
+        assert control.range == model.config.volume_range
+
+    def test_volume_range_anchors(self):
+        """Anchors transcribed from the vendor manuals (docs/), so the
+        parametrised test above cannot be satisfied by a config bug: the
+        TDAI ceiling really is lower (spec §9 item 4)."""
+        assert build_volume(RecordingRio(LyngdorfModel.MP_60)).range.max == 24.0
+        assert build_volume(RecordingRio(LyngdorfModel.TDAI_3400)).range.max == 12.0
+
+    @pytest.mark.asyncio
+    async def test_wire_format_mp(self):
+        rio = RecordingRio(LyngdorfModel.MP_60)
+        volume = build_volume(rio)
+        await volume.set(-25.0)
+        await volume.up()
+        await volume.down()
+        assert rio.writes == ["VOL(-250)", "VOL+", "VOL-"]
+
+    @pytest.mark.asyncio
+    async def test_wire_format_tdai_uses_literal_step_tokens(self):
+        """TDAI has no +/- suffix convention (spec §9 item 1's per-model
+        token derivation): distinct literal VOLUP/VOLDN tokens."""
+        rio = RecordingRio(LyngdorfModel.TDAI_3400)
+        volume = build_volume(rio)
+        await volume.set(-25.0)
+        await volume.up()
+        await volume.down()
+        assert rio.writes == ["VOL(-250)", "VOLUP", "VOLDN"]
+
+    @pytest.mark.asyncio
+    async def test_out_of_range_volume_reaches_the_wire_unchanged(self):
+        """The advisory-range rule (#37/#41/#42/#43) proven end to end
+        through the real writer: 999.0 dB is far outside every model's
+        range and must still be encoded and sent. The device clamps; the
+        library does not. Do not reintroduce a bounds check."""
+        rio = RecordingRio(LyngdorfModel.MP_60)
+        await build_volume(rio).set(999.0)
+        assert rio.writes == ["VOL(9990)"]
+
+
+class TestTrimsFactory:
+    @pytest.mark.parametrize("model", list(LyngdorfModel))
+    def test_bands_match_model_config(self, model):
+        """The per-model matrix, regenerated from ModelConfig (spec §12
+        WP3): only the bands the model documents a range for appear."""
+        trims = build_trims(RecordingRio(model))
+        expected = {
+            band
+            for band, field_name in TRIM_RANGE_FIELDS.items()
+            if getattr(model.config, field_name) is not None
+        }
+        assert set(trims) == expected
+
+    def test_band_anchors_one_model_per_family(self):
+        """Non-tautological anchors (the parametrised test proves
+        factory==config; these prove config==reality, from the manuals):
+        MP has all six bands, TDAI-1120/3400/2210 bass+treble only,
+        TDAI-2170 none, the P series none at all."""
+        assert set(build_trims(RecordingRio(LyngdorfModel.MP_60))) == set(Trim)
+        assert set(build_trims(RecordingRio(LyngdorfModel.TDAI_3400))) == {
+            Trim.BASS,
+            Trim.TREBLE,
+        }
+        assert set(build_trims(RecordingRio(LyngdorfModel.TDAI_2170))) == set()
+        assert set(build_trims(RecordingRio(LyngdorfModel.P_100))) == set()
+
+    @pytest.mark.parametrize("model", list(LyngdorfModel))
+    def test_stepping_matches_model_config(self, model):
+        """Steppability matrix, regenerated from config: bass/treble step
+        where the family's config says so (MP yes, TDAI no - the
+        TDAIModelConfig override); channel trims are MP-only and always
+        step. isinstance() is exactly the consumer narrowing from §6.3."""
+        for band, control in build_trims(RecordingRio(model)).items():
+            if band is Trim.BASS:
+                expected = model.config.has_bass_trim_step()
+            elif band is Trim.TREBLE:
+                expected = model.config.has_treble_trim_step()
+            else:
+                expected = True
+            assert isinstance(control, SteppableControl) is expected
+
+    def test_tdai_bass_cannot_step_structurally(self):
+        """1.x warned-and-ignored a TDAI bass step; 2.0 makes it
+        unrepresentable (D4): the control is a plain NumericControl with
+        no up() at all."""
+        bass = build_trims(RecordingRio(LyngdorfModel.TDAI_3400))[Trim.BASS]
+        assert not isinstance(bass, SteppableControl)
+        assert not hasattr(bass, "up")
+
+    @pytest.mark.asyncio
+    async def test_trim_scale_mp_tenths_vs_tdai_whole_db(self):
+        """#41, pinned end to end: +3 dB is TRIMBASS(30) on MP (tenths)
+        but BASS(3) on TDAI (whole dB) - the scale is wired in by the
+        factory and never surfaces to the caller (spec §2.3)."""
+        mp = RecordingRio(LyngdorfModel.MP_60)
+        await build_trims(mp)[Trim.BASS].set(3.0)
+        assert mp.writes == ["TRIMBASS(30)"]
+
+        tdai = RecordingRio(LyngdorfModel.TDAI_3400)
+        await build_trims(tdai)[Trim.BASS].set(3.0)
+        assert tdai.writes == ["BASS(3)"]
+
+    @pytest.mark.asyncio
+    async def test_treble_set_and_step_use_trimtreb_not_trimtreble(self):
+        """The TRIMTREB/TRIMTREBLE query-vs-reply mismatch (spec §9
+        item 4, verified on real hardware): the set/step command is
+        TRIMTREB; TRIMTREBLE is only ever a reply key."""
+        rio = RecordingRio(LyngdorfModel.MP_60)
+        treble = build_trims(rio)[Trim.TREBLE]
+        await treble.set(1.5)
+        assert isinstance(treble, SteppableControl)
+        await treble.up()
+        assert rio.writes == ["TRIMTREB(15)", "TRIMTREB+"]
+
+    @pytest.mark.asyncio
+    async def test_channel_trim_wire_format_and_step(self):
+        rio = RecordingRio(LyngdorfModel.MP_60)
+        trims = build_trims(rio)
+        center = trims[Trim.CENTER]
+        await center.set(0.5)
+        assert isinstance(center, SteppableControl)
+        await center.down()
+        assert rio.writes == ["TRIMCENTER(5)", "TRIMCENTER-"]
+
+    @pytest.mark.asyncio
+    async def test_out_of_range_trim_reaches_the_wire_unchanged(self):
+        """Advisory ranges again, on the trim path (#41's model): 99 dB
+        against a documented -12..+12 range still encodes and sends."""
+        rio = RecordingRio(LyngdorfModel.MP_60)
+        await build_trims(rio)[Trim.BASS].set(99.0)
+        assert rio.writes == ["TRIMBASS(990)"]
+
+    @pytest.mark.parametrize("model", list(LyngdorfModel))
+    def test_ranges_come_from_model_config(self, model):
+        trims = build_trims(RecordingRio(model))
+        for band, control in trims.items():
+            assert control.range == getattr(model.config, TRIM_RANGE_FIELDS[band])
+
+
+class TestLipsyncFactory:
+    @pytest.mark.parametrize("model", list(LyngdorfModel))
+    def test_presence_matches_model_config(self, model):
+        control = build_lipsync(RecordingRio(model))
+        assert (control is not None) == (model.config.lipsync_default_range is not None)
+
+    def test_absent_on_the_whole_tdai_family(self):
+        """Anchor: spec §2.2 - lipsync is None on the whole TDAI family."""
+        for model in (
+            LyngdorfModel.TDAI_1120,
+            LyngdorfModel.TDAI_2170,
+            LyngdorfModel.TDAI_2210,
+            LyngdorfModel.TDAI_3400,
+        ):
+            assert build_lipsync(RecordingRio(model)) is None
+        assert build_lipsync(RecordingRio(LyngdorfModel.MP_60)) is not None
+        assert build_lipsync(RecordingRio(LyngdorfModel.P_100)) is not None
+
+    def test_range_is_live_not_frozen_at_the_default(self):
+        """spec §2.3: lipsync's range is seeded from the documented
+        default and OVERWRITTEN when the device answers LIPSYNCRANGE.
+        This pins the control side of that contract - the range genuinely
+        updates rather than staying at the default. (WP4 wires the
+        !LIPSYNCRANGE(min,max) reply callback to _update_range; the
+        end-to-end wire path is covered by the ported wiring tests
+        there.)"""
+        lipsync = build_lipsync(RecordingRio(LyngdorfModel.MP_60))
+        assert lipsync is not None
+        assert lipsync.range == NumericRange(min=0.0, max=500.0, step=1.0)
+        lipsync._update_range(NumericRange(min=0.0, max=450.0, step=1.0))
+        assert lipsync.range == NumericRange(min=0.0, max=450.0, step=1.0)
+
+    @pytest.mark.asyncio
+    async def test_wire_format_is_integer_milliseconds(self):
+        """set() takes float (one shape per concept, §2.3) but the wire
+        format stays 1.x's integer - LIPSYNC(20), never LIPSYNC(20.0)."""
+        rio = RecordingRio(LyngdorfModel.MP_60)
+        lipsync = build_lipsync(rio)
+        assert lipsync is not None
+        await lipsync.set(20)
+        await lipsync.set(35.0)
+        assert rio.writes == ["LIPSYNC(20)", "LIPSYNC(35)"]
+
+    def test_lipsync_is_not_steppable(self):
+        """spec §2.3: no model steps lipsync - base type only."""
+        lipsync = build_lipsync(RecordingRio(LyngdorfModel.MP_60))
+        assert lipsync is not None
+        assert not isinstance(lipsync, SteppableControl)
