@@ -83,6 +83,7 @@ module = [
     "lyngdorf.rio",
     "lyngdorf.rio.protocol",
     "lyngdorf.rio.queue",
+    "lyngdorf.rio.client",
 ]
 disallow_any_generics = true
 disallow_subclassing_any = true
