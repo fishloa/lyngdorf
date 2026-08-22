@@ -4,10 +4,11 @@
 import pytest
 from conftest import RecordingRio
 
-from lyngdorf.components import ZoneB, build_zone_b
+from lyngdorf.components import Remote, ZoneB, build_remote, build_zone_b
 from lyngdorf.const import LyngdorfModel
 from lyngdorf.controls import SteppableControl
-from lyngdorf.exceptions import LyngdorfInvalidValueError
+from lyngdorf.exceptions import LyngdorfInvalidValueError, LyngdorfUnsupportedError
+from lyngdorf.remote import RemoteKey
 
 
 class TestZoneBFactory:
@@ -112,3 +113,103 @@ class TestZoneB:
         zone_b = self._zone_b(RecordingRio(LyngdorfModel.MP_60))
         assert not hasattr(zone_b, "sound_mode")
         assert not hasattr(zone_b, "trims")
+
+
+class TestRemoteFactory:
+    @pytest.mark.parametrize("model", list(LyngdorfModel))
+    def test_presence_and_keys_match_model_config(self, model):
+        """spec §5 tier 1: `remote is None` replaces has_remote_keys;
+        keys is the model's explicit per-family table, never inferred
+        (#46)."""
+        remote = build_remote(RecordingRio(model))
+        expected_keys = model.config.available_remote_keys()
+        assert (remote is not None) is bool(expected_keys)
+        if remote is not None:
+            assert remote.keys == expected_keys
+
+    def test_presence_anchors(self):
+        """Anchors: the whole TDAI family has no navigation hardware; MP
+        and P families document full button sets; MULTIVIEW is P200-only
+        within the P family (spec §9 item 4)."""
+        for model in (
+            LyngdorfModel.TDAI_1120,
+            LyngdorfModel.TDAI_2170,
+            LyngdorfModel.TDAI_2210,
+            LyngdorfModel.TDAI_3400,
+        ):
+            assert build_remote(RecordingRio(model)) is None
+
+        mp = build_remote(RecordingRio(LyngdorfModel.MP_60))
+        p100 = build_remote(RecordingRio(LyngdorfModel.P_100))
+        p200 = build_remote(RecordingRio(LyngdorfModel.P_200))
+        assert mp is not None and p100 is not None and p200 is not None
+        assert RemoteKey.MULTIVIEW in mp.keys
+        assert RemoteKey.MULTIVIEW in p200.keys
+        assert RemoteKey.MULTIVIEW not in p100.keys
+
+
+class TestRemoteSend:
+    def _remote(self, rio: RecordingRio) -> Remote:
+        remote = build_remote(rio)
+        assert remote is not None
+        return remote
+
+    @pytest.mark.asyncio
+    async def test_strings_resolve_case_insensitively_and_enums_pass(self):
+        rio = RecordingRio(LyngdorfModel.MP_60)
+        remote = self._remote(rio)
+        await remote.send(["up", "UP", "Up", RemoteKey.UP])
+        assert rio.writes == ["DIRU", "DIRU", "DIRU", "DIRU"]
+
+    @pytest.mark.asyncio
+    async def test_whole_batch_validates_before_anything_is_sent(self):
+        """A typo partway through a batch must raise BEFORE the first
+        command reaches the device - never leave it half-navigated
+        through a menu (1.x contract, relocated verbatim)."""
+        rio = RecordingRio(LyngdorfModel.MP_60)
+        remote = self._remote(rio)
+        with pytest.raises(LyngdorfUnsupportedError) as excinfo:
+            await remote.send(["up", "down", "nope"])
+        assert rio.writes == []
+        assert "'nope'" in str(excinfo.value)
+        assert "mp-60" in str(excinfo.value)
+
+    @pytest.mark.asyncio
+    async def test_num_repeats_repeats_the_whole_sequence_as_a_block(self):
+        """123123, not 112233 (1.x contract; matches how broadlink and
+        harmony interpret num_repeats). Do not swap the loop nesting."""
+        rio = RecordingRio(LyngdorfModel.MP_60)
+        remote = self._remote(rio)
+        await remote.send(["1", "2", "3"], num_repeats=2)
+        assert rio.writes == [
+            "NUM(1)",
+            "NUM(2)",
+            "NUM(3)",
+            "NUM(1)",
+            "NUM(2)",
+            "NUM(3)",
+        ]
+
+    @pytest.mark.asyncio
+    async def test_key_unsupported_on_this_model_raises(self):
+        """MULTIVIEW on a P100 must raise even though the key exists on a
+        sibling model - validation is against THIS model's table."""
+        p100 = self._remote(RecordingRio(LyngdorfModel.P_100))
+        with pytest.raises(LyngdorfUnsupportedError):
+            await p100.send([RemoteKey.MULTIVIEW])
+        p200_rio = RecordingRio(LyngdorfModel.P_200)
+        await self._remote(p200_rio).send([RemoteKey.MULTIVIEW])
+        assert p200_rio.writes == ["MULTIVIEW"]
+
+    @pytest.mark.asyncio
+    async def test_press_delegates_to_send(self):
+        """press() delegates to send() so the two can never validate or
+        dispatch differently (1.x contract)."""
+        rio = RecordingRio(LyngdorfModel.MP_60)
+        remote = self._remote(rio)
+        await remote.press(RemoteKey.MENU)
+        assert rio.writes == ["MENU"]
+        with pytest.raises(LyngdorfUnsupportedError):
+            await self._remote(RecordingRio(LyngdorfModel.P_100)).press(
+                RemoteKey.MULTIVIEW
+            )

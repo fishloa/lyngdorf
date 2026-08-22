@@ -14,9 +14,12 @@ Remote, the streaming engine's transport methods for Player.
 
 from __future__ import annotations
 
+from collections.abc import Callable, Iterable
+
 from .base import CountingNumberDict
 from .controls import SteppableControl
-from .exceptions import LyngdorfInvalidValueError
+from .exceptions import LyngdorfInvalidValueError, LyngdorfUnsupportedError
+from .remote import RemoteKey, resolve_remote_key
 from .rio import RioClient
 
 
@@ -132,3 +135,144 @@ def build_zone_b(rio: RioClient) -> ZoneB | None:
         send_down=rio.zone_b_volume_down,
     )
     return ZoneB(volume=volume, rio=rio)
+
+
+class Remote:
+    """The remote-key surface (design §2.6). None on the whole TDAI
+    family - see build_remote.
+
+    Behaviour relocated verbatim from 1.x's Receiver.press /
+    send_remote_commands (the 1.10.0 remote-key work, issue #46): batch
+    validation before any send, case-insensitive string resolution, block
+    repeats, no delay_secs (the write queue owns pacing). Do not redesign
+    any of it here.
+    """
+
+    def __init__(
+        self,
+        *,
+        model_name: str,
+        keys: frozenset[RemoteKey],
+        send_key: Callable[[RemoteKey], None],
+    ) -> None:
+        self._model_name = model_name
+        self._keys = keys
+        self._send_key = send_key
+
+    @property
+    def keys(self) -> frozenset[RemoteKey]:
+        """Every remote-control button this model's protocol documents
+        at all.
+
+        An explicit per-model set (see `ModelConfig.remote_keys`), never
+        inferred from whether some unrelated wire command happens to
+        succeed. Empty for the whole TDAI family, which has no
+        navigation hardware at all; the MP and P families both populate
+        the full button set their manual documents - see
+        `lyngdorf/remote.py` for the per-model wire tables.
+
+        Feeds both a consumer's advertised command list (e.g. Home
+        Assistant's `remote` platform) and its own input validation, so
+        it never has to guess what this model supports.
+        """
+        return self._keys
+
+    async def press(self, key: RemoteKey) -> None:
+        """Press a single remote key.
+
+        Typed convenience for a caller that already has a `RemoteKey`
+        and is not going through strings at all. `send` is the entry
+        point shaped for Home Assistant's
+        `RemoteEntity.async_send_command`; this delegates to it with a
+        single-item batch so the two can never validate or dispatch
+        differently.
+
+        Raises:
+            LyngdorfUnsupportedError: this model does not have `key`.
+        """
+        await self.send([key])
+
+    async def send(
+        self, commands: Iterable[str | RemoteKey], num_repeats: int = 1
+    ) -> None:
+        """Send a batch of remote-key presses, in order.
+
+        Shaped to match Home Assistant's
+        `RemoteEntity.async_send_command` exactly -
+        `command: Iterable[str]` plus `num_repeats` - so the integration
+        needs no translation layer:
+
+            async def async_send_command(self, command, **kwargs):
+                await self._remote.send(
+                    command, num_repeats=kwargs.get(ATTR_NUM_REPEATS, 1)
+                )
+
+        Also accepts `RemoteKey` directly, for callers that are not going
+        through strings at all.
+
+        Every command is resolved to a `RemoteKey` - case-insensitively
+        for strings, so `up`/`UP`/`Up` all resolve the same way, see
+        `resolve_remote_key` - and checked against `keys` for *this
+        whole batch* before anything is sent. A typo (or a key this
+        model does not have) partway through a batch of six therefore
+        raises before the first of the other five reaches the device,
+        rather than leaving the device half navigated through a menu on
+        the way to discovering the mistake.
+
+        Raises:
+            LyngdorfUnsupportedError: some `commands` entry does not
+                resolve to a `RemoteKey` this model has, naming the bad
+                value and what this model does support.
+
+        `num_repeats` repeats the whole resolved sequence as a block -
+        `["1", "2", "3"]` with `num_repeats=2` sends `1 2 3 1 2 3`, not
+        `1 1 2 2 3 3` - matching how Home Assistant's own integrations
+        interpret the same field (`broadlink`'s `remote.py` and
+        `harmony`'s `data.py` both repeat the sequence, not each
+        individual command; "the number of times you want to repeat the
+        commands" reads the same way). Do not swap the loop nesting back
+        to per-key repeats - a caller entering a channel number twice
+        (`num_repeats=2` over `["1", "2", "3"]`) must see `123123`
+        reach the device, not `112233`. The outbound write queue already
+        paces every write and never coalesces a remote key (see
+        `RioClient.send_remote_key`), so nothing further is needed here
+        for the repeated sequence to reach the device as that many
+        distinct, in-order wire commands.
+
+        `delay_secs`, which `RemoteEntity.async_send_command` also
+        accepts, is deliberately NOT supported here: the write queue
+        already owns pacing (`COMMAND_PACING_MS`), and a second,
+        caller-supplied delay on top of it would fight that rather than
+        cooperate with it. An integration should drop that argument
+        rather than have this library grow a second timing mechanism.
+        """
+        resolved: list[RemoteKey] = []
+        for command in commands:
+            key = resolve_remote_key(command)
+            if key is None or key not in self._keys:
+                raise LyngdorfUnsupportedError(
+                    f"{command!r} is not a supported remote key for model "
+                    f"{self._model_name} (available: "
+                    f"{sorted(self._keys) or 'none'})"
+                )
+            resolved.append(key)
+
+        for _ in range(num_repeats):
+            for key in resolved:
+                self._send_key(key)
+
+
+def build_remote(rio: RioClient) -> Remote | None:
+    """The Remote component, or None on a model with no remote keys at
+    all (the whole TDAI family). The key set is the model's explicit
+    per-family table (ModelConfig.remote_keys), never inferred - see
+    issue #46."""
+    model = rio._model
+    keys = model.config.available_remote_keys()
+    if not keys:
+        return None
+    return Remote(
+        model_name=model.config.model_name,
+        keys=keys,
+        send_key=rio.send_remote_key,
+    )
