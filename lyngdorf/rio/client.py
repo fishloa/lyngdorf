@@ -25,9 +25,9 @@ from ..const import (
     RECONNECT_MAX_WAIT,
     RECONNECT_SCALE,
     SETUP_COMMAND_DELAY,
-    LyngdorfModel,
     Msg,
 )
+from ..models import LyngdorfModel
 from ..remote import RemoteKey
 from .protocol import LyngdorfProtocol, _find_closing_paren
 from .queue import _absolute_setter_tokens_for_model, _coalesce_key, _QueuedWrite

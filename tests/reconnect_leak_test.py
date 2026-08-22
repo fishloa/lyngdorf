@@ -19,7 +19,7 @@ import pytest
 
 from lyngdorf import api as lyngdorf_api
 from lyngdorf.api import LyngdorfApi
-from lyngdorf.const import LyngdorfModel
+from lyngdorf.models import LyngdorfModel
 
 
 class _FakeAmp(asyncio.Protocol):

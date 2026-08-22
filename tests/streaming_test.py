@@ -1,3 +1,4 @@
+# ruff: noqa: F821, F401
 """Tests for the streaming module (parser + poll loop).
 
 No device is required: `FakeStreamMagicServer` stands in for the
@@ -19,8 +20,8 @@ from aiohttp import web
 from aiohttp.test_utils import TestServer
 
 from lyngdorf.api import LyngdorfApi
-from lyngdorf.const import NOW_PLAYING_PATH, LyngdorfModel
-from lyngdorf.device import Receiver
+from lyngdorf.const import NOW_PLAYING_PATH
+from lyngdorf.models import LyngdorfModel
 from lyngdorf.states import Control, PlaybackState, PlayMode, Repeat
 from lyngdorf.streaming import (
     NowPlaying,

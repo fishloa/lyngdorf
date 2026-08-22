@@ -5,9 +5,9 @@ import pytest
 from conftest import RecordingRio
 
 from lyngdorf.components import Remote, ZoneB, build_remote, build_zone_b
-from lyngdorf.const import LyngdorfModel
 from lyngdorf.controls import SteppableControl
 from lyngdorf.exceptions import LyngdorfInvalidValueError, LyngdorfUnsupportedError
+from lyngdorf.models import LyngdorfModel
 from lyngdorf.remote import RemoteKey
 
 

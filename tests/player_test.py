@@ -10,14 +10,14 @@ from datetime import UTC, datetime
 import pytest
 from aiohttp import web
 from aiohttp.test_utils import TestServer
-from streaming_test import TestParseNowPlaying, load_fixture
 
 from lyngdorf.api import LyngdorfApi
 from lyngdorf.components import Player, build_player
-from lyngdorf.const import LyngdorfModel
 from lyngdorf.exceptions import LyngdorfUnsupportedError
+from lyngdorf.models import LyngdorfModel
 from lyngdorf.states import Control, PlayMode, Repeat
 from lyngdorf.streaming import NowPlaying, parse_now_playing
+from tests.streaming_test import TestParseNowPlaying, load_fixture
 
 FAKE_IP = "0.0.0.0"
 

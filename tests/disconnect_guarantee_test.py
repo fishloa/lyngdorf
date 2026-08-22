@@ -31,8 +31,9 @@ from unittest import mock
 import pytest
 
 from lyngdorf.api import LyngdorfApi
-from lyngdorf.const import LyngdorfModel
-from lyngdorf.device import Receiver, async_create_receiver
+from lyngdorf.device import async_create_receiver
+from lyngdorf.models import LyngdorfModel
+from lyngdorf.receiver import LyngdorfReceiver
 
 FAKE_IP = "0.0.0.0"
 
@@ -40,7 +41,7 @@ FAKE_IP = "0.0.0.0"
 _shared: dict[str, object] = {}
 
 
-async def _connect_with_mocked_control_port(client: Receiver) -> None:
+async def _connect_with_mocked_control_port(client: LyngdorfReceiver) -> None:
     """Connect `client`'s control-port (:84) transport without touching a
     real socket - the same pattern `basic_wiring_test.py` uses throughout.
     Streaming HTTP (:8080), if the model has that feature, is left real,
@@ -57,7 +58,7 @@ async def _connect_with_mocked_control_port(client: Receiver) -> None:
         debug_mock.return_value.create_connection = mock.AsyncMock(
             side_effect=create_conn
         )
-        await client.async_connect()
+        await client.connect()
 
 
 class TestDisconnectGuaranteedAfterFailure:
@@ -85,7 +86,7 @@ class TestDisconnectGuaranteedAfterFailure:
     @pytest.mark.asyncio
     async def test_previous_failure_was_disconnected_by_the_fixture(self):
         client = _shared["disconnect_guarantee_client"]
-        assert isinstance(client, Receiver)
+        assert isinstance(client, LyngdorfReceiver)
         # Without _guarantee_disconnect, nothing would ever have called
         # async_disconnect() on this receiver: connected would still be
         # True, and its now-playing poll task would still exist, wanting

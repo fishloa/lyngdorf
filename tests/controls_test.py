@@ -5,7 +5,6 @@ per-model factories."""
 import pytest
 from conftest import RecordingRio
 
-from lyngdorf.const import LyngdorfModel
 from lyngdorf.controls import (
     NumericControl,
     SteppableControl,
@@ -14,7 +13,7 @@ from lyngdorf.controls import (
     build_trims,
     build_volume,
 )
-from lyngdorf.models import NumericRange
+from lyngdorf.models import LyngdorfModel, NumericRange
 
 TEST_RANGE = NumericRange(min=-12.0, max=12.0, step=0.1)
 

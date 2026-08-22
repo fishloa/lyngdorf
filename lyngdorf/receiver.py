@@ -30,7 +30,7 @@ from .components import (
     build_remote,
     build_zone_b,
 )
-from .const import LyngdorfModel, Msg
+from .const import Msg
 from .controls import (
     NumericControl,
     SteppableControl,
@@ -40,7 +40,7 @@ from .controls import (
     build_volume,
 )
 from .exceptions import LyngdorfInvalidValueError
-from .models import NumericRange
+from .models import LyngdorfModel, NumericRange
 from .rio import (
     MP_DIALECT,
     P_DIALECT,

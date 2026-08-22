@@ -5,10 +5,10 @@ port; these pin the assembly itself."""
 
 import pytest
 
-from lyngdorf.const import LyngdorfModel, Msg
+from lyngdorf.const import Msg
 from lyngdorf.controls import SteppableControl, Trim
 from lyngdorf.exceptions import LyngdorfInvalidValueError
-from lyngdorf.models import NumericRange
+from lyngdorf.models import LyngdorfModel, NumericRange
 from lyngdorf.receiver import LyngdorfReceiver
 
 FAKE_IP = "127.0.0.1"

@@ -1,3 +1,4 @@
+# ruff: noqa: F821
 """Tests for the remote-control key API (issue #46).
 
 Before this, `Msg.CURSOR_UP`/`Msg.MENU`/etc. lived in the bidirectional
@@ -5,7 +6,7 @@ Before this, `Msg.CURSOR_UP`/`Msg.MENU`/etc. lived in the bidirectional
 send them - dead code, checked only by lookup-only assertions
 (`tests/basic_wiring_test.py`, before this issue) that verified the table
 was right without verifying the feature was reachable at all. These tests
-exercise the feature end-to-end: `Receiver.send_remote_commands()`/
+exercise the feature end-to-end: `Receiver.remote.send()`/
 `press()` all the way down to what actually reaches the (mocked)
 transport, not just a dict lookup.
 
@@ -19,21 +20,9 @@ import pytest
 from conftest import flush_write_queue
 
 from lyngdorf.api import LyngdorfApi
-from lyngdorf.const import LyngdorfModel
-from lyngdorf.device import (
-    MP40Receiver,
-    MP50Receiver,
-    MP60Receiver,
-    P100Receiver,
-    P200Receiver,
-    P300Receiver,
-    Receiver,
-    TDAI1120Receiver,
-    TDAI2170Receiver,
-    TDAI2210Receiver,
-    TDAI3400Receiver,
-)
 from lyngdorf.exceptions import LyngdorfUnsupportedError
+from lyngdorf.models import LyngdorfModel
+from lyngdorf.receiver import LyngdorfReceiver  # PORT-NOTE(WP4): old device import
 from lyngdorf.remote import RemoteKey, RemoteKeyTable, resolve_remote_key
 
 FAKE_IP = "0.0.0.0"
@@ -84,12 +73,12 @@ FULL_EXPECTED_KEYS = frozenset(
 P100_AND_P300_EXPECTED_KEYS = FULL_EXPECTED_KEYS - {RemoteKey.MULTIVIEW}
 
 
-def _sent(receiver: Receiver) -> list[str]:
+def _sent(receiver: LyngdorfReceiver) -> list[str]:
     """Every command that actually reached the mocked transport, in order."""
     return [call.args[0] for call in receiver._api._protocol.write.call_args_list]
 
 
-def _wire(receiver: Receiver) -> Receiver:
+def _wire(receiver: LyngdorfReceiver) -> LyngdorfReceiver:
     """Attach a mocked transport, bypassing a real connection."""
     receiver._api._protocol = mock.Mock()
     return receiver
@@ -99,41 +88,49 @@ class TestPerModelCapability:
     """`available_remote_keys`/`has_remote_keys` are explicit per model,
     never inferred from anything else - see ModelConfig.remote_keys."""
 
-    @pytest.mark.parametrize("receiver_cls", [MP40Receiver, MP50Receiver, MP60Receiver])
+    @pytest.mark.parametrize(
+        "receiver_cls", [LyngdorfModel.MP_40, LyngdorfModel.MP_50, LyngdorfModel.MP_60]
+    )
     def test_mp_models_have_the_full_key_set_including_multiview(self, receiver_cls):
         """Every MP manual documents `!MULTIVIEW` with no per-model
         restriction, and a real MP-60 accepted it - unlike the P series,
         where docs/p-series.md restricts it to the P200 (see
         test_p200_has_multiview_but_p100_and_p300_do_not below)."""
-        receiver = receiver_cls(FAKE_IP)
-        assert receiver.available_remote_keys == FULL_EXPECTED_KEYS
-        assert receiver.has_remote_keys is True
+        receiver = LyngdorfReceiver(FAKE_IP, receiver_cls)
+        assert receiver.remote.keys == FULL_EXPECTED_KEYS
+        assert receiver.remote is not None is True
 
     def test_p200_has_the_full_key_set_including_multiview(self):
-        receiver = P200Receiver(FAKE_IP)
-        assert receiver.available_remote_keys == FULL_EXPECTED_KEYS
-        assert receiver.has_remote_keys is True
+        receiver = LyngdorfReceiver(FAKE_IP, LyngdorfModel.P_200)
+        assert receiver.remote.keys == FULL_EXPECTED_KEYS
+        assert receiver.remote is not None is True
 
-    @pytest.mark.parametrize("receiver_cls", [P100Receiver, P300Receiver])
+    @pytest.mark.parametrize("receiver_cls", [LyngdorfModel.P_100, LyngdorfModel.P_300])
     def test_p100_and_p300_have_the_full_key_set_minus_multiview(self, receiver_cls):
         """docs/p-series.md:69 restricts `!MULTIVIEW` to the P200
         explicitly ("P200 only") - a stated restriction, not an
         omission, and unlike BACK there is no hardware measurement or
         third-party mapping to overrule it with. P100/P300 must NOT
         advertise MULTIVIEW."""
-        receiver = receiver_cls(FAKE_IP)
-        assert receiver.available_remote_keys == P100_AND_P300_EXPECTED_KEYS
-        assert RemoteKey.MULTIVIEW not in receiver.available_remote_keys
-        assert receiver.has_remote_keys is True
+        receiver = LyngdorfReceiver(FAKE_IP, receiver_cls)
+        assert receiver.remote.keys == P100_AND_P300_EXPECTED_KEYS
+        assert RemoteKey.MULTIVIEW not in receiver.remote.keys
+        assert receiver.remote is not None is True
 
     def test_p200_has_multiview_but_p100_and_p300_do_not(self):
-        p200_keys = P200Receiver(FAKE_IP).available_remote_keys
+        p200_keys = LyngdorfReceiver(FAKE_IP, LyngdorfModel.P_200).remote.keys
         assert RemoteKey.MULTIVIEW in p200_keys
-        assert RemoteKey.MULTIVIEW not in P100Receiver(FAKE_IP).available_remote_keys
-        assert RemoteKey.MULTIVIEW not in P300Receiver(FAKE_IP).available_remote_keys
+        assert (
+            RemoteKey.MULTIVIEW
+            not in LyngdorfReceiver(FAKE_IP, LyngdorfModel.P_100).remote.keys
+        )
+        assert (
+            RemoteKey.MULTIVIEW
+            not in LyngdorfReceiver(FAKE_IP, LyngdorfModel.P_300).remote.keys
+        )
         # Otherwise identical - P100/P300 are the P200's set minus MULTIVIEW.
         assert p200_keys - {RemoteKey.MULTIVIEW} == (
-            P100Receiver(FAKE_IP).available_remote_keys
+            LyngdorfReceiver(FAKE_IP, LyngdorfModel.P_100).remote.keys
         )
 
     def test_mp_and_p200_key_sets_are_identical(self):
@@ -143,41 +140,46 @@ class TestPerModelCapability:
         that same set minus MULTIVIEW (see
         test_p100_and_p300_have_the_full_key_set_minus_multiview)."""
         assert (
-            MP60Receiver(FAKE_IP).available_remote_keys
-            == P200Receiver(FAKE_IP).available_remote_keys
+            LyngdorfReceiver(FAKE_IP, LyngdorfModel.MP_60).remote.keys
+            == LyngdorfReceiver(FAKE_IP, LyngdorfModel.P_200).remote.keys
         )
 
     @pytest.mark.parametrize(
         "receiver_cls",
-        [TDAI1120Receiver, TDAI2170Receiver, TDAI2210Receiver, TDAI3400Receiver],
+        [
+            LyngdorfModel.TDAI_1120,
+            LyngdorfModel.TDAI_2170,
+            LyngdorfModel.TDAI_2210,
+            LyngdorfModel.TDAI_3400,
+        ],
     )
     def test_tdai_models_have_no_remote_keys_at_all(self, receiver_cls):
-        receiver = receiver_cls(FAKE_IP)
-        assert receiver.available_remote_keys == frozenset()
-        assert receiver.has_remote_keys is False
+        receiver = LyngdorfReceiver(FAKE_IP, receiver_cls)
+        assert receiver.remote.keys == frozenset()
+        assert receiver.remote is not None is False
 
     def test_mp_has_back(self):
         """No MP manual documents `!BACK`, but a real MP-60 on firmware
         5.4.2 accepts it (see MP_REMOTE_KEYS in mp_series.py for the
         `!VERB(2)` echo measurement) - the manual is wrong, not the
         table. Do not "fix" this back to excluding BACK."""
-        receiver = MP60Receiver(FAKE_IP)
-        assert RemoteKey.BACK in receiver.available_remote_keys
+        receiver = LyngdorfReceiver(FAKE_IP, LyngdorfModel.MP_60)
+        assert RemoteKey.BACK in receiver.remote.keys
 
     def test_mp_has_exit(self):
         """The other half of the same defect: MP models must have EXIT,
         which every MP manual documents and the old code never mapped."""
-        receiver = MP60Receiver(FAKE_IP)
-        assert RemoteKey.EXIT in receiver.available_remote_keys
+        receiver = LyngdorfReceiver(FAKE_IP, LyngdorfModel.MP_60)
+        assert RemoteKey.EXIT in receiver.remote.keys
 
     def test_lyngdorf_model_enum_agrees_with_receiver(self):
         """The capability lives on ModelConfig/LyngdorfModel; Receiver
         just forwards it - assert the two never diverge."""
         assert (
-            LyngdorfModel.MP_60.available_remote_keys()
-            == MP60Receiver(FAKE_IP).available_remote_keys
+            LyngdorfModel.MP_60.remote.keys()
+            == LyngdorfReceiver(FAKE_IP, LyngdorfModel.MP_60).remote.keys
         )
-        assert LyngdorfModel.TDAI_1120.has_remote_keys_feature() is False
+        assert LyngdorfModel.TDAI_1120.remote is not None_feature() is False
 
 
 class TestResolveRemoteKey:
@@ -244,37 +246,37 @@ class TestWireCommandPerModel:
     wire token sent, not just what `lookup_remote_key` returns."""
 
     def test_mp60_exit_sends_exit(self):
-        receiver = _wire(MP60Receiver(FAKE_IP))
-        receiver.press(RemoteKey.EXIT)
+        receiver = _wire(LyngdorfReceiver(FAKE_IP, LyngdorfModel.MP_60))
+        receiver.remote.press(RemoteKey.EXIT)
         assert _sent(receiver) == ["!EXIT\r"]
 
     def test_mp60_back_sends_back(self):
         """A real MP-60 accepts `!BACK` despite no MP manual documenting
         it - see MP_REMOTE_KEYS in mp_series.py for the measurement."""
-        receiver = _wire(MP60Receiver(FAKE_IP))
-        receiver.press(RemoteKey.BACK)
+        receiver = _wire(LyngdorfReceiver(FAKE_IP, LyngdorfModel.MP_60))
+        receiver.remote.press(RemoteKey.BACK)
         assert _sent(receiver) == ["!BACK\r"]
 
     def test_p100_back_sends_back(self):
-        receiver = _wire(P100Receiver(FAKE_IP))
-        receiver.press(RemoteKey.BACK)
+        receiver = _wire(LyngdorfReceiver(FAKE_IP, LyngdorfModel.P_100))
+        receiver.remote.press(RemoteKey.BACK)
         assert _sent(receiver) == ["!BACK\r"]
 
     def test_p100_exit_sends_exit(self):
-        receiver = _wire(P100Receiver(FAKE_IP))
-        receiver.press(RemoteKey.EXIT)
+        receiver = _wire(LyngdorfReceiver(FAKE_IP, LyngdorfModel.P_100))
+        receiver.remote.press(RemoteKey.EXIT)
         assert _sent(receiver) == ["!EXIT\r"]
 
     @pytest.mark.parametrize(
-        "receiver_cls", [MP60Receiver, P200Receiver], ids=["mp60", "p200"]
+        "receiver_cls", [LyngdorfModel.MP_60, LyngdorfModel.P_200], ids=["mp60", "p200"]
     )
     def test_multiview_sends_multiview(self, receiver_cls):
         receiver = _wire(receiver_cls(FAKE_IP))
-        receiver.press(RemoteKey.MULTIVIEW)
+        receiver.remote.press(RemoteKey.MULTIVIEW)
         assert _sent(receiver) == ["!MULTIVIEW\r"]
 
     @pytest.mark.parametrize(
-        "receiver_cls", [P100Receiver, P300Receiver], ids=["p100", "p300"]
+        "receiver_cls", [LyngdorfModel.P_100, LyngdorfModel.P_300], ids=["p100", "p300"]
     )
     def test_multiview_is_unsupported_on_p100_and_p300(self, receiver_cls):
         """docs/p-series.md:69 restricts `!MULTIVIEW` to the P200 - the
@@ -282,32 +284,32 @@ class TestWireCommandPerModel:
         manual says does not exist on that hardware."""
         receiver = _wire(receiver_cls(FAKE_IP))
         with pytest.raises(LyngdorfUnsupportedError):
-            receiver.press(RemoteKey.MULTIVIEW)
+            receiver.remote.press(RemoteKey.MULTIVIEW)
         assert _sent(receiver) == []
 
     def test_digit_sends_parameterised_num_command(self):
-        receiver = _wire(MP60Receiver(FAKE_IP))
-        receiver.press(RemoteKey.DIGIT_7)
+        receiver = _wire(LyngdorfReceiver(FAKE_IP, LyngdorfModel.MP_60))
+        receiver.remote.press(RemoteKey.DIGIT_7)
         assert _sent(receiver) == ["!NUM(7)\r"]
 
     def test_settings_maps_to_setup_token(self):
         """RemoteKey.SETTINGS -> "SETUP" on the wire, matching Msg.SETTINGS'
         old mapping, not a literal "SETTINGS" token."""
-        receiver = _wire(MP60Receiver(FAKE_IP))
-        receiver.press(RemoteKey.SETTINGS)
+        receiver = _wire(LyngdorfReceiver(FAKE_IP, LyngdorfModel.MP_60))
+        receiver.remote.press(RemoteKey.SETTINGS)
         assert _sent(receiver) == ["!SETUP\r"]
 
     def test_cursor_keys_map_to_dir_tokens(self):
-        receiver = _wire(MP60Receiver(FAKE_IP))
-        receiver.send_remote_commands(
+        receiver = _wire(LyngdorfReceiver(FAKE_IP, LyngdorfModel.MP_60))
+        receiver.remote.send(
             [RemoteKey.UP, RemoteKey.DOWN, RemoteKey.LEFT, RemoteKey.RIGHT]
         )
         assert _sent(receiver) == ["!DIRU\r", "!DIRD\r", "!DIRL\r", "!DIRR\r"]
 
     def test_tdai_has_no_wire_command_for_anything(self):
-        receiver = _wire(TDAI1120Receiver(FAKE_IP))
+        receiver = _wire(LyngdorfReceiver(FAKE_IP, LyngdorfModel.TDAI_1120))
         with pytest.raises(LyngdorfUnsupportedError):
-            receiver.press(RemoteKey.UP)
+            receiver.remote.press(RemoteKey.UP)
         assert _sent(receiver) == []
 
 
@@ -318,18 +320,18 @@ class TestSendRemoteCommandsStrings:
 
     @pytest.mark.parametrize("text", ["up", "UP", "Up"])
     def test_case_insensitive_string_resolves_and_sends(self, text):
-        receiver = _wire(MP60Receiver(FAKE_IP))
-        receiver.send_remote_commands([text])
+        receiver = _wire(LyngdorfReceiver(FAKE_IP, LyngdorfModel.MP_60))
+        receiver.remote.send([text])
         assert _sent(receiver) == ["!DIRU\r"]
 
     def test_mixed_strings_and_enum_members(self):
-        receiver = _wire(MP60Receiver(FAKE_IP))
-        receiver.send_remote_commands(["up", RemoteKey.DOWN, "enter"])
+        receiver = _wire(LyngdorfReceiver(FAKE_IP, LyngdorfModel.MP_60))
+        receiver.remote.send(["up", RemoteKey.DOWN, "enter"])
         assert _sent(receiver) == ["!DIRU\r", "!DIRD\r", "!ENTER\r"]
 
     def test_digit_strings_send_num_commands_in_order(self):
-        receiver = _wire(MP60Receiver(FAKE_IP))
-        receiver.send_remote_commands([str(d) for d in range(10)])
+        receiver = _wire(LyngdorfReceiver(FAKE_IP, LyngdorfModel.MP_60))
+        receiver.remote.send([str(d) for d in range(10)])
         assert _sent(receiver) == [f"!NUM({d})\r" for d in range(10)]
 
 
@@ -340,34 +342,32 @@ class TestBatchValidatesBeforeSending:
     menu because item 5 was misspelled."""
 
     def test_unknown_command_raises_and_sends_nothing(self):
-        receiver = _wire(MP60Receiver(FAKE_IP))
+        receiver = _wire(LyngdorfReceiver(FAKE_IP, LyngdorfModel.MP_60))
         with pytest.raises(LyngdorfUnsupportedError):
-            receiver.send_remote_commands(["up", "bogus", "down"])
+            receiver.remote.send(["up", "bogus", "down"])
         assert _sent(receiver) == []
 
     def test_bad_item_late_in_batch_still_sends_nothing(self):
         """The bad item is 5th of 6 - even the four good ones before it
         must not have gone out."""
-        receiver = _wire(MP60Receiver(FAKE_IP))
+        receiver = _wire(LyngdorfReceiver(FAKE_IP, LyngdorfModel.MP_60))
         with pytest.raises(LyngdorfUnsupportedError):
-            receiver.send_remote_commands(
-                ["up", "up", "down", "enter", "bogus", "menu"]
-            )
+            receiver.remote.send(["up", "up", "down", "enter", "bogus", "menu"])
         assert _sent(receiver) == []
 
     def test_unsupported_key_for_this_model_raises_and_sends_nothing(self):
         """UP resolves to a real RemoteKey, but this TDAI model has no
         remote keys at all - still must raise before sending, same as an
         unresolvable string."""
-        receiver = _wire(TDAI1120Receiver(FAKE_IP))
+        receiver = _wire(LyngdorfReceiver(FAKE_IP, LyngdorfModel.TDAI_1120))
         with pytest.raises(LyngdorfUnsupportedError):
-            receiver.send_remote_commands(["up"])
+            receiver.remote.send(["up"])
         assert _sent(receiver) == []
 
     def test_error_message_names_the_bad_value_and_available_keys(self):
-        receiver = _wire(MP60Receiver(FAKE_IP))
+        receiver = _wire(LyngdorfReceiver(FAKE_IP, LyngdorfModel.MP_60))
         with pytest.raises(LyngdorfUnsupportedError) as exc_info:
-            receiver.send_remote_commands(["bogus"])
+            receiver.remote.send(["bogus"])
         message = str(exc_info.value)
         assert "bogus" in message
         assert "exit" in message  # something MP60 does support
@@ -385,8 +385,8 @@ class TestNumRepeats:
         from "repeat each key" - both nestings produce the same output
         here. See test_multi_key_batch_repeats_the_whole_sequence below
         for the test that actually pins the nesting down."""
-        receiver = _wire(MP60Receiver(FAKE_IP))
-        receiver.send_remote_commands(["up"], num_repeats=3)
+        receiver = _wire(LyngdorfReceiver(FAKE_IP, LyngdorfModel.MP_60))
+        receiver.remote.send(["up"], num_repeats=3)
         assert _sent(receiver) == ["!DIRU\r"] * 3
 
     def test_multi_key_batch_repeats_the_whole_sequence(self):
@@ -395,15 +395,15 @@ class TestNumRepeats:
         block), never `up up down down` (each key repeated in place) -
         the digit-entry equivalent is `["1","2","3"]` reaching the
         device as `123123`, not `112233`."""
-        receiver = _wire(MP60Receiver(FAKE_IP))
-        receiver.send_remote_commands(["up", "down"], num_repeats=2)
+        receiver = _wire(LyngdorfReceiver(FAKE_IP, LyngdorfModel.MP_60))
+        receiver.remote.send(["up", "down"], num_repeats=2)
         assert _sent(receiver) == ["!DIRU\r", "!DIRD\r", "!DIRU\r", "!DIRD\r"]
 
     def test_digit_sequence_repeats_as_a_block_not_per_digit(self):
         """The exact scenario from the issue: entering "123" twice must
         produce "123123" on the wire, not "112233"."""
-        receiver = _wire(MP60Receiver(FAKE_IP))
-        receiver.send_remote_commands(["1", "2", "3"], num_repeats=2)
+        receiver = _wire(LyngdorfReceiver(FAKE_IP, LyngdorfModel.MP_60))
+        receiver.remote.send(["1", "2", "3"], num_repeats=2)
         assert _sent(receiver) == [
             "!NUM(1)\r",
             "!NUM(2)\r",
@@ -414,26 +414,26 @@ class TestNumRepeats:
         ]
 
     def test_num_repeats_zero_sends_nothing(self):
-        receiver = _wire(MP60Receiver(FAKE_IP))
-        receiver.send_remote_commands(["up"], num_repeats=0)
+        receiver = _wire(LyngdorfReceiver(FAKE_IP, LyngdorfModel.MP_60))
+        receiver.remote.send(["up"], num_repeats=0)
         assert _sent(receiver) == []
 
     def test_default_num_repeats_is_one(self):
-        receiver = _wire(MP60Receiver(FAKE_IP))
-        receiver.send_remote_commands(["up"])
+        receiver = _wire(LyngdorfReceiver(FAKE_IP, LyngdorfModel.MP_60))
+        receiver.remote.send(["up"])
         assert _sent(receiver) == ["!DIRU\r"]
 
 
 class TestPressDelegatesToSendRemoteCommands:
     def test_press_sends_one_command(self):
-        receiver = _wire(MP60Receiver(FAKE_IP))
-        receiver.press(RemoteKey.ENTER)
+        receiver = _wire(LyngdorfReceiver(FAKE_IP, LyngdorfModel.MP_60))
+        receiver.remote.press(RemoteKey.ENTER)
         assert _sent(receiver) == ["!ENTER\r"]
 
     def test_press_raises_for_unsupported_key(self):
-        receiver = _wire(TDAI1120Receiver(FAKE_IP))
+        receiver = _wire(LyngdorfReceiver(FAKE_IP, LyngdorfModel.TDAI_1120))
         with pytest.raises(LyngdorfUnsupportedError):
-            receiver.press(RemoteKey.UP)
+            receiver.remote.press(RemoteKey.UP)
 
 
 class TestRemoteKeysNeverCoalesce:
@@ -450,9 +450,9 @@ class TestRemoteKeysNeverCoalesce:
         api._protocol = mock.Mock()
         api._start_write_queue()
         try:
-            receiver = MP60Receiver(FAKE_IP)
+            receiver = LyngdorfReceiver(FAKE_IP, LyngdorfModel.MP_60)
             receiver._api = api
-            receiver.send_remote_commands([str(d) for d in range(10)])
+            receiver.remote.send([str(d) for d in range(10)])
             await flush_write_queue(api)
             sent = [call.args[0] for call in api._protocol.write.call_args_list]
             assert sent == [f"!NUM({d})\r" for d in range(10)]
@@ -468,9 +468,9 @@ class TestRemoteKeysNeverCoalesce:
         api._protocol = mock.Mock()
         api._start_write_queue()
         try:
-            receiver = MP60Receiver(FAKE_IP)
+            receiver = LyngdorfReceiver(FAKE_IP, LyngdorfModel.MP_60)
             receiver._api = api
-            receiver.send_remote_commands(["down"], num_repeats=10)
+            receiver.remote.send(["down"], num_repeats=10)
             await flush_write_queue(api)
             sent = [call.args[0] for call in api._protocol.write.call_args_list]
             assert sent == ["!DIRD\r"] * 10

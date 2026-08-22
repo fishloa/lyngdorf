@@ -4,7 +4,7 @@ property, proven on a representative member. Completeness over the whole
 
 import pytest
 
-from lyngdorf.const import LyngdorfModel
+from lyngdorf.models import LyngdorfModel
 from lyngdorf.receiver import LyngdorfReceiver
 
 FAKE_IP = "127.0.0.1"

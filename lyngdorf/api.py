@@ -29,9 +29,9 @@ from .const import (
     PLAY_MODE_PATH,
     POSITION_DRIFT_TOLERANCE_MS,
     STREAMMAGIC_PORT,
-    LyngdorfModel,
 )
 from .exceptions import LyngdorfUnsupportedError
+from .models import LyngdorfModel
 from .rio import LyngdorfProtocol, RioClient
 from .rio import _coalesce_key as _coalesce_key  # re-export: tests import it from here
 from .states import Control, PlaybackState, PlayMode, Repeat

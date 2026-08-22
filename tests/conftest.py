@@ -5,7 +5,7 @@ import pytest
 import pytest_asyncio
 
 from lyngdorf.api import LyngdorfApi
-from lyngdorf.const import LyngdorfModel
+from lyngdorf.models import LyngdorfModel
 from lyngdorf.rio import RioClient
 
 _LOGGER = logging.getLogger(__package__)

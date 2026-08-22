@@ -16,8 +16,8 @@ from pathlib import Path
 import pytest
 
 from lyngdorf import _compat
-from lyngdorf.const import LyngdorfModel
 from lyngdorf.controls import Trim
+from lyngdorf.models import LyngdorfModel
 from lyngdorf.receiver import LyngdorfReceiver
 from lyngdorf.remote import RemoteKey
 from lyngdorf.states import Repeat

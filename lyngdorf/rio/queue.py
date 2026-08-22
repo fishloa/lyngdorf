@@ -14,7 +14,8 @@ from __future__ import annotations
 import dataclasses
 import re
 
-from ..const import ABSOLUTE_SETTER_MESSAGES, LyngdorfModel
+from ..const import ABSOLUTE_SETTER_MESSAGES
+from ..models import LyngdorfModel
 
 # Shape of an absolute-setter command: a bare uppercase token followed by a
 # single parenthesised integer, e.g. "VOL(-300)" or "TRIMBASS(20)". Chosen

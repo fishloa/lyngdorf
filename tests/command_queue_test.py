@@ -23,7 +23,8 @@ import pytest
 from conftest import flush_write_queue
 
 from lyngdorf.api import LyngdorfApi, LyngdorfProtocol, _coalesce_key
-from lyngdorf.const import COMMAND_PACING_MS, LyngdorfModel
+from lyngdorf.const import COMMAND_PACING_MS
+from lyngdorf.models import LyngdorfModel
 
 FAKE_IP = "0.0.0.0"
 

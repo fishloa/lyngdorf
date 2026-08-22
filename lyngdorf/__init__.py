@@ -1,73 +1,79 @@
-"""
-Lyngdorf Audio Control Library.
+"""Lyngdorf Audio Control Library - control Lyngdorf A/V processors and
+integrated amplifiers over IP.
 
-Python library to control Lyngdorf A/V processors and integrated amplifiers.
-
-Supported models are defined by `LyngdorfModel` (see `lyngdorf/models/`);
-the README carries the human-readable list.
-
-Example:
-    >>> from lyngdorf import async_create_receiver, LyngdorfModel
-    >>> receiver = await async_create_receiver("192.168.1.100")
-    >>> await receiver.async_connect()
-    >>> receiver.power_on(True)
-    >>> receiver.volume = -25.0
+Usage against the 2.0 surface:
+    from lyngdorf import async_create_receiver, LyngdorfModel
+    receiver = await async_create_receiver("192.168.1.50", LyngdorfModel.MP_60)
+    await receiver.connect()
+    await receiver.volume.set(-25.0)
 """
 
+import warnings
 from importlib.metadata import PackageNotFoundError, version
 
-from .const import LyngdorfModel, supported_models
+from .components import Player, Remote, ZoneB
+
+# Force const to load first (before components/controls/models chain)
+# so its bottom-of-file imports from .models complete before models
+# imports from it. See WP4 task 5 circular-import note.
+from .const import Msg  # noqa: F401
+from .controls import NumericControl, SteppableControl, Trim
 from .device import (
-    MP40Receiver,
-    MP50Receiver,
-    MP60Receiver,
-    P100Receiver,
-    P200Receiver,
-    P300Receiver,
-    Receiver,
-    TDAI1120Receiver,
-    TDAI2170Receiver,
-    TDAI2210Receiver,
-    TDAI3400Receiver,
     async_create_receiver,
     async_find_receiver_model,
     async_get_device_serial,
-    lookup_receiver_model,
 )
-from .models import NumericRange
+from .exceptions import (
+    LyngdorfError,
+    LyngdorfInvalidValueError,
+    LyngdorfUnsupportedError,
+)
+from .models import LyngdorfModel, NumericRange
+from .receiver import LyngdorfReceiver
 from .remote import RemoteKey
 from .states import Control, PlaybackState, PlayMode, Repeat
 from .streaming import NowPlaying
 
 __all__ = [
+    "LyngdorfReceiver",
+    "NumericControl",
+    "SteppableControl",
+    "Trim",
+    "ZoneB",
+    "Player",
+    "Remote",
     "LyngdorfModel",
-    "supported_models",
-    "Receiver",
-    "MP40Receiver",
-    "MP50Receiver",
-    "MP60Receiver",
-    "TDAI1120Receiver",
-    "TDAI2170Receiver",
-    "TDAI2210Receiver",
-    "TDAI3400Receiver",
-    "P100Receiver",
-    "P200Receiver",
-    "P300Receiver",
-    "async_create_receiver",
-    "async_find_receiver_model",
-    "async_get_device_serial",
-    "lookup_receiver_model",
+    "NumericRange",
     "NowPlaying",
     "Control",
     "PlaybackState",
     "PlayMode",
     "Repeat",
-    "NumericRange",
     "RemoteKey",
+    "LyngdorfError",
+    "LyngdorfInvalidValueError",
+    "LyngdorfUnsupportedError",
+    # 1.x module-level names, renamed by WP5 (which ships their shims):
+    "async_create_receiver",
+    "async_find_receiver_model",
+    "async_get_device_serial",
 ]
+
+
+def __getattr__(name: str) -> object:
+    # D9 module-level shims - deleted in 2.1 with _compat.py.
+    if name == "Receiver":
+        warnings.warn(
+            "Receiver is deprecated and will be removed in lyngdorf 2.1; "
+            "use LyngdorfReceiver",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return LyngdorfReceiver
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
 
 try:
     __version__ = version("lyngdorf")
 except PackageNotFoundError:
-    # Package not installed (e.g. running from a checkout without `poetry install`)
     __version__ = "0.0.0"

@@ -1,3 +1,4 @@
+# ruff: noqa: F821
 """Tests for transport control (writes to the :8080 API).
 
 No device required: the fake server from streaming_test stands in.
@@ -17,16 +18,10 @@ from datetime import UTC, datetime, timedelta
 from urllib.parse import unquote
 
 import pytest
-from streaming_test import (
-    FakeStreamMagicServer,
-    fake_server,  # noqa: F401
-    load_fixture,
-)
 
 from lyngdorf.api import LyngdorfApi
-from lyngdorf.const import LyngdorfModel
-from lyngdorf.device import Receiver
 from lyngdorf.exceptions import LyngdorfUnsupportedError
+from lyngdorf.models import LyngdorfModel
 from lyngdorf.states import Control, PlaybackState, PlayMode, Repeat
 from lyngdorf.streaming import (
     NowPlaying,
@@ -39,6 +34,11 @@ from lyngdorf.streaming import (
     async_set_play_mode,
     parse_now_playing,
     parse_play_modes,
+)
+from tests.streaming_test import (
+    FakeStreamMagicServer,
+    fake_server,  # noqa: F401
+    load_fixture,
 )
 
 
@@ -375,7 +375,7 @@ class TestApiGating:
         assert '"control": "pause"' in _unquote(fake_server.last_path)
 
 
-class TestReceiverCapabilities:
+class TestLyngdorfReceiverCapabilities:
     STREAMING = [
         LyngdorfModel.MP_40,
         LyngdorfModel.MP_50,
@@ -395,7 +395,7 @@ class TestReceiverCapabilities:
         assert set(self.STREAMING) | set(self.NON_STREAMING) == set(LyngdorfModel)
 
     def test_capabilities_follow_the_source(self):
-        r = Receiver("127.0.0.1", LyngdorfModel.MP_60)
+        r = LyngdorfReceiver("127.0.0.1", LyngdorfModel.MP_60)
         assert (r.can_pause, r.can_next, r.can_previous, r.can_seek) == (
             False,
             False,
@@ -423,14 +423,14 @@ class TestReceiverCapabilities:
         )
 
     def test_capabilities_vanish_when_stopped(self):
-        r = Receiver("127.0.0.1", LyngdorfModel.MP_60)
+        r = LyngdorfReceiver("127.0.0.1", LyngdorfModel.MP_60)
         r._api._update_now_playing(_np(controls=["pause", "seekTime"]))
         r._api._update_now_playing(None)
         assert (r.can_pause, r.can_seek) == (False, False)
         assert r.available_play_modes == frozenset()
 
     def test_play_mode_delegates_to_api(self):
-        r = Receiver("127.0.0.1", LyngdorfModel.MP_60)
+        r = LyngdorfReceiver("127.0.0.1", LyngdorfModel.MP_60)
         assert r.play_mode is None
         r._api._update_play_mode("shuffle")
         assert r.play_mode == PlayMode(shuffle=True, repeat=Repeat.OFF)
@@ -445,13 +445,13 @@ class TestReceiverCapabilities:
         ],
     )
     def test_play_mode_none_on_non_streaming_models(self, model):
-        r = Receiver("127.0.0.1", model)
+        r = LyngdorfReceiver("127.0.0.1", model)
         r._api._update_play_mode("shuffle")
         assert r.play_mode is None
 
     @pytest.mark.parametrize("model", NON_STREAMING)
     def test_non_streaming_models_offer_nothing(self, model):
-        r = Receiver("127.0.0.1", model)
+        r = LyngdorfReceiver("127.0.0.1", model)
         r._api._update_now_playing(_np(controls=["pause"], play_modes=["shuffle"]))
         assert (r.can_pause, r.can_next, r.can_previous, r.can_seek) == (
             False,
@@ -464,13 +464,13 @@ class TestReceiverCapabilities:
     @pytest.mark.asyncio
     @pytest.mark.parametrize("model", NON_STREAMING)
     async def test_non_streaming_models_raise(self, model):
-        r = Receiver("127.0.0.1", model)
+        r = LyngdorfReceiver("127.0.0.1", model)
         with pytest.raises(LyngdorfUnsupportedError):
             await r.async_pause()
 
     def test_capability_change_fires_the_existing_callback(self):
         """This is how Home Assistant learns to redraw its buttons."""
-        r = Receiver("127.0.0.1", LyngdorfModel.MP_60)
+        r = LyngdorfReceiver("127.0.0.1", LyngdorfModel.MP_60)
         seen = []
         r.register_notification_callback(lambda: seen.append(r.can_seek))
         r._api._update_now_playing(_np(controls=["pause"]))
@@ -664,10 +664,10 @@ class TestCallbackRegistration:
         api._update_position(1000)
         assert seen == ["b"]
 
-    # -- Receiver.register_notification_callback -------------------------
+    # -- LyngdorfReceiver.register_notification_callback -------------------------
 
     def test_receiver_notification_unsubscribe_stops_firing(self):
-        r = Receiver("127.0.0.1", LyngdorfModel.MP_60)
+        r = LyngdorfReceiver("127.0.0.1", LyngdorfModel.MP_60)
         seen = []
         unsub = r.register_notification_callback(lambda: seen.append(1))
         r._api._update_now_playing(_np(controls=["pause"]))
@@ -676,13 +676,13 @@ class TestCallbackRegistration:
         assert seen == [1]
 
     def test_receiver_notification_double_unsubscribe_is_noop(self):
-        r = Receiver("127.0.0.1", LyngdorfModel.MP_60)
+        r = LyngdorfReceiver("127.0.0.1", LyngdorfModel.MP_60)
         unsub = r.register_notification_callback(lambda: None)
         unsub()
         unsub()  # must not raise
 
     def test_receiver_notification_duplicate_registration_fires_once(self):
-        r = Receiver("127.0.0.1", LyngdorfModel.MP_60)
+        r = LyngdorfReceiver("127.0.0.1", LyngdorfModel.MP_60)
         seen = []
 
         def cb():
@@ -694,7 +694,7 @@ class TestCallbackRegistration:
         assert seen == [1]
 
     def test_receiver_notification_unregister_one_leaves_others(self):
-        r = Receiver("127.0.0.1", LyngdorfModel.MP_60)
+        r = LyngdorfReceiver("127.0.0.1", LyngdorfModel.MP_60)
         seen = []
         unsub_a = r.register_notification_callback(lambda: seen.append("a"))
         r.register_notification_callback(lambda: seen.append("b"))
@@ -703,21 +703,21 @@ class TestCallbackRegistration:
         assert seen == ["b"]
 
     def test_receiver_un_register_notification_callback_never_registered_is_noop(self):
-        r = Receiver("127.0.0.1", LyngdorfModel.MP_60)
+        r = LyngdorfReceiver("127.0.0.1", LyngdorfModel.MP_60)
         r.un_register_notification_callback(lambda: None)  # must not raise
 
 
 class TestMultiDeviceIsolation:
     """Several Lyngdorf devices may be controlled at once, each with its own
-    `Receiver`/`LyngdorfApi`. Nothing here shares state on purpose - every
+    `LyngdorfReceiver`/`LyngdorfApi`. Nothing here shares state on purpose - every
     callback list and cached value is an instance attribute - but that had
     no regression guard before this test (see the project ledger's Task 6
     finding). Driving one device's api must never be visible on another's.
     """
 
     def test_now_playing_update_does_not_cross_devices(self):
-        a = Receiver("127.0.0.1", LyngdorfModel.MP_60)
-        b = Receiver("127.0.0.2", LyngdorfModel.MP_60)
+        a = LyngdorfReceiver("127.0.0.1", LyngdorfModel.MP_60)
+        b = LyngdorfReceiver("127.0.0.2", LyngdorfModel.MP_60)
         b_seen = []
         b.register_notification_callback(lambda: b_seen.append(1))
 
@@ -738,8 +738,8 @@ class TestMultiDeviceIsolation:
         assert a.can_pause is True
 
     def test_position_update_does_not_cross_devices(self):
-        a = Receiver("127.0.0.1", LyngdorfModel.MP_60)
-        b = Receiver("127.0.0.2", LyngdorfModel.MP_60)
+        a = LyngdorfReceiver("127.0.0.1", LyngdorfModel.MP_60)
+        b = LyngdorfReceiver("127.0.0.2", LyngdorfModel.MP_60)
         b_seen = []
         b._api.register_position_callback(b_seen.append)
 
@@ -750,8 +750,8 @@ class TestMultiDeviceIsolation:
         assert a.position_ms == 28650
 
     def test_play_mode_update_does_not_cross_devices(self):
-        a = Receiver("127.0.0.1", LyngdorfModel.MP_60)
-        b = Receiver("127.0.0.2", LyngdorfModel.MP_60)
+        a = LyngdorfReceiver("127.0.0.1", LyngdorfModel.MP_60)
+        b = LyngdorfReceiver("127.0.0.2", LyngdorfModel.MP_60)
         b_seen = []
         b._api.register_play_mode_callback(b_seen.append)
 
@@ -878,7 +878,7 @@ class TestShuffleRepeat:
         self, fake_server: FakeStreamMagicServer
     ):
         host, port = fake_server.server_address
-        r = Receiver(str(host), LyngdorfModel.MP_60)
+        r = LyngdorfReceiver(str(host), LyngdorfModel.MP_60)
         r._api.streammagic_port = port
         r._api._update_now_playing(_np(play_modes=["repeatOne", "shuffleRepeatOne"]))
         r._api._update_play_mode("repeatOne")
@@ -896,7 +896,7 @@ class TestShuffleRepeat:
         self, fake_server: FakeStreamMagicServer
     ):
         host, port = fake_server.server_address
-        r = Receiver(str(host), LyngdorfModel.MP_60)
+        r = LyngdorfReceiver(str(host), LyngdorfModel.MP_60)
         r._api.streammagic_port = port
         r._api._update_now_playing(_np(play_modes=["shuffle", "shuffleRepeatAll"]))
         r._api._update_play_mode("shuffle")
@@ -1040,20 +1040,20 @@ class TestAvailablePlayModesUnion:
 
 class TestPlayModeForwardedToNotifications:
     """The defect this task fixes: play-mode changes used to update
-    `Receiver.play_mode` silently, with no notification firing. Position is
+    `LyngdorfReceiver.play_mode` silently, with no notification firing. Position is
     deliberately NOT forwarded this way - see the comment next to the
-    registration in `Receiver.__init__` - so the contrast is tested here
+    registration in `LyngdorfReceiver.__init__` - so the contrast is tested here
     too, to guard against someone "fixing" that asymmetry later."""
 
     def test_play_mode_change_fires_notification(self):
-        r = Receiver("127.0.0.1", LyngdorfModel.MP_60)
+        r = LyngdorfReceiver("127.0.0.1", LyngdorfModel.MP_60)
         seen = []
         r.register_notification_callback(lambda: seen.append(r.play_mode))
         r._api._update_play_mode("shuffle")
         assert seen == [PlayMode(shuffle=True, repeat=Repeat.OFF)]
 
     def test_position_change_does_not_fire_notification(self):
-        r = Receiver("127.0.0.1", LyngdorfModel.MP_60)
+        r = LyngdorfReceiver("127.0.0.1", LyngdorfModel.MP_60)
         seen = []
         r.register_notification_callback(lambda: seen.append(1))
         r._api._update_position(28650)
@@ -1311,7 +1311,7 @@ class TestPositionJumpCallback:
         assert jump_seen == [4500]
 
     def test_receiver_register_position_jump_callback_delegates(self):
-        r = Receiver("127.0.0.1", LyngdorfModel.MP_60)
+        r = LyngdorfReceiver("127.0.0.1", LyngdorfModel.MP_60)
         seen = []
         r.register_position_jump_callback(seen.append)
         r._api._update_position(5000)
@@ -1323,7 +1323,7 @@ class TestPositionJumpCallback:
         was, so a consumer had no public way to get the raw stream and the
         docstring on the jump callback pointed at a private attribute
         (`self._api.register_position_callback`) as the alternative."""
-        r = Receiver("127.0.0.1", LyngdorfModel.MP_60)
+        r = LyngdorfReceiver("127.0.0.1", LyngdorfModel.MP_60)
         seen = []
         r.register_position_callback(seen.append)
         r._api._update_position(5000)
