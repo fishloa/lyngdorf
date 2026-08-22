@@ -10,8 +10,6 @@ import logging
 from collections.abc import Callable
 from typing import TypeVar
 
-from attr import s
-
 _LOGGER = logging.getLogger(__package__)
 
 _T = TypeVar("_T")
@@ -39,11 +37,8 @@ def register_in_list(registry: list[_T], callback: _T) -> Callable[[], None]:
     return unsubscribe
 
 
-@s(auto_attribs=True, init=False)
 class CountingNumberDict(dict[int, str]):
     """An integer:String map, that keeps track of how many elements it should have"""
-
-    count: int = 0
 
     def __init__(self, count: int = 0):
         super().__init__()
