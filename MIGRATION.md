@@ -248,3 +248,71 @@ every legacy call site.
    is replaced with structural checks (`player is not None` etc.), and
    every former `*_range is None` capability check is replaced with
    control-existence checks (`Trim.X in trims`).
+
+---
+
+## Migrating your test suite — the part no inventory predicts
+
+Every list in this document is derived from *member names*. Your test
+suite breaks in ways member names cannot describe, and the numbers below
+are measured from a real integration migrating against this release, not
+estimated.
+
+Budget for this. It was the largest single chunk of that migration, and
+the bulk of it is unavoidable rather than deferrable.
+
+### A deliberate removal still costs adaptation work
+
+`un_register_notification_callback` is listed as **removed**, which reads
+like a one-line deletion. Adapting to it — moving two call sites to the
+unsubscribe returned by `on_change` — accounted for **472 test failures**,
+more than every other cause in that migration combined.
+
+The lesson generalises: a removal's row in a table says nothing about the
+size of its blast radius. Grep for each removed name across your *tests*
+as well as your production code before estimating, because a name used by
+a shared fixture or helper appears once and detonates everywhere.
+
+### Relocated members move as a group, when you touch that platform
+
+`now_playing`, `position_ms`, `shuffle`, `repeat`, `can_shuffle`,
+`available_repeat_modes` and `register_position_jump_callback` are all
+shimmed, so they keep working — right up until you migrate the platform
+that uses them. Then they all move to `player.*` **at once**, because
+they relocated to the same component.
+
+So the deferral is real but lumpy: you defer the whole cluster or none of
+it. Plan the platform migration around the component boundary, not around
+individual names.
+
+### Mock-introspecting test helpers break SILENTLY
+
+This is the one that costs an afternoon.
+
+A helper that reads the library's *call history* rather than calling the
+library has no import to fail and no attribute to raise:
+
+```python
+# Reads how the entity registered. Renaming the registration method does
+# not break this line — it just stops matching, forever.
+callback = receiver.register_notification_callback.call_args_list[0][0][0]
+callback()
+```
+
+Entities now register through `on_change`, so `call_args_list` on the old
+name is empty, the helper fires nothing, and your state assertions fail
+somewhere else entirely with no indication of why. Nothing in this
+document's tables can warn you: the name in your helper is a *mock
+attribute*, not a library member, so it is invisible to any inventory.
+
+Audit for helpers that touch `.call_args`, `.call_args_list`,
+`.mock_calls` or `.assert_called*` against a renamed member, and fix them
+first — before you try to interpret any other failure, because a broken
+helper makes every downstream failure misleading.
+
+### The same trap, in reverse: assertions naming old methods
+
+`assert_called_once_with` against `set_volume` or `send_remote_commands`
+keeps passing type checks and keeps failing at runtime for a reason that
+looks like a behaviour change. It is not — the method was renamed and the
+mock happily recorded nothing.
