@@ -130,6 +130,37 @@ class StreamingClient:
             result = await self._perform(path_and_query, timeout)
         return result[0] if result is not None else None
 
+    async def one_shot_status(self, path_and_query: str, timeout: float) -> int | None:
+        """A write's request: this client's session, a fresh connection,
+        and NO lock.
+
+        Deliberately does not take `self._lock`. That lock serialises the
+        poll loop's requests only (spec §8); a transport write that waited
+        on it would sit behind the in-flight ~25 s long poll before
+        leaving the process. `Connection: close` keeps 1.x's
+        connection-per-write semantics so the device releases the slot
+        immediately (#29/#31).
+
+        Returns the bare status because a successful `activate` answers
+        with a body of literal `null`, indistinguishable from failure
+        once parsed.
+        """
+        session = self._session()
+        url = URL(f"http://{self._host}:{self._port}{path_and_query}", encoded=True)
+        try:
+            async with session.get(
+                url,
+                timeout=aiohttp.ClientTimeout(total=timeout + 1),
+                headers={"Connection": "close"},
+            ) as resp:
+                await resp.read()
+                return resp.status
+        except (TimeoutError, OSError, aiohttp.ClientError):
+            _LOGGER.debug(
+                "%s: StreamMagic write to %s failed", self._host, path_and_query
+            )
+            return None
+
     async def _perform(
         self, path_and_query: str, timeout: float
     ) -> tuple[int, str] | None:
@@ -253,11 +284,21 @@ async def _get_status(
     port: int,
     path_and_query: str,
     timeout: float,
+    *,
+    pooled: bool = True,
 ) -> int | None:
-    """Route a status request through a reused connection when available."""
-    if session is not None:
+    """Route a status request.
+
+    `pooled=False` is the write path: a client is available and its
+    session should be used, but the pooled-and-locked `get_status` must
+    not be (spec §8). Without a client at all — a standalone caller with
+    no receiver — fall back to the free-function one-shot.
+    """
+    if session is None:
+        return await _smoip_status(host, port, path_and_query, timeout)
+    if pooled:
         return await session.get_status(path_and_query, timeout)
-    return await _smoip_status(host, port, path_and_query, timeout)
+    return await session.one_shot_status(path_and_query, timeout)
 
 
 async def _get(
@@ -542,6 +583,7 @@ async def _write(
         f"/api/setData?path={quote(path)}"
         f"&role={role}&value={quote(json.dumps(value))}",
         timeout,
+        pooled=False,
     )
     if status != 200:
         _LOGGER.debug("%s: %s rejected (status %s)", host, log_context, status)

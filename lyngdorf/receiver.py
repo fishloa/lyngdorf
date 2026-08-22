@@ -109,7 +109,6 @@ class LyngdorfReceiver(_CompatShims):
     ) -> None:
         self._host = host
         self._model = model
-        self._api = LyngdorfApi(host, model)
         self._dialect = _DIALECTS[model]
 
         # Ownership is decided here and nowhere else (spec §8). The owned
@@ -126,6 +125,15 @@ class LyngdorfReceiver(_CompatShims):
             if model.config.has_streaming
             else None
         )
+        # The streaming poll loop — only created for streaming models.
+        # Implements NowPlayingEngine, so Player consumes it unchanged.
+        self._poll: NowPlayingPoll | None = None
+        if self._streaming is not None:
+            from .streaming.poll import NowPlayingPoll
+
+            self._poll = NowPlayingPoll(host, self._streaming)
+
+        self._api = LyngdorfApi(host, model, poll=self._poll)
 
         # Components and controls - structural capability (design §5):
         # built once, from ModelConfig, via the WP3 factories.
@@ -133,7 +141,8 @@ class LyngdorfReceiver(_CompatShims):
         self._trims = build_trims(self._api)
         self._lipsync = build_lipsync(self._api)
         self._zone_b = build_zone_b(self._api)
-        self._player = build_player(model, self._api)
+        # Player takes the poll (or LyngdorfApi for non-streaming / compat)
+        self._player = build_player(model, self._poll if self._poll else self._api)
         self._remote = build_remote(self._api)
 
         # Flat cached state (design §2.2's non-component members).
@@ -170,20 +179,9 @@ class LyngdorfReceiver(_CompatShims):
         # the Receiver's notification callback) with no dependency on an
         # actual socket connection, so capability properties like
         # `can_pause` stay live even before `connect` is called.
-        if self._player is not None:
-            self._api.register_now_playing_callback(self._now_playing_changed)
-            # Play mode changes only on user action (a shuffle/repeat toggle
-            # from the front panel or the controlling app), so forwarding
-            # every change to the notification callbacks is cheap and
-            # correct - unlike position, which is NOT wired this way (see
-            # `position_ms`/`register_position_jump_callback` below):
-            # position arrives about once a second while playing, and
-            # forwarding that would mean a Home Assistant entity state
-            # write every second for a value the frontend already
-            # extrapolates from `position_ms` plus `position_updated_at`.
-            # The asymmetry is deliberate, not an oversight - do not "fix"
-            # it by adding position here too.
-            self._api.register_play_mode_callback(self._play_mode_changed)
+        if self._player is not None and self._poll is not None:
+            self._poll.register_now_playing_callback(self._now_playing_changed)
+            self._poll.register_play_mode_callback(self._play_mode_changed)
 
     # -- identity / lifecycle ---------------------------------------------
 
@@ -214,8 +212,12 @@ class LyngdorfReceiver(_CompatShims):
         inside the api's connect)."""
         self._register_callbacks()
         await self._api.async_connect()
+        if self._poll is not None:
+            self._poll.start()
 
     async def disconnect(self) -> None:
+        if self._poll is not None:
+            self._poll.stop()
         await self._api.async_disconnect()
         if self._streaming is not None:
             # Closes only a session this library created; an injected one
@@ -614,7 +616,8 @@ class LyngdorfReceiver(_CompatShims):
         self._power_on = self._model.config.power_state_on == param1
         if self._power_on:
             self._requery_mute()
-        self._api.set_power_state(self._power_on)
+        if self._poll is not None:
+            self._poll.set_power_state(self._power_on)
         self._notify_notification_callbacks()
 
     def _requery_mute(self) -> None:

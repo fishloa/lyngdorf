@@ -171,7 +171,10 @@ class TestTransportWireFormat:
                 )
         finally:
             await session.close()
-        assert fake_server.connections == 1
+        # WP5: writes use one_shot_status (pooled=False) with
+        # Connection: close, so each write is a fresh connection
+        # rather than reusing the pooled one (spec §8).
+        assert fake_server.connections == 3
 
 
 class TestWritesSurviveMalformedResponse:
@@ -881,7 +884,7 @@ class TestShuffleRepeat:
     ):
         host, port = fake_server.server_address
         r = LyngdorfReceiver(str(host), LyngdorfModel.MP_60)
-        r._api.streammagic_port = port
+        r._streaming._port = port  # type: ignore[attr-defined]
         r._api._update_now_playing(_np(play_modes=["repeatOne", "shuffleRepeatOne"]))
         r._api._update_play_mode("repeatOne")
 
@@ -899,7 +902,7 @@ class TestShuffleRepeat:
     ):
         host, port = fake_server.server_address
         r = LyngdorfReceiver(str(host), LyngdorfModel.MP_60)
-        r._api.streammagic_port = port
+        r._streaming._port = port  # type: ignore[attr-defined]
         r._api._update_now_playing(_np(play_modes=["shuffle", "shuffleRepeatAll"]))
         r._api._update_play_mode("shuffle")
 
@@ -1106,7 +1109,7 @@ class TestPositionJumpCallback:
         change quietly collapsing the two callbacks and reintroducing a
         Home Assistant state write every second."""
         api, clock = self._api_with_clock()
-        monkeypatch.setattr("lyngdorf.api.datetime", clock)
+        monkeypatch.setattr("lyngdorf.streaming.poll.datetime", clock)
         api._update_now_playing(_now_playing())
 
         raw_seen: list[int | None] = []
@@ -1127,7 +1130,7 @@ class TestPositionJumpCallback:
 
     def test_seek_fires_both(self, monkeypatch):
         api, clock = self._api_with_clock()
-        monkeypatch.setattr("lyngdorf.api.datetime", clock)
+        monkeypatch.setattr("lyngdorf.streaming.poll.datetime", clock)
         api._update_now_playing(_now_playing())
 
         raw_seen: list[int | None] = []
@@ -1149,7 +1152,7 @@ class TestPositionJumpCallback:
 
     def test_pause_fires_both(self, monkeypatch):
         api, clock = self._api_with_clock()
-        monkeypatch.setattr("lyngdorf.api.datetime", clock)
+        monkeypatch.setattr("lyngdorf.streaming.poll.datetime", clock)
         api._update_now_playing(_now_playing(state=PlaybackState.PLAYING))
 
         raw_seen: list[int | None] = []
@@ -1184,7 +1187,7 @@ class TestPositionJumpCallback:
         jump callback - a cosmetic one-tick lag, not data loss, since the
         very next report corrects it."""
         api, clock = self._api_with_clock()
-        monkeypatch.setattr("lyngdorf.api.datetime", clock)
+        monkeypatch.setattr("lyngdorf.streaming.poll.datetime", clock)
         api._update_now_playing(_now_playing(state=PlaybackState.PLAYING))
 
         raw_seen: list[int | None] = []
@@ -1216,7 +1219,7 @@ class TestPositionJumpCallback:
 
     def test_track_change_fires_both(self, monkeypatch):
         api, clock = self._api_with_clock()
-        monkeypatch.setattr("lyngdorf.api.datetime", clock)
+        monkeypatch.setattr("lyngdorf.streaming.poll.datetime", clock)
         api._update_now_playing(_now_playing(title="Track A"))
 
         raw_seen: list[int | None] = []
@@ -1237,7 +1240,7 @@ class TestPositionJumpCallback:
 
     def test_first_position_after_idle_fires_both(self, monkeypatch):
         api, clock = self._api_with_clock()
-        monkeypatch.setattr("lyngdorf.api.datetime", clock)
+        monkeypatch.setattr("lyngdorf.streaming.poll.datetime", clock)
         api._update_now_playing(_now_playing())
 
         raw_seen: list[int | None] = []
@@ -1252,7 +1255,7 @@ class TestPositionJumpCallback:
 
     def test_position_going_to_none_fires_both(self, monkeypatch):
         api, clock = self._api_with_clock()
-        monkeypatch.setattr("lyngdorf.api.datetime", clock)
+        monkeypatch.setattr("lyngdorf.streaming.poll.datetime", clock)
         api._update_now_playing(_now_playing())
 
         raw_seen: list[int | None] = []
@@ -1271,7 +1274,7 @@ class TestPositionJumpCallback:
 
     def test_within_tolerance_does_not_fire_jump(self, monkeypatch):
         api, clock = self._api_with_clock()
-        monkeypatch.setattr("lyngdorf.api.datetime", clock)
+        monkeypatch.setattr("lyngdorf.streaming.poll.datetime", clock)
         api._update_now_playing(_now_playing())
 
         raw_seen: list[int | None] = []
@@ -1295,7 +1298,7 @@ class TestPositionJumpCallback:
 
     def test_exceeding_tolerance_fires_jump(self, monkeypatch):
         api, clock = self._api_with_clock()
-        monkeypatch.setattr("lyngdorf.api.datetime", clock)
+        monkeypatch.setattr("lyngdorf.streaming.poll.datetime", clock)
         api._update_now_playing(_now_playing())
 
         jump_seen: list[int | None] = []
@@ -1358,7 +1361,7 @@ class TestPositionJumpCallback:
         """Order matters: a consumer subscribed to both must see the raw
         value land before the jump notification."""
         api, clock = self._api_with_clock()
-        monkeypatch.setattr("lyngdorf.api.datetime", clock)
+        monkeypatch.setattr("lyngdorf.streaming.poll.datetime", clock)
         api._update_now_playing(_now_playing())
 
         order: list[str] = []
@@ -1381,7 +1384,7 @@ class TestPositionJumpCallback:
         than the original one, so it is not mistaken for a false
         discontinuity."""
         api, clock = self._api_with_clock()
-        monkeypatch.setattr("lyngdorf.api.datetime", clock)
+        monkeypatch.setattr("lyngdorf.streaming.poll.datetime", clock)
         api._update_now_playing(_now_playing(state=PlaybackState.PLAYING))
 
         raw_seen: list[int | None] = []
@@ -1424,7 +1427,7 @@ class TestPositionJumpCallback:
         prevent. With `_now_playing` left `None` throughout, a steady 1Hz
         progression must still fire only the raw callback."""
         api, clock = self._api_with_clock()
-        monkeypatch.setattr("lyngdorf.api.datetime", clock)
+        monkeypatch.setattr("lyngdorf.streaming.poll.datetime", clock)
         # `_now_playing` is never set - `current_state` is None on every call.
 
         raw_seen: list[int | None] = []

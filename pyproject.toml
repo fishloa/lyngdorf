@@ -89,6 +89,7 @@ module = [
     "lyngdorf.components",
     "lyngdorf.receiver",
     "lyngdorf.discovery",
+    "lyngdorf.streaming.poll",
 ]
 disallow_any_generics = true
 disallow_subclassing_any = true
