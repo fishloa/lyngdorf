@@ -16,6 +16,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import socket
+from typing import Any
 from xml.etree import ElementTree
 
 import aiohttp
@@ -196,3 +197,33 @@ def _lookup_model(model_name: str) -> LyngdorfModel | None:
         if model.config.model_name.lower() == search:
             return model
     return None
+
+
+async def create_receiver(
+    host: str,
+    model: LyngdorfModel | None = None,
+    *,
+    session: aiohttp.ClientSession | None = None,
+) -> Any:
+    """Create (but do not connect) a LyngdorfReceiver.
+
+    With model=None, probes the device over :84 to identify it.
+    Raises UnsupportedModelError if the reply names no supported model,
+    TimeoutError/OSError on connection failure (propagated, as today).
+
+    Two-phase by design, unchanged from 1.x: consumers register callbacks
+    between creation and connect().
+
+    `session` is used for all :8080 streaming-module HTTP and is never
+    closed by the library. When None, the library creates its own on
+    first use and closes it on disconnect().
+    """
+    from .receiver import LyngdorfReceiver
+
+    if model is None:
+        model = await discover_model(host)
+        if model is None:
+            raise UnsupportedModelError(
+                f"No supported Lyngdorf model answered at {host}"
+            )
+    return LyngdorfReceiver(host, model, session=session)

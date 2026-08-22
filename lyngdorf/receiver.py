@@ -19,6 +19,8 @@ import asyncio
 import logging
 from collections.abc import Callable, Mapping, Sequence
 
+import aiohttp
+
 from ._compat import _CompatShims
 from .api import LyngdorfApi
 from .base import CountingNumberDict, register_in_list
@@ -98,11 +100,32 @@ class LyngdorfReceiver(_CompatShims):
     (issue #51), not a promise of confirmation.
     """
 
-    def __init__(self, host: str, model: LyngdorfModel) -> None:
+    def __init__(
+        self,
+        host: str,
+        model: LyngdorfModel,
+        *,
+        session: aiohttp.ClientSession | None = None,
+    ) -> None:
         self._host = host
         self._model = model
         self._api = LyngdorfApi(host, model)
         self._dialect = _DIALECTS[model]
+
+        # Ownership is decided here and nowhere else (spec §8). The owned
+        # ClientSession itself is created lazily inside StreamingClient on
+        # first :8080 use — constructing one needs a running loop, and a
+        # non-streaming model must never allocate one at all.
+        self._owns_session = session is None
+        self._session = session
+        from .const import STREAMMAGIC_PORT
+        from .streaming.client import StreamingClient
+
+        self._streaming: StreamingClient | None = (
+            StreamingClient(host, STREAMMAGIC_PORT, session=session)
+            if model.config.has_streaming
+            else None
+        )
 
         # Components and controls - structural capability (design §5):
         # built once, from ModelConfig, via the WP3 factories.
@@ -194,6 +217,18 @@ class LyngdorfReceiver(_CompatShims):
 
     async def disconnect(self) -> None:
         await self._api.async_disconnect()
+        if self._streaming is not None:
+            # Closes only a session this library created; an injected one
+            # belongs to the caller (spec §8). This is also where the
+            # kept-alive :8080 socket goes away — 1.x closed it in the
+            # poll coroutine's `finally`, which cannot survive the client
+            # being hoisted out of that coroutine (it now outlives the
+            # poll task, is shared with Player's writes, and is reused
+            # across reconnects). Between a power-off poll stop and the
+            # next poll start the connection is now reaped by aiohttp's
+            # connector keepalive_timeout instead — something http.client
+            # never did, which is why 1.x needed the manual close.
+            await self._streaming.close()
 
     def on_change(self, callback: Callable[[], None]) -> Callable[[], None]:
         """Fires on any state change. Returns an idempotent unsubscribe;

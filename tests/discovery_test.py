@@ -17,12 +17,16 @@ from aiohttp import web
 from aiohttp.test_utils import TestServer
 
 from lyngdorf.discovery import (
+    UnsupportedModelError,
     _lookup_model,
+    create_receiver,
     discover_model,
     discover_ssdp_location,
     fetch_device_serial,
 )
+from lyngdorf.exceptions import LyngdorfError
 from lyngdorf.models import LyngdorfModel
+from lyngdorf.receiver import LyngdorfReceiver
 
 _DESCRIPTION_XML = """<?xml version="1.0"?>
 <root xmlns="urn:schemas-upnp-org:device-1-0">
@@ -191,3 +195,105 @@ class TestLookupModel:
     )
     def test_lookup(self, name, expected):
         assert _lookup_model(name) is expected
+
+
+class TestCreateReceiver:
+    @pytest.mark.asyncio
+    async def test_returns_receiver_never_none(self):
+        r = await create_receiver("127.0.0.1", LyngdorfModel.MP_60)
+        assert isinstance(r, LyngdorfReceiver)
+        assert r.host == "127.0.0.1"
+        assert r.model is LyngdorfModel.MP_60
+
+    @pytest.mark.asyncio
+    async def test_unknown_model_raises_typed_error(self, monkeypatch):
+        """spec §2.1 / behavioural change 3: UnsupportedModelError, never
+        NotImplementedError, and never a None return."""
+
+        async def _no_model(host, timeout=5.0):
+            return None
+
+        monkeypatch.setattr("lyngdorf.discovery.discover_model", _no_model)
+        with pytest.raises(UnsupportedModelError):
+            await create_receiver("127.0.0.1")
+
+    @pytest.mark.asyncio
+    async def test_unsupported_model_error_is_a_lyngdorf_error(self):
+        """spec §2.1: subclasses LyngdorfError only, not
+        NotImplementedError."""
+        assert issubclass(UnsupportedModelError, LyngdorfError)
+        assert not issubclass(UnsupportedModelError, NotImplementedError)
+
+    @pytest.mark.asyncio
+    async def test_probe_path_uses_discover_model(self, monkeypatch):
+        calls: list[str] = []
+
+        async def _probe(host, timeout=5.0):
+            calls.append(host)
+            return LyngdorfModel.TDAI_3400
+
+        monkeypatch.setattr("lyngdorf.discovery.discover_model", _probe)
+        r = await create_receiver("10.0.0.9")
+        assert calls == ["10.0.0.9"] and r.model is LyngdorfModel.TDAI_3400
+
+
+class TestSessionOwnership:
+    """spec §8, and §12's three named WP5 done-whens."""
+
+    async def _noop_disconnect(self) -> None:
+        pass
+
+    @pytest.mark.asyncio
+    async def test_ownership_decided_at_construction(self):
+        owned = await create_receiver("127.0.0.1", LyngdorfModel.MP_60)
+        assert owned._owns_session is True
+
+        async with aiohttp.ClientSession() as injected:
+            r = await create_receiver(
+                "127.0.0.1", LyngdorfModel.MP_60, session=injected
+            )
+            assert r._owns_session is False
+            assert r._session is injected
+
+    @pytest.mark.asyncio
+    async def test_injected_session_is_never_closed(self):
+        """The inject-websession contract: HA owns it, we do not."""
+        async with aiohttp.ClientSession() as injected:
+            r = await create_receiver(
+                "127.0.0.1", LyngdorfModel.MP_60, session=injected
+            )
+            # Mock the RIO disconnect so we don't hit the network
+            r._api.async_disconnect = self._noop_disconnect  # type: ignore[method-assign]
+            await r.disconnect()
+            assert not injected.closed
+
+    @pytest.mark.asyncio
+    async def test_streaming_client_is_built_on_streaming_models(self):
+        r = await create_receiver("127.0.0.1", LyngdorfModel.MP_60)
+        assert r._streaming is not None
+
+    @pytest.mark.parametrize(
+        "model", [LyngdorfModel.TDAI_2170, LyngdorfModel.P_100, LyngdorfModel.P_300]
+    )
+    @pytest.mark.asyncio
+    async def test_non_streaming_model_never_creates_a_streaming_client(self, model):
+        """spec §8: streaming client is None, the poll loop never starts,
+        and no session is ever created when none was injected."""
+        r = await create_receiver("127.0.0.1", model)
+        assert r._streaming is None
+        # disconnect() on a never-connected non-streaming receiver
+        r._api.async_disconnect = self._noop_disconnect  # type: ignore[method-assign]
+        await r.disconnect()  # must not raise
+
+    @pytest.mark.asyncio
+    async def test_injected_session_on_a_non_streaming_model_is_held_unused(self):
+        """Harmless by design — it keeps the factory signature uniform so
+        a consumer needs no per-model conditional (spec §8)."""
+        async with aiohttp.ClientSession() as injected:
+            r = await create_receiver(
+                "127.0.0.1", LyngdorfModel.TDAI_2170, session=injected
+            )
+            assert r._session is injected and r._streaming is None
+            r._api.async_disconnect = self._noop_disconnect  # type: ignore[method-assign]
+            await r.disconnect()
+            assert not injected.closed
