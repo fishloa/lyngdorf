@@ -717,3 +717,32 @@ SHIMMED_MODEL_FEATURE_CHECKS: frozenset[str] = frozenset(
 DIAGNOSTICS_SHIMS: dict[str, str] = {
     "async_probe_device_capabilities": "probe_capabilities",
 }
+
+# --- D9 module-level shims (spec §7 module-level rows) ---------------
+# The names in MODULE_SHIMS are the OLD names a migrator greps for.
+# Their resolution through __init__'s module __getattr__ is what
+# emits the warning. Deleted in 2.1 with the rest of this file.
+
+MODULE_SHIMS: dict[str, str] = {
+    "Receiver": "LyngdorfReceiver",
+    "async_create_receiver": "create_receiver",
+    "async_find_receiver_model": "discover_model",
+    "async_get_device_serial": "discover_ssdp_location + fetch_device_serial",
+}
+
+
+async def legacy_get_device_serial(host: str, timeout: float = 5.0) -> str | None:
+    """1.x's async_get_device_serial: the UDP search and the HTTP fetch
+    in one call. 2.0 splits them (spec §2.1) so a caller holding an
+    ssdp_location skips UDP entirely; this composes the two for callers
+    that have not migrated, reproducing 1.x behaviour exactly.
+
+    Imported inside the body: this module is imported by receiver.py, and
+    discovery.py imports receiver.py.
+    """
+    from .discovery import discover_ssdp_location, fetch_device_serial
+
+    location = await discover_ssdp_location(host, timeout)
+    if location is None:
+        return None
+    return await fetch_device_serial(location, timeout=timeout)

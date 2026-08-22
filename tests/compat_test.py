@@ -4,6 +4,7 @@ property, proven on a representative member. Completeness over the whole
 
 import pytest
 
+from lyngdorf._compat import DIAGNOSTICS_SHIMS, MODULE_SHIMS
 from lyngdorf.models import LyngdorfModel
 from lyngdorf.receiver import LyngdorfReceiver
 
@@ -181,3 +182,29 @@ class TestModelFeatureShims:
             assert LyngdorfModel.MP_60.has_zone_b_feature() is True
         with pytest.warns(DeprecationWarning):
             assert LyngdorfModel.TDAI_1120.has_zone_b_feature() is False
+
+
+class TestModuleShimCompleteness:
+    """§7-row completeness: every module-level shim in the spec appears
+    in _compat, and nothing extra ships."""
+
+    # §7's module-level shim rows, encoded as a literal set.
+    # Cited from the design spec §7 (commit 20c3b9c).
+    SPEC_MODULE_SHIMS = frozenset(
+        {
+            "Receiver",
+            "async_create_receiver",
+            "async_find_receiver_model",
+            "async_get_device_serial",
+        }
+    )
+
+    # §7's diagnostics shim row.
+    SPEC_DIAGNOSTICS_SHIMS = frozenset({"async_probe_device_capabilities"})
+
+    def test_module_shims_match_spec_exactly(self):
+        """Nothing missing, nothing extra."""
+        assert set(MODULE_SHIMS.keys()) == self.SPEC_MODULE_SHIMS
+
+    def test_diagnostics_shims_match_spec_exactly(self):
+        assert set(DIAGNOSTICS_SHIMS.keys()) == self.SPEC_DIAGNOSTICS_SHIMS
