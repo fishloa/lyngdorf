@@ -45,6 +45,15 @@ jobs:
         # lives in pyproject.toml. The CLI adds nothing, so CI and local
         # runs check exactly the same thing. CI's mypy comes from
         # poetry.lock (1.19.1), matching the pinned local binary.
-        run: poetry run mypy lyngdorf/
+        #
+        # tests/typing/ is named explicitly, NOT tests/. It is the
+        # compile-only consumer fixture - it type-checks the library the
+        # way a downstream consumer does, including annotating with the
+        # deprecated compat names, which nothing inside lyngdorf/ ever
+        # does. It claimed in its own docstring to be checked here and
+        # was not; a real consumer-visible typing defect in the const
+        # shim shipped through that gap. The rest of tests/ stays out:
+        # those are pytest files and are not strict-clean.
+        run: poetry run mypy lyngdorf/ tests/typing/
       - name: Run the automated tests
         run: poetry run pytest -v
