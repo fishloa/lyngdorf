@@ -227,8 +227,15 @@ def test_already_async_shim_warns_and_returns_coroutine(receiver, name):
 # -- category 5: callback renames --------------------------------------------
 
 
-@pytest.mark.parametrize("name", FIXTURE["shimmed_callbacks"])
+@pytest.mark.parametrize(
+    "name",
+    [n for n in FIXTURE["shimmed_callbacks"] if n.startswith("register_")],
+)
 def test_callback_shim_warns_and_returns_an_unsubscribe(receiver, name):
+    """Only the REGISTRATION shims return an unsubscribe.
+    un_register_notification_callback is in this category because it is
+    callback-related, but it consumes a callback and returns None - it
+    has its own test below."""
     with pytest.warns(DeprecationWarning):
         unsub = getattr(receiver, name)(lambda *a: None)
     unsub()
@@ -281,16 +288,27 @@ def test_reused_names_are_the_new_types_with_no_shim(receiver, name):
 # -- category 9: removals stay dead ------------------------------------------
 
 
-@pytest.mark.parametrize("name", FIXTURE["no_shim_removed"])
-def test_removed_names_do_not_resolve(receiver, name):
-    with pytest.raises(AttributeError):
-        getattr(receiver, name)
+def test_consumer_uses_no_removed_names(receiver):
+    """This is the consumer's SLICE, and it is currently empty - the
+    measured integration uses nothing that 2.0 removes outright. An empty
+    parametrize silently skips, which reads like missing coverage rather
+    than a clean result, so assert it directly instead.
+
+    The spec's full removal list is covered by
+    test_spec_removed_receiver_members_do_not_resolve; this one only ever
+    answers "does a real consumer touch any of them".
+    """
+    for name in FIXTURE["no_shim_removed"]:
+        with pytest.raises(AttributeError):
+            getattr(receiver, name)
 
 
-@pytest.mark.parametrize(
-    "name", ["un_register_notification_callback", "lookup_command"]
-)
+@pytest.mark.parametrize("name", ["lookup_command"])
 def test_spec_removed_receiver_members_do_not_resolve(receiver, name):
+    """un_register_notification_callback was here until a real consumer
+    measured what removing it costs: one unadapted teardown produced 472
+    test failures. It is now shimmed (see SPEC_SHIMMED_CALLBACKS), which
+    is why this list is shorter than it looks."""
     with pytest.raises(AttributeError):
         getattr(receiver, name)
 
@@ -425,6 +443,7 @@ SPEC_SHIMMED_ALREADY_ASYNC: frozenset[str] = frozenset(
 )
 SPEC_SHIMMED_CALLBACKS: frozenset[str] = frozenset(
     {
+        "un_register_notification_callback",
         "register_notification_callback",
         "register_position_callback",
         "register_position_jump_callback",
@@ -534,3 +553,33 @@ def test_sync_to_async_shim_is_not_a_coroutine_function(name):
         f"{name} was sync in 1.x; an async def shim would be a silent "
         f"no-op for any caller that does not await it"
     )
+
+
+def test_un_register_shim_calls_the_stashed_unsubscribe(receiver):
+    """Different shape to the register_* shims: consumes a callback,
+    returns None. Keyed on the callback object, which matters because
+    consumers pass BOUND METHODS - fresh objects on each attribute
+    access that nonetheless compare and hash equal, so the dict finds
+    the right unsubscribe. If that were not true this would fail
+    silently, unregistering nothing."""
+    hits: list[int] = []
+
+    class Consumer:
+        def handle(self) -> None:
+            hits.append(1)
+
+    c = Consumer()
+    assert c.handle is not c.handle  # fresh object each access
+    with pytest.warns(DeprecationWarning):
+        receiver.register_notification_callback(c.handle)
+    receiver._notify_notification_callbacks()
+    assert hits == [1]
+
+    with pytest.warns(DeprecationWarning):
+        receiver.un_register_notification_callback(c.handle)
+    receiver._notify_notification_callbacks()
+    assert hits == [1], "callback still fired after un_register"
+
+    # tolerated, as in 1.x
+    with pytest.warns(DeprecationWarning):
+        receiver.un_register_notification_callback(c.handle)

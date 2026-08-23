@@ -573,11 +573,52 @@ class _CompatShims:
 
     # ---- shape 5: callback renames ------------------------------------------
 
+    @property
+    def _legacy_unsubs(self) -> dict[Callable[[], None], Callable[[], None]]:
+        """Lazily-created map of 1.x callback -> its 2.0 unsubscribe.
+
+        A property rather than an __init__ attribute because this is a
+        mixin with no constructor of its own, and because a consumer that
+        never touches the 1.x names should never allocate it. Dies in 2.1
+        with the rest of this file.
+        """
+        existing = getattr(self, "_legacy_unsubs_map", None)
+        if existing is None:
+            existing = {}
+            self._legacy_unsubs_map = existing
+        return existing
+
     def register_notification_callback(
         self, callback: Callable[[], None]
     ) -> Callable[[], None]:
         _deprecated("register_notification_callback", "on_change")
-        return self.on_change(callback)
+        unsubscribe = self.on_change(callback)
+        # Remember it so the 1.x un_register_* shim below can find it.
+        # Keyed on the callback itself: consumers pass bound methods,
+        # which are fresh objects on each attribute access but compare
+        # and hash equal, so the lookup finds the right unsubscribe.
+        self._legacy_unsubs[callback] = unsubscribe
+        return unsubscribe
+
+    def un_register_notification_callback(self, callback: Callable[[], None]) -> None:
+        """1.x's explicit unregister — deleted in 2.1.
+
+        2.0 returns an unsubscribe from `on_change` instead, so this has
+        nothing to delegate to directly; it looks up the unsubscribe that
+        `register_notification_callback` stashed. A no-op for a callback
+        that was never registered, matching 1.x, which tolerated it.
+
+        Retained rather than removed because a consumer's *teardown* runs
+        in every test: leaving one unadapted call site produced 472
+        failures in a real integration suite, one line amplified.
+        """
+        _deprecated(
+            "un_register_notification_callback",
+            "the unsubscribe returned by on_change",
+        )
+        unsubscribe = self._legacy_unsubs.pop(callback, None)
+        if unsubscribe is not None:
+            unsubscribe()
 
     def register_position_callback(
         self, callback: Callable[[int | None], None]
@@ -707,6 +748,7 @@ SHIMMED_ALREADY_ASYNC: frozenset[str] = frozenset(
 SHIMMED_CALLBACKS: frozenset[str] = frozenset(
     {
         "register_notification_callback",
+        "un_register_notification_callback",
         "register_position_callback",
         "register_position_jump_callback",
     }

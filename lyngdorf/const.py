@@ -217,3 +217,27 @@ ABSOLUTE_SETTER_MESSAGES: frozenset[Msg] = frozenset(
         Msg.BALANCE,
     }
 )
+
+
+def __getattr__(name: str) -> object:
+    """Deprecated 1.x re-export — deleted in 2.1.
+
+    ``LyngdorfModel`` lives in ``lyngdorf.models`` and is exported from
+    the package root; 1.x also re-exported it here. PEP 562 runs this
+    only when normal lookup fails, so it costs nothing for every other
+    attribute on this module.
+    """
+    if name == "LyngdorfModel":
+        import warnings
+
+        from .models import LyngdorfModel
+
+        warnings.warn(
+            "importing LyngdorfModel from lyngdorf.const is deprecated and "
+            "will be removed in lyngdorf 2.1; use `from lyngdorf import "
+            "LyngdorfModel`",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return LyngdorfModel
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
