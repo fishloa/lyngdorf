@@ -16,7 +16,6 @@ import time
 from asyncio import timeout as asyncio_timeout
 from collections.abc import Callable
 from datetime import datetime
-from typing import cast
 
 from .const import DEFAULT_LYNGDORF_PORT, STREAMMAGIC_PORT
 from .exceptions import LyngdorfUnsupportedError
@@ -136,7 +135,7 @@ class LyngdorfApi(RioClient):
             ) from err
         if self._protocol is not None:
             self._protocol.close()
-        self._protocol = cast(LyngdorfProtocol, transport_protocol[1])  # type: ignore
+        self._protocol = transport_protocol[1]
         self._connection_enabled = True
         self._last_message_time = time.monotonic()
         self._schedule_monitor()
