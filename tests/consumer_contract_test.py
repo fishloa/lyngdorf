@@ -521,9 +521,18 @@ def test_shim_set_matches_spec_rows_exactly():
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("name", FIXTURE["shimmed_methods_already_async"])
+@pytest.mark.parametrize("name", sorted(_compat.SHIMMED_ALREADY_ASYNC))
 def test_already_async_shim_is_a_real_coroutine_function(name):
     """Not merely "returns a coroutine" - a genuine `async def`.
+
+    Parametrised over the LIBRARY's registry, deliberately, where every
+    other test in this file runs over the consumer fixture. This one
+    states a property of the library rather than of one consumer's
+    usage, and the distinction was not academic: it previously ran over
+    the fixture's eight names, so async_set_play_mode - in the registry,
+    absent from that consumer's slice - was never checked and shipped in
+    2.0.0 sync-bodied. Every name here must hold whether or not anyone
+    is currently calling it.
 
     MagicMock(spec=Cls) picks AsyncMock vs MagicMock by asking
     inspect.iscoroutinefunction of the CLASS attribute. A sync-bodied

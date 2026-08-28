@@ -553,11 +553,11 @@ class _CompatShims:
             return await _noop_raise_unsupported()
         return await self.player.seek(position_ms)
 
-    def async_set_play_mode(self, mode: PlayMode) -> Coroutine[Any, Any, bool]:
+    async def async_set_play_mode(self, mode: PlayMode) -> bool:
         _deprecated("async_set_play_mode", "player.set_play_mode")
         if self.player is None:
-            return _noop_raise_unsupported()
-        return self.player.set_play_mode(mode)
+            return await _noop_raise_unsupported()
+        return await self.player.set_play_mode(mode)
 
     async def async_set_shuffle(self, shuffle: bool) -> bool:
         _deprecated("async_set_shuffle", "player.set_shuffle")
