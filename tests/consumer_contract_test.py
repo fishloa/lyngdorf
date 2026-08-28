@@ -253,13 +253,35 @@ def test_position_jump_shim_noop_unsubscribe_without_player():
     unsub()  # no player, no error
 
 
-# -- category 6: await_same_name - real surface, sync->async, NO warning ----
+# -- category 6: await_same_name - INVERTED for 1.11 -------------------------
 
 
 @pytest.mark.parametrize("name", FIXTURE["await_same_name"])
-def test_await_same_name_is_a_coroutine_function_and_never_warns(receiver, name):
+def test_await_same_name_is_sync_on_this_pin_and_never_warns(receiver, name):
+    """2.0 makes these coroutine functions. 1.11 keeps 1.10's `def ...
+    -> None`, and this test is inverted to say so.
+
+    This category is the one place the bridge cannot carry both
+    surfaces. Elsewhere a 1.x name and its 2.0 replacement are different
+    names, or - for volume/lipsync - one object can be both types. Here
+    2.0 reuses the 1.x NAME at a new shape, and the 1.x shape returns
+    None. None is a singleton, so no object is both the None a 1.x
+    caller returns into and something awaitable.
+
+    Resolved toward 1.10 because the release exists to make the pin move
+    a no-op: the consumer measured in this fixture calls both of these
+    names, so as coroutine functions they are `arg-type` errors against
+    its `Callable[..., None]` entity descriptions. The cost is that the
+    2.0 `await` form is unavailable on this pin, so these specific call
+    sites migrate in the final bump rather than before it.
+
+    They still must not warn - they are real API on both sides, not
+    shims, and that half is unchanged.
+    """
     method = getattr(type(receiver), name)
-    assert asyncio.iscoroutinefunction(method)
+    assert not asyncio.iscoroutinefunction(
+        method
+    ), f"{name} must keep 1.10's sync shape on this pin"
     with warnings.catch_warnings():
         warnings.simplefilter("error", DeprecationWarning)
         _ = getattr(receiver, name)
@@ -538,9 +560,18 @@ def test_shim_set_matches_spec_rows_exactly():
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("name", FIXTURE["shimmed_methods_already_async"])
+@pytest.mark.parametrize("name", sorted(_compat.SHIMMED_ALREADY_ASYNC))
 def test_already_async_shim_is_a_real_coroutine_function(name):
     """Not merely "returns a coroutine" - a genuine `async def`.
+
+    Parametrised over the LIBRARY's registry, deliberately, where every
+    other test in this file is parametrised over the consumer fixture.
+    This one states a property of the library, not of one consumer's
+    usage, and the distinction was not academic: it previously ran over
+    the fixture's eight names, so async_set_play_mode - in the registry,
+    not in that consumer's slice - was never checked, and shipped in
+    2.0.0 sync-bodied. Every name here must hold whether or not anyone
+    is currently calling it.
 
     MagicMock(spec=Cls) picks AsyncMock vs MagicMock by asking
     inspect.iscoroutinefunction of the CLASS attribute. A sync-bodied

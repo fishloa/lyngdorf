@@ -402,7 +402,22 @@ class LyngdorfReceiver(_CompatShims):
     def room_perfect_positions(self) -> list[str]:
         return list(self._room_perfect_positions.values())
 
-    async def set_room_perfect_position(self, name: str) -> None:
+    def set_room_perfect_position(self, name: str) -> None:
+        """1.11: sync, matching 1.10 exactly.
+
+        2.0.0 reuses this 1.x NAME at a new shape - 1.10 had it as
+        `def ... -> None`, 2.0 has it as `async def`. That is the same
+        collision as volume/lipsync, and unlike those it cannot be
+        solved with a dual type: None is a singleton, so no object is
+        both "the None a 1.x caller returns into" and "awaitable".
+
+        Resolved in favour of 1.10, because the release exists to make
+        the PIN MOVE a no-op. A consumer's unmigrated call site and its
+        `Callable[..., None]` entity description both keep working; what
+        it costs is that `await receiver.set_room_perfect_position(...)` - the 2.0 form
+        - is not available on this pin, so those specific call sites
+        migrate in the final 2.0 bump rather than before it.
+        """
         index = self._room_perfect_positions.lookupIndex(name)
         if index < 0:
             raise LyngdorfInvalidValueError(
@@ -429,7 +444,22 @@ class LyngdorfReceiver(_CompatShims):
     def voicings(self) -> list[str]:
         return list(self._voicings.values())
 
-    async def set_voicing(self, name: str) -> None:
+    def set_voicing(self, name: str) -> None:
+        """1.11: sync, matching 1.10 exactly.
+
+        2.0.0 reuses this 1.x NAME at a new shape - 1.10 had it as
+        `def ... -> None`, 2.0 has it as `async def`. That is the same
+        collision as volume/lipsync, and unlike those it cannot be
+        solved with a dual type: None is a singleton, so no object is
+        both "the None a 1.x caller returns into" and "awaitable".
+
+        Resolved in favour of 1.10, because the release exists to make
+        the PIN MOVE a no-op. A consumer's unmigrated call site and its
+        `Callable[..., None]` entity description both keep working; what
+        it costs is that `await receiver.set_voicing(...)` - the 2.0 form
+        - is not available on this pin, so those specific call sites
+        migrate in the final 2.0 bump rather than before it.
+        """
         index = self._voicings.lookupIndex(name)
         if index < 0:
             raise LyngdorfInvalidValueError(

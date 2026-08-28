@@ -251,6 +251,25 @@ class Remote:
         cooperate with it. An integration should drop that argument
         rather than have this library grow a second timing mechanism.
         """
+        self._send_sync(commands, num_repeats)
+
+    def _send_sync(
+        self, commands: Iterable[str | RemoteKey], num_repeats: int = 1
+    ) -> None:
+        """All of `send`'s work, synchronously - see that method for the
+        contract, which this implements in full.
+
+        `send` never awaited anything: validation is pure, and the write
+        queue owns every bit of pacing. It is `async def` because the 2.0
+        write surface is uniformly awaitable, not because it suspends.
+
+        Split out for the 1.11 compat layer, which must reproduce 1.10's
+        `send_remote_commands(...) -> None` exactly. A consumer whose CI
+        type-checks cannot accept that signature becoming coroutine-
+        returning, so the shim needs a genuinely synchronous path rather
+        than a coroutine it declines to await. Deleted with the compat
+        layer; fold this back into `send` then.
+        """
         resolved: list[RemoteKey] = []
         for command in commands:
             key = resolve_remote_key(command)

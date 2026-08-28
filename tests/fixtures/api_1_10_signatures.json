@@ -1,0 +1,435 @@
+{
+  "_source": "generated from git tag v1.10.0, lyngdorf/device.py, class Receiver",
+  "methods": {
+    "async_connect": {
+      "async": true,
+      "returns": null
+    },
+    "async_disconnect": {
+      "async": true,
+      "returns": null
+    },
+    "async_next": {
+      "async": true,
+      "returns": "bool"
+    },
+    "async_pause": {
+      "async": true,
+      "returns": "bool"
+    },
+    "async_previous": {
+      "async": true,
+      "returns": "bool"
+    },
+    "async_seek": {
+      "async": true,
+      "returns": "bool"
+    },
+    "async_set_play_mode": {
+      "async": true,
+      "returns": "bool"
+    },
+    "async_set_repeat": {
+      "async": true,
+      "returns": "bool"
+    },
+    "async_set_shuffle": {
+      "async": true,
+      "returns": "bool"
+    },
+    "lookup_command": {
+      "async": false,
+      "returns": "str"
+    },
+    "press": {
+      "async": false,
+      "returns": "None"
+    },
+    "register_notification_callback": {
+      "async": false,
+      "returns": "Callable[[], None]"
+    },
+    "register_position_callback": {
+      "async": false,
+      "returns": "Callable[[], None]"
+    },
+    "register_position_jump_callback": {
+      "async": false,
+      "returns": "Callable[[], None]"
+    },
+    "send_remote_commands": {
+      "async": false,
+      "returns": "None"
+    },
+    "set_lipsync": {
+      "async": false,
+      "returns": "None"
+    },
+    "set_room_perfect_position": {
+      "async": false,
+      "returns": "None"
+    },
+    "set_trim_bass": {
+      "async": false,
+      "returns": "None"
+    },
+    "set_trim_centre": {
+      "async": false,
+      "returns": "None"
+    },
+    "set_trim_height": {
+      "async": false,
+      "returns": "None"
+    },
+    "set_trim_lfe": {
+      "async": false,
+      "returns": "None"
+    },
+    "set_trim_surround": {
+      "async": false,
+      "returns": "None"
+    },
+    "set_trim_treble": {
+      "async": false,
+      "returns": "None"
+    },
+    "set_voicing": {
+      "async": false,
+      "returns": "None"
+    },
+    "set_volume": {
+      "async": false,
+      "returns": "None"
+    },
+    "set_zone_b_volume": {
+      "async": false,
+      "returns": "None"
+    },
+    "trim_bass_down": {
+      "async": false,
+      "returns": null
+    },
+    "trim_bass_up": {
+      "async": false,
+      "returns": null
+    },
+    "trim_centre_down": {
+      "async": false,
+      "returns": null
+    },
+    "trim_centre_up": {
+      "async": false,
+      "returns": null
+    },
+    "trim_height_down": {
+      "async": false,
+      "returns": null
+    },
+    "trim_height_up": {
+      "async": false,
+      "returns": null
+    },
+    "trim_lfe_down": {
+      "async": false,
+      "returns": null
+    },
+    "trim_lfe_up": {
+      "async": false,
+      "returns": null
+    },
+    "trim_surround_down": {
+      "async": false,
+      "returns": null
+    },
+    "trim_surround_up": {
+      "async": false,
+      "returns": null
+    },
+    "trim_treble_down": {
+      "async": false,
+      "returns": null
+    },
+    "trim_treble_up": {
+      "async": false,
+      "returns": null
+    },
+    "un_register_notification_callback": {
+      "async": false,
+      "returns": "None"
+    },
+    "volume_down": {
+      "async": false,
+      "returns": null
+    },
+    "volume_up": {
+      "async": false,
+      "returns": null
+    },
+    "zone_b_volume_down": {
+      "async": false,
+      "returns": null
+    },
+    "zone_b_volume_up": {
+      "async": false,
+      "returns": null
+    }
+  },
+  "properties": {
+    "audio_information": {
+      "get": "str | None",
+      "settable": false
+    },
+    "audio_input": {
+      "get": "str | None",
+      "settable": false
+    },
+    "available_audio_inputs": {
+      "get": "list[str]",
+      "settable": false
+    },
+    "available_play_modes": {
+      "get": "frozenset[PlayMode]",
+      "settable": false
+    },
+    "available_remote_keys": {
+      "get": "frozenset[RemoteKey]",
+      "settable": false
+    },
+    "available_repeat_modes": {
+      "get": "frozenset[Repeat]",
+      "settable": false
+    },
+    "available_room_perfect_positions": {
+      "get": "list[str]",
+      "settable": false
+    },
+    "available_sound_modes": {
+      "get": "list[str]",
+      "settable": false
+    },
+    "available_sources": {
+      "get": "list[str]",
+      "settable": false
+    },
+    "available_stream_types": {
+      "get": "list[str]",
+      "settable": false
+    },
+    "available_video_inputs": {
+      "get": "list[str]",
+      "settable": false
+    },
+    "available_voicings": {
+      "get": "list[str]",
+      "settable": false
+    },
+    "can_next": {
+      "get": "bool",
+      "settable": false
+    },
+    "can_pause": {
+      "get": "bool",
+      "settable": false
+    },
+    "can_previous": {
+      "get": "bool",
+      "settable": false
+    },
+    "can_seek": {
+      "get": "bool",
+      "settable": false
+    },
+    "can_shuffle": {
+      "get": "bool",
+      "settable": false
+    },
+    "connected": {
+      "get": "bool",
+      "settable": false
+    },
+    "has_position": {
+      "get": "bool",
+      "settable": false
+    },
+    "has_remote_keys": {
+      "get": "bool",
+      "settable": false
+    },
+    "host": {
+      "get": "str | None",
+      "settable": false
+    },
+    "lipsync": {
+      "get": "int | None",
+      "settable": true
+    },
+    "lipsync_range": {
+      "get": "NumericRange | None",
+      "settable": false
+    },
+    "max_volume": {
+      "get": "float | None",
+      "settable": false
+    },
+    "model": {
+      "get": "LyngdorfModel",
+      "settable": false
+    },
+    "mute_enabled": {
+      "get": "bool | None",
+      "settable": true
+    },
+    "name": {
+      "get": "str | None",
+      "settable": false
+    },
+    "now_playing": {
+      "get": "NowPlaying | None",
+      "settable": false
+    },
+    "play_mode": {
+      "get": "PlayMode | None",
+      "settable": false
+    },
+    "position_ms": {
+      "get": "int | None",
+      "settable": false
+    },
+    "position_percent": {
+      "get": "float | None",
+      "settable": false
+    },
+    "position_updated_at": {
+      "get": "datetime | None",
+      "settable": false
+    },
+    "power_on": {
+      "get": "bool | None",
+      "settable": true
+    },
+    "repeat": {
+      "get": "Repeat | None",
+      "settable": false
+    },
+    "room_perfect_position": {
+      "get": "str | None",
+      "settable": true
+    },
+    "shuffle": {
+      "get": "bool | None",
+      "settable": false
+    },
+    "sound_mode": {
+      "get": "str | None",
+      "settable": true
+    },
+    "source": {
+      "get": "str | None",
+      "settable": true
+    },
+    "streaming_source": {
+      "get": "str | None",
+      "settable": false
+    },
+    "trim_bass": {
+      "get": "float | None",
+      "settable": true
+    },
+    "trim_bass_range": {
+      "get": "NumericRange | None",
+      "settable": false
+    },
+    "trim_centre": {
+      "get": "float | None",
+      "settable": true
+    },
+    "trim_centre_range": {
+      "get": "NumericRange | None",
+      "settable": false
+    },
+    "trim_height": {
+      "get": "float | None",
+      "settable": true
+    },
+    "trim_height_range": {
+      "get": "NumericRange | None",
+      "settable": false
+    },
+    "trim_lfe": {
+      "get": "float | None",
+      "settable": true
+    },
+    "trim_lfe_range": {
+      "get": "NumericRange | None",
+      "settable": false
+    },
+    "trim_surround": {
+      "get": "float | None",
+      "settable": true
+    },
+    "trim_surround_range": {
+      "get": "NumericRange | None",
+      "settable": false
+    },
+    "trim_treble": {
+      "get": "float | None",
+      "settable": true
+    },
+    "trim_treble_range": {
+      "get": "NumericRange | None",
+      "settable": false
+    },
+    "video_information": {
+      "get": "str | None",
+      "settable": false
+    },
+    "video_input": {
+      "get": "str | None",
+      "settable": false
+    },
+    "voicing": {
+      "get": "str | None",
+      "settable": true
+    },
+    "volume": {
+      "get": "float | None",
+      "settable": true
+    },
+    "volume_range": {
+      "get": "NumericRange | None",
+      "settable": false
+    },
+    "zone_b_audio_input": {
+      "get": "str | None",
+      "settable": false
+    },
+    "zone_b_available_sources": {
+      "get": "list[str]",
+      "settable": false
+    },
+    "zone_b_mute_enabled": {
+      "get": "bool | None",
+      "settable": true
+    },
+    "zone_b_power_on": {
+      "get": "bool | None",
+      "settable": true
+    },
+    "zone_b_source": {
+      "get": "str | None",
+      "settable": true
+    },
+    "zone_b_streaming_source": {
+      "get": "str | None",
+      "settable": false
+    },
+    "zone_b_volume": {
+      "get": "float | None",
+      "settable": true
+    },
+    "zone_b_volume_range": {
+      "get": "NumericRange | None",
+      "settable": false
+    }
+  }
+}

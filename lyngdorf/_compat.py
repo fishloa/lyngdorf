@@ -46,7 +46,7 @@ from __future__ import annotations
 
 import asyncio
 import warnings
-from collections.abc import Callable, Coroutine, Iterable
+from collections.abc import Callable, Iterable
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
@@ -486,28 +486,28 @@ class _CompatShims:
 
     # ---- shape 2: sync-bodied write shims ---------------------------------
 
-    def set_volume(self, value: float) -> Coroutine[Any, Any, None]:
+    def set_volume(self, value: float) -> None:
         _deprecated("set_volume", "volume.set")
-        return self._volume.set(value)
+        self._volume._send_set(value)
 
-    def set_zone_b_volume(self, value: float) -> Coroutine[Any, Any, None]:
+    def set_zone_b_volume(self, value: float) -> None:
         _deprecated("set_zone_b_volume", "zone_b.volume.set")
         if self.zone_b is None:
             raise LyngdorfInvalidValueError(
                 f"zone_b_volume is not supported by model "
                 f"{self.model.config.model_name}"
             )
-        return self.zone_b.volume.set(value)
+        self.zone_b.volume._send_set(value)
 
-    def set_lipsync(self, ms: float) -> Coroutine[Any, Any, None]:
+    def set_lipsync(self, ms: float) -> None:
         _deprecated("set_lipsync", "lipsync.set")
         if self._lipsync is None:
             raise LyngdorfInvalidValueError(
                 f"lipsync is not supported by model " f"{self.model.config.model_name}"
             )
-        return self._lipsync.set(ms)
+        self._lipsync._send_set(ms)
 
-    def set_trim_bass(self, value: float) -> Coroutine[Any, Any, None]:
+    def set_trim_bass(self, value: float) -> None:
         _deprecated("set_trim_bass", "trims[Trim.BASS].set")
         ctl = self.trims.get(Trim.BASS)
         if ctl is None:
@@ -515,9 +515,9 @@ class _CompatShims:
                 f"trim_bass is not supported by model "
                 f"{self.model.config.model_name}"
             )
-        return ctl.set(value)
+        ctl._send_set(value)
 
-    def set_trim_treble(self, value: float) -> Coroutine[Any, Any, None]:
+    def set_trim_treble(self, value: float) -> None:
         _deprecated("set_trim_treble", "trims[Trim.TREBLE].set")
         ctl = self.trims.get(Trim.TREBLE)
         if ctl is None:
@@ -525,9 +525,9 @@ class _CompatShims:
                 f"trim_treble is not supported by model "
                 f"{self.model.config.model_name}"
             )
-        return ctl.set(value)
+        ctl._send_set(value)
 
-    def set_trim_centre(self, value: float) -> Coroutine[Any, Any, None]:
+    def set_trim_centre(self, value: float) -> None:
         _deprecated("set_trim_centre", "trims[Trim.CENTER].set")
         ctl = self.trims.get(Trim.CENTER)
         if ctl is None:
@@ -535,9 +535,9 @@ class _CompatShims:
                 f"trim_centre is not supported by model "
                 f"{self.model.config.model_name}"
             )
-        return ctl.set(value)
+        ctl._send_set(value)
 
-    def set_trim_height(self, value: float) -> Coroutine[Any, Any, None]:
+    def set_trim_height(self, value: float) -> None:
         _deprecated("set_trim_height", "trims[Trim.HEIGHT].set")
         ctl = self.trims.get(Trim.HEIGHT)
         if ctl is None:
@@ -545,18 +545,18 @@ class _CompatShims:
                 f"trim_height is not supported by model "
                 f"{self.model.config.model_name}"
             )
-        return ctl.set(value)
+        ctl._send_set(value)
 
-    def set_trim_lfe(self, value: float) -> Coroutine[Any, Any, None]:
+    def set_trim_lfe(self, value: float) -> None:
         _deprecated("set_trim_lfe", "trims[Trim.LFE].set")
         ctl = self.trims.get(Trim.LFE)
         if ctl is None:
             raise LyngdorfInvalidValueError(
                 f"trim_lfe is not supported by model " f"{self.model.config.model_name}"
             )
-        return ctl.set(value)
+        ctl._send_set(value)
 
-    def set_trim_surround(self, value: float) -> Coroutine[Any, Any, None]:
+    def set_trim_surround(self, value: float) -> None:
         _deprecated("set_trim_surround", "trims[Trim.SURROUND].set")
         ctl = self.trims.get(Trim.SURROUND)
         if ctl is None:
@@ -564,64 +564,64 @@ class _CompatShims:
                 f"trim_surround is not supported by model "
                 f"{self.model.config.model_name}"
             )
-        return ctl.set(value)
+        ctl._send_set(value)
 
     def send_remote_commands(
         self,
         commands: Iterable[str | RemoteKey],
         num_repeats: int = 1,
-    ) -> Coroutine[Any, Any, None]:
+    ) -> None:
         _deprecated("send_remote_commands", "remote.send")
         if self.remote is None:
             raise LyngdorfUnsupportedError(
                 f"Model {self.model.config.model_name} has no remote keys"
             )
-        return self.remote.send(commands, num_repeats=num_repeats)
+        self.remote._send_sync(commands, num_repeats=num_repeats)
 
-    def press(self, key: RemoteKey) -> Coroutine[Any, Any, None]:
+    def press(self, key: RemoteKey) -> None:
         _deprecated("press", "remote.press")
         if self.remote is None:
             raise LyngdorfUnsupportedError(
                 f"Model {self.model.config.model_name} has no remote keys"
             )
-        return self.remote.press(key)
+        self.remote._send_sync([key])
 
     # ---- shape 3: stepper shims -------------------------------------------
 
-    def volume_up(self) -> Coroutine[Any, Any, None]:
+    def volume_up(self) -> None:
         _deprecated("volume_up", "volume.up")
-        return self._volume.up()
+        self._volume._send_up()
 
-    def volume_down(self) -> Coroutine[Any, Any, None]:
+    def volume_down(self) -> None:
         _deprecated("volume_down", "volume.down")
-        return self._volume.down()
+        self._volume._send_down()
 
-    def zone_b_volume_up(self) -> Coroutine[Any, Any, None]:
+    def zone_b_volume_up(self) -> None:
         _deprecated("zone_b_volume_up", "zone_b.volume.up")
         if self.zone_b is None:
             warnings.warn(
                 "this model has no Zone B; ignoring zone_b_volume_up",
                 stacklevel=2,
             )
-            return _noop()
-        return self.zone_b.volume.up()
+            return
+        self.zone_b.volume._send_up()
 
-    def zone_b_volume_down(self) -> Coroutine[Any, Any, None]:
+    def zone_b_volume_down(self) -> None:
         _deprecated("zone_b_volume_down", "zone_b.volume.down")
         if self.zone_b is None:
             warnings.warn(
                 "this model has no Zone B; ignoring zone_b_volume_down",
                 stacklevel=2,
             )
-            return _noop()
-        return self.zone_b.volume.down()
+            return
+        self.zone_b.volume._send_down()
 
     def _stepper_trim(
         self,
         trim: Trim,
         name: str,
         method: str,
-    ) -> Coroutine[Any, Any, None]:
+    ) -> None:
         _deprecated(
             name, f"isinstance(trims[{trim}], SteppableControl) and .{method}()"
         )
@@ -629,48 +629,49 @@ class _CompatShims:
         from .controls import SteppableControl
 
         if isinstance(ctl, SteppableControl):
-            return getattr(ctl, method)()
+            getattr(ctl, f"_send_{method}")()
+            return
         warnings.warn(
             f"this model cannot step {name.split('_')[0]} trim; ignoring",
             stacklevel=2,
         )
-        return _noop()
+        return
 
-    def trim_bass_up(self) -> Coroutine[Any, Any, None]:
-        return self._stepper_trim(Trim.BASS, "trim_bass_up", "up")
+    def trim_bass_up(self) -> None:
+        self._stepper_trim(Trim.BASS, "trim_bass_up", "up")
 
-    def trim_bass_down(self) -> Coroutine[Any, Any, None]:
-        return self._stepper_trim(Trim.BASS, "trim_bass_down", "down")
+    def trim_bass_down(self) -> None:
+        self._stepper_trim(Trim.BASS, "trim_bass_down", "down")
 
-    def trim_treble_up(self) -> Coroutine[Any, Any, None]:
-        return self._stepper_trim(Trim.TREBLE, "trim_treble_up", "up")
+    def trim_treble_up(self) -> None:
+        self._stepper_trim(Trim.TREBLE, "trim_treble_up", "up")
 
-    def trim_treble_down(self) -> Coroutine[Any, Any, None]:
-        return self._stepper_trim(Trim.TREBLE, "trim_treble_down", "down")
+    def trim_treble_down(self) -> None:
+        self._stepper_trim(Trim.TREBLE, "trim_treble_down", "down")
 
-    def trim_centre_up(self) -> Coroutine[Any, Any, None]:
-        return self._stepper_trim(Trim.CENTER, "trim_centre_up", "up")
+    def trim_centre_up(self) -> None:
+        self._stepper_trim(Trim.CENTER, "trim_centre_up", "up")
 
-    def trim_centre_down(self) -> Coroutine[Any, Any, None]:
-        return self._stepper_trim(Trim.CENTER, "trim_centre_down", "down")
+    def trim_centre_down(self) -> None:
+        self._stepper_trim(Trim.CENTER, "trim_centre_down", "down")
 
-    def trim_height_up(self) -> Coroutine[Any, Any, None]:
-        return self._stepper_trim(Trim.HEIGHT, "trim_height_up", "up")
+    def trim_height_up(self) -> None:
+        self._stepper_trim(Trim.HEIGHT, "trim_height_up", "up")
 
-    def trim_height_down(self) -> Coroutine[Any, Any, None]:
-        return self._stepper_trim(Trim.HEIGHT, "trim_height_down", "down")
+    def trim_height_down(self) -> None:
+        self._stepper_trim(Trim.HEIGHT, "trim_height_down", "down")
 
-    def trim_lfe_up(self) -> Coroutine[Any, Any, None]:
-        return self._stepper_trim(Trim.LFE, "trim_lfe_up", "up")
+    def trim_lfe_up(self) -> None:
+        self._stepper_trim(Trim.LFE, "trim_lfe_up", "up")
 
-    def trim_lfe_down(self) -> Coroutine[Any, Any, None]:
-        return self._stepper_trim(Trim.LFE, "trim_lfe_down", "down")
+    def trim_lfe_down(self) -> None:
+        self._stepper_trim(Trim.LFE, "trim_lfe_down", "down")
 
-    def trim_surround_up(self) -> Coroutine[Any, Any, None]:
-        return self._stepper_trim(Trim.SURROUND, "trim_surround_up", "up")
+    def trim_surround_up(self) -> None:
+        self._stepper_trim(Trim.SURROUND, "trim_surround_up", "up")
 
-    def trim_surround_down(self) -> Coroutine[Any, Any, None]:
-        return self._stepper_trim(Trim.SURROUND, "trim_surround_down", "down")
+    def trim_surround_down(self) -> None:
+        self._stepper_trim(Trim.SURROUND, "trim_surround_down", "down")
 
     # ---- shape 4: already-async renames ------------------------------------
     # These are the ONE category that must be real `async def`, and the
@@ -719,11 +720,11 @@ class _CompatShims:
             return await _noop_raise_unsupported()
         return await self.player.seek(position_ms)
 
-    def async_set_play_mode(self, mode: PlayMode) -> Coroutine[Any, Any, bool]:
+    async def async_set_play_mode(self, mode: PlayMode) -> bool:
         _deprecated("async_set_play_mode", "player.set_play_mode")
         if self.player is None:
-            return _noop_raise_unsupported()
-        return self.player.set_play_mode(mode)
+            return await _noop_raise_unsupported()
+        return await self.player.set_play_mode(mode)
 
     async def async_set_shuffle(self, shuffle: bool) -> bool:
         _deprecated("async_set_shuffle", "player.set_shuffle")

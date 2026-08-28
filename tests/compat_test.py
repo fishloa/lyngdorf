@@ -110,24 +110,30 @@ class TestReadShims:
 
 
 class TestSyncBodiedWriteShims:
-    @pytest.mark.asyncio
-    async def test_awaited_call_performs_the_action(self):
-        r = _receiver()
-        writes = _capture_writes(r)
-        with pytest.warns(DeprecationWarning, match="set_volume"):
-            await r.set_volume(-30.0)
-        assert writes == ["VOL(-300)"]
+    """1.11 INVERTS 2.0's shape for these.
 
-    def test_unawaited_call_still_warns_and_performs_nothing(self):
-        """D9's measured shape: the warning fires even when the caller
-        forgets to await (an async-def shim would be a SILENT no-op
-        here), and nothing is enqueued until awaited."""
+    2.0 made the 1.x write names sync-bodied but coroutine-RETURNING, so
+    an unawaited legacy call still warned where an async-def shim would
+    have been a silent no-op. That is the right trade for 2.0, where
+    those names are being removed and loudness is the goal.
+
+    It is the wrong trade here. Changing a 1.x method's return type from
+    None to Coroutine is itself a breaking change: a consumer's
+    unawaited call sites become `unused-coroutine` errors and its entity
+    descriptions typed `Callable[..., None]` become `arg-type` errors -
+    measured, 16 of them in Home Assistant - which is precisely the wall
+    1.11 exists to remove. Nothing is being removed in 1.11, so nothing
+    should change shape: these reproduce 1.10's `def ... -> None`
+    exactly and do the work as they are called.
+    """
+
+    def test_the_call_performs_the_action_without_await(self):
         r = _receiver()
         writes = _capture_writes(r)
         with pytest.warns(DeprecationWarning, match="set_volume"):
-            coro = r.set_volume(-30.0)
-        assert writes == []  # returning a coroutine executes nothing
-        coro.close()  # silence the never-awaited RuntimeWarning
+            result = r.set_volume(-30.0)
+        assert result is None, "1.10 returned None; changing that breaks callers"
+        assert writes == ["VOL(-300)"]
 
     def test_write_shim_raises_the_1x_capability_error_on_a_wrong_model(self):
         """Zone B / trim write shims mirror 1.x on a model without the
@@ -141,23 +147,21 @@ class TestSyncBodiedWriteShims:
 
 
 class TestStepperShims:
-    @pytest.mark.asyncio
-    async def test_stepper_shim_steps(self):
+    def test_stepper_shim_steps(self):
         r = _receiver()
         writes = _capture_writes(r)
         with pytest.warns(DeprecationWarning, match="volume_up"):
-            await r.volume_up()
+            assert r.volume_up() is None
         assert writes == ["VOL+"]
 
-    @pytest.mark.asyncio
-    async def test_stepper_shim_preserves_warn_and_ignore_on_non_steppable(self):
+    def test_stepper_shim_preserves_warn_and_ignore_on_non_steppable(self):
         """1.x warned-and-ignored a TDAI bass step; the shim preserves
         exactly that (spec §7's trim_bass_up row): no exception, nothing
         sent."""
         tdai = _receiver(LyngdorfModel.TDAI_3400)
         writes = _capture_writes(tdai)
         with pytest.warns(DeprecationWarning, match="trim_bass_up"):
-            await tdai.trim_bass_up()
+            assert tdai.trim_bass_up() is None
         assert writes == []
 
 
