@@ -2,11 +2,13 @@
 WP4 done-when)."""
 
 import inspect
+import typing
 import warnings
 
 import pytest
 
 import lyngdorf
+from lyngdorf import _compat
 
 EXPECTED_ALL = {
     "LyngdorfReceiver",
@@ -120,3 +122,81 @@ async def test_legacy_get_device_serial_returns_none_without_a_location(monkeypa
 def test_removals_stay_dead(name):
     with pytest.raises(AttributeError):
         getattr(lyngdorf, name)
+
+
+# -- py.typed means nothing where the surface returns Any ---------------------
+
+
+def _bare_any(annotation: object) -> bool:
+    return annotation is typing.Any or str(annotation) in ("Any", "typing.Any")
+
+
+def _public_callables() -> list[tuple[str, object]]:
+    """Every callable a consumer can reach from the package root: the
+    module-level functions in __all__, the public methods of the classes
+    in __all__, and the deprecated module-level shims."""
+    found: list[tuple[str, object]] = []
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", DeprecationWarning)
+        names = list(lyngdorf.__all__) + list(_compat.MODULE_SHIMS)
+        for name in names:
+            obj = getattr(lyngdorf, name, None)
+            if inspect.isfunction(obj):
+                found.append((name, obj))
+            elif inspect.isclass(obj):
+                for attr, member in vars(obj).items():
+                    if not attr.startswith("_") and inspect.isfunction(member):
+                        found.append((f"{obj.__name__}.{attr}", member))
+    return found
+
+
+@pytest.mark.parametrize(
+    "name,func", _public_callables(), ids=lambda v: v if isinstance(v, str) else ""
+)
+def test_no_public_callable_returns_bare_any(name, func):
+    """Shipping py.typed asserts the package is typed. One `-> Any` on
+    the public surface quietly makes that untrue for everything a caller
+    does with the result, and nothing reports it - mypy is silent by
+    design when it has been handed Any.
+
+    `create_receiver` was annotated `-> Any` through 1.11.0, 2.0.0 and
+    2.0.1. It is the factory for the main object, so the natural
+    `receiver = await create_receiver(host)` left every subsequent
+    attribute access unchecked, in the one package that had just
+    advertised itself as typed. It was a workaround for an import cycle,
+    not a deliberate widening.
+
+    Written as a population check rather than a check on that one
+    function: the defect was not that a particular annotation was wrong
+    but that nothing was asking the question of the surface as a whole.
+    Parameter arguments may still be Any where a signature genuinely
+    passes anything through - only return types are pinned here.
+    """
+    try:
+        annotation = typing.get_type_hints(func).get("return")
+    except Exception:
+        # NOT a skip. get_type_hints cannot resolve a name imported only
+        # under TYPE_CHECKING - which is exactly how create_receiver's
+        # return type is written, so skipping here silently excused the
+        # one function this test exists for. That is the same shape as
+        # the defect itself: a check that appears to cover something and
+        # does not. Fall back to the raw annotation text, which is all
+        # this assertion needs.
+        annotation = func.__annotations__.get("return")
+    assert not _bare_any(annotation), (
+        f"{name} returns bare Any. Every call site loses type checking "
+        f"from that point on, silently."
+    )
+
+
+def test_the_population_is_not_empty_and_nothing_is_skipped():
+    """An empty or silently-skipped parametrize reads like coverage.
+
+    The population must include the factory by name - that is the
+    function the whole check exists for, and it was the one being
+    skipped.
+    """
+    names = {n for n, _ in _public_callables()}
+    assert len(names) > 20
+    assert "create_receiver" in names
+    assert "async_create_receiver" in names

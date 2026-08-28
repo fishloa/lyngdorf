@@ -16,12 +16,14 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 
 from lyngdorf import (
+    LyngdorfModel,
     LyngdorfReceiver,
     NumericControl,
     Player,
     SteppableControl,
     Trim,
     ZoneB,
+    create_receiver,
 )
 
 # The D9 compat surface, pinned in ANNOTATION position on purpose. A
@@ -147,3 +149,34 @@ async def _pause(player: Player) -> bool:
 #     # error: Property "power_on" defined in "LyngdorfReceiver" is
 #     #   read-only  [misc]
 #     receiver.power_on = True
+
+
+# ---------------------------------------------------------------------------
+# The factory must hand back a concrete type WITHOUT the caller annotating.
+#
+# `create_receiver` was `-> Any` through 1.11.0, 2.0.0 and 2.0.1, so the
+# natural form below silently disabled checking for everything done with
+# the result. A consumer could recover it by annotating the variable by
+# hand, but that puts the burden on the caller to know the annotation is
+# load-bearing, and the obvious spelling was the broken one.
+# ---------------------------------------------------------------------------
+
+
+async def the_natural_form_is_the_checked_form(host: str) -> bool | None:
+    receiver = await create_receiver(host)  # no annotation, on purpose
+    return receiver.muted
+
+
+async def the_factory_result_satisfies_the_receiver_signatures(
+    host: str, model: LyngdorfModel
+) -> list[str]:
+    return SOURCE.options_fn(await create_receiver(host, model))
+
+
+# --- Negative case: MUST fail. Uncomment to verify the pin. ---
+#
+# async def a_wrong_member_on_the_factory_result_is_caught(host: str) -> None:
+#     receiver = await create_receiver(host)
+#     # error: "LyngdorfReceiver" has no attribute "not_a_real_member"
+#     #   [attr-defined]
+#     receiver.not_a_real_member()

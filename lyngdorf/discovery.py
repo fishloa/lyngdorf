@@ -17,7 +17,7 @@ import asyncio
 import contextlib
 import logging
 import socket
-from typing import Any
+from typing import TYPE_CHECKING
 from xml.etree import ElementTree
 
 import aiohttp
@@ -25,6 +25,14 @@ import aiohttp
 from .const import DEFAULT_LYNGDORF_PORT
 from .exceptions import LyngdorfError
 from .models import LyngdorfModel
+
+if TYPE_CHECKING:
+    # Import-time this module cannot see receiver.py - receiver.py
+    # imports _compat.py, which imports back here - so the concrete
+    # import lives inside create_receiver's body. `from __future__ import
+    # annotations` makes every annotation a string, so this block is
+    # enough for the return type without reinstating the cycle.
+    from .receiver import LyngdorfReceiver
 
 _LOGGER = logging.getLogger(__package__)
 
@@ -231,8 +239,20 @@ async def create_receiver(
     model: LyngdorfModel | None = None,
     *,
     session: aiohttp.ClientSession | None = None,
-) -> Any:
+) -> LyngdorfReceiver:
     """Create (but do not connect) a LyngdorfReceiver.
+
+    Returns the concrete type, not Any. This was annotated `-> Any` for
+    the whole of 2.0.0/2.0.1/1.11.0, and it is the single worst place in
+    the package for that: it is the factory for the main object, so a
+    consumer writing the obvious `receiver = await create_receiver(...)`
+    got Any and every attribute access on it went unchecked. Nothing
+    reported the loss - shipping py.typed asserts the package is typed,
+    and one Any at the entry point quietly made that untrue for the
+    object every consumer holds. Absence of a signal, not a failure.
+
+    The Any was a workaround for the import cycle above rather than a
+    deliberate widening; a TYPE_CHECKING import is the correct form.
 
     With model=None, probes the device over :84 to identify it.
     Raises UnsupportedModelError if the reply names no supported model,

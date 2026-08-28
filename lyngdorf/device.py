@@ -27,6 +27,7 @@ from .discovery import (
     fetch_device_serial as _fetch_device_serial,
 )
 from .discovery import lookup_model as _lookup_model
+from .models import LyngdorfModel
 from .receiver import LyngdorfReceiver
 
 warnings.warn(
@@ -45,12 +46,22 @@ lookup_receiver_model = _lookup_model
 
 async def async_create_receiver(*args: Any, **kwargs: Any) -> LyngdorfReceiver:
     """1.x name for :func:`~lyngdorf.discovery.create_receiver`."""
-    receiver: LyngdorfReceiver = await _create_receiver(*args, **kwargs)
-    return receiver
+    # Returned directly: create_receiver is now annotated with the
+    # concrete type. This previously bound to a typed local purely to
+    # silence no-any-return - treating the symptom of the `-> Any` above
+    # rather than the cause.
+    return await _create_receiver(*args, **kwargs)
 
 
-async def async_find_receiver_model(*args: Any, **kwargs: Any) -> Any:
+async def async_find_receiver_model(*args: Any, **kwargs: Any) -> LyngdorfModel | None:
     """1.x name for :func:`~lyngdorf.discovery.discover_model`."""
+    # Concrete, not Any. A passthrough's *args/**kwargs have to be Any -
+    # it genuinely forwards anything - but that says nothing about what
+    # comes back, and a caller writing `model = await
+    # async_find_receiver_model(host)` on a deprecated path deserves the
+    # same checking as one on the new path. Being deprecated is a reason
+    # to type it, not an excuse: this is the surface people have not
+    # migrated off yet.
     return await _discover_model(*args, **kwargs)
 
 
