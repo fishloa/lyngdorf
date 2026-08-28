@@ -71,7 +71,11 @@ def test_shimmed_read_resolves_and_warns(receiver, name):
 
 _DELEGATION: dict[str, Callable[[LyngdorfReceiver], object]] = {
     "mute_enabled": lambda r: r.muted,
-    "volume_range": lambda r: r.volume.range,
+    # 1.11: `volume`/`lipsync` are value views that are None until the
+    # device reports. The RANGE is a property of the control itself and
+    # is available immediately - as it was in 1.10 - so the 2.0 path
+    # these shims are compared against is the live control.
+    "volume_range": lambda r: r._volume.range,
     "available_sources": lambda r: r.sources,
     "available_sound_modes": lambda r: r.sound_modes,
     "available_room_perfect_positions": lambda r: r.room_perfect_positions,
@@ -91,7 +95,7 @@ _DELEGATION: dict[str, Callable[[LyngdorfReceiver], object]] = {
     "trim_height_range": lambda r: r.trims[Trim.HEIGHT].range,
     "trim_lfe_range": lambda r: r.trims[Trim.LFE].range,
     "trim_surround_range": lambda r: r.trims[Trim.SURROUND].range,
-    "lipsync_range": lambda r: r.lipsync.range if r.lipsync else None,
+    "lipsync_range": lambda r: r._lipsync.range if r._lipsync else None,
     "zone_b_power_on": lambda r: r.zone_b.power_on if r.zone_b else None,
     "zone_b_mute_enabled": lambda r: r.zone_b.muted if r.zone_b else None,
     "zone_b_source": lambda r: r.zone_b.source if r.zone_b else None,
@@ -319,9 +323,22 @@ def test_spec_removed_receiver_members_do_not_resolve(receiver, name):
 def test_setter_carve_out_names_span_two_read_fates_and_one_write_fate(
     receiver,
 ):
+    """1.11 INVERTS the write half of this test.
+
+    2.0 asserted `member.fset is None` - the carve-out was that these
+    names are readable via a shim but NOT writable, so every consumer
+    assignment became a static error. 1.11 exists precisely to undo that
+    for one release, so here the same names must be WRITABLE, and the
+    read half is unchanged.
+
+    Kept as one test rather than split so that the 1.11 -> 2.0 diff shows
+    the inversion in place, rather than a deletion here and an unrelated
+    addition somewhere else.
+    """
     overlap = FIXTURE["also_written_by_production_setter_carve_out"]
     reads = set(FIXTURE["shimmed_reads"])
     kept = set(FIXTURE["kept_unchanged"])
+    assert overlap, "the carve-out list must not be empty"
     for name in overlap:
         assert (name in reads) != (name in kept), name  # exactly one fate
         if name in reads:
@@ -334,7 +351,7 @@ def test_setter_carve_out_names_span_two_read_fates_and_one_write_fate(
         for klass in type(receiver).__mro__:
             member = vars(klass).get(name)
             if isinstance(member, property):
-                assert member.fset is None, name
+                assert member.fset is not None, f"{name} lost its 1.11 setter"
                 break
 
 

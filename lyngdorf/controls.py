@@ -294,3 +294,63 @@ def build_lipsync(rio: RioClient) -> NumericControl | None:
         rio.change_lipsync(int(value))
 
     return NumericControl(initial_range=default_range, send_set=send)
+
+
+# ---------------------------------------------------------------------------
+# 1.11-ONLY. Deleted in 2.0.0, which is already published without them.
+#
+# 1.10 exposed `volume` and `lipsync` as floats; 2.0 reuses both names for
+# control objects. That is the one migration step no ordinary shim can
+# cover, because a single name cannot be two types - and it is why the
+# 2.0 bump could not be a manifest-only change for a consumer whose CI
+# type-checks.
+#
+# These classes make it two types at once, for one release, so a consumer
+# can move the pin and migrate in separate reviewable steps rather than
+# one large PR. An instance IS a float (arithmetic, comparison, hashing,
+# formatting - it is a real float subclass) and IS a NumericControl
+# (`.value`, `.range`, `.set()`, and `.up()`/`.down()` on the steppable
+# one), so 1.x call sites and 2.0 call sites both type-check against the
+# same pin.
+#
+# Each is a SNAPSHOT taken at property access, sharing the live control's
+# writer callables. A float cannot be mutated after construction, so the
+# alternative - one long-lived instance - would freeze at the first
+# reported value and silently report stale readings forever.
+# ---------------------------------------------------------------------------
+
+
+class FloatNumericControl(float, NumericControl):
+    """A NumericControl that is simultaneously its own float value."""
+
+    def __new__(cls, control: NumericControl) -> FloatNumericControl:
+        value = control.value
+        if value is None:
+            raise ValueError(
+                "cannot build a float view of a control the device has not "
+                "reported yet - the caller must return None instead"
+            )
+        obj = float.__new__(cls, value)
+        obj._value = value
+        obj._range = control._range
+        obj._send_set = control._send_set
+        return obj
+
+    def __init__(self, control: NumericControl) -> None:
+        # NumericControl.__init__ is keyword-only and would re-initialise
+        # what __new__ already copied. Everything is set there because a
+        # float's value must be fixed before the object exists.
+        pass
+
+
+class FloatSteppableControl(FloatNumericControl, SteppableControl):
+    """The steppable form, for `volume`."""
+
+    def __new__(cls, control: NumericControl) -> FloatSteppableControl:
+        if not isinstance(control, SteppableControl):
+            raise TypeError("FloatSteppableControl requires a SteppableControl")
+        obj = super().__new__(cls, control)
+        assert isinstance(obj, FloatSteppableControl)
+        obj._send_up = control._send_up
+        obj._send_down = control._send_down
+        return obj

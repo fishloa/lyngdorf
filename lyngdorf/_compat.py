@@ -6,15 +6,30 @@ has_*_feature block in models/__init__.py, plus the module __getattr__
 aliases in lyngdorf/__init__.py) is deleted WHOLESALE in 2.1 - a recorded
 work item (design §12), not an intention.
 
-Two things are deliberately absent, and a future reader must not
-"complete" the layer (design D9):
+1.11 NOTE. 2.0.0 deliberately omitted two things, and said here that a
+future reader must not "complete" the layer. 1.11.0 completes both, on
+purpose, and 2.0.0 remains published without them:
 
-- The 18 property setters. Removal is self-enforcing (assignment to a
-  read-only property is a static [misc] error locating every consumer
-  site), and no compatible shim can be safe: it would be the synchronous
-  enqueue issue #51 exists to remove.
-- The two reused names, `volume` and `lipsync` - 2.0 reuses them at a new
-  type, so one name cannot be a float shim and a control object at once.
+- The 18 property setters, restored below. 2.0's reasoning was that
+  removal is self-enforcing - assignment to a read-only property is a
+  static [misc] error that locates every consumer site - and that is
+  exactly right for 2.0. It is the wrong trade for a consumer whose CI
+  type-checks the whole tree, because "locates every site" and "fails
+  the build until every site is fixed in one commit" are the same
+  sentence. Restored here so the pin can move in one PR and each call
+  site can be migrated in another.
+- The two reused names, `volume` and `lipsync`. Solved by making them
+  genuinely both types at once - see FloatNumericControl in controls.py.
+
+The issue #51 hazard the setters carry is real and is NOT waved away:
+`asyncio.Event.set()` is not thread-safe, `receiver.volume = -25` looks
+like a plain attribute write, and Home Assistant hit exactly that by
+running sync entity actions in an executor. So the restored setters are
+strictly safer than 1.x's: `_require_loop_thread` turns that silent
+cross-thread race into an immediate, explanatory RuntimeError. It fires
+only when a drain task is actually running and the caller is not on a
+loop - so the loopless construction that tests and the client's own
+documented fallback rely on is untouched.
 
 Sync-in-1.x members are shimmed SYNC-BODIED, returning the coroutine
 (never `async def`): measured, an unawaited legacy call then still emits
@@ -29,6 +44,7 @@ wholesale) and would itself be a property setter.
 
 from __future__ import annotations
 
+import asyncio
 import warnings
 from collections.abc import Callable, Coroutine, Iterable
 from datetime import datetime
@@ -42,7 +58,7 @@ from .states import PlayMode, Repeat
 from .streaming import NowPlaying
 
 if TYPE_CHECKING:
-    pass
+    from .components import ZoneB
 
 
 def _deprecated(old: str, new: str) -> None:
@@ -57,6 +73,45 @@ async def _noop() -> None:
     """Awaitable no-op - the warn-and-ignore stepper shims return this."""
 
 
+def _legacy_setter(old: str, new: str) -> None:
+    """Warn for a restored 1.x property setter (1.11 only)."""
+    warnings.warn(
+        f"setting {old} is deprecated and is removed in lyngdorf 2.0; use {new}",
+        DeprecationWarning,
+        stacklevel=3,
+    )
+
+
+def _require_loop_thread(receiver: Any, name: str) -> None:
+    """Refuse a legacy setter called off the event loop thread.
+
+    The enqueue path ends in `asyncio.Event.set()`, which is not
+    thread-safe. A sync-looking `receiver.x = v` invites exactly the call
+    Home Assistant made - a sync entity action dispatched to an executor
+    - and 1.x raced silently there. This raises instead.
+
+    Deliberately narrow. It fires only when a drain task is live (so a
+    loop exists on some thread) AND this thread has none - the precise
+    shape of the cross-thread bug. With no drain task at all there is no
+    Event to set: `_writeCommand` flushes synchronously by its own
+    documented fallback, which is how the tests and any loopless caller
+    already work, and that path stays allowed.
+    """
+    api = getattr(receiver, "_api", None)
+    task = getattr(api, "_write_queue_task", None)
+    if task is None or task.done():
+        return
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        raise RuntimeError(
+            f"setting {name} from a thread with no running event loop is "
+            "unsafe: the write is enqueued via asyncio.Event.set(), which is "
+            "not thread-safe. Await the 2.0 coroutine from the loop instead "
+            "(see lyngdorf issue #51)."
+        ) from None
+
+
 class _CompatShims:
     """Mixin carrying every receiver-level shim. LyngdorfReceiver
     inherits it; 2.1 deletes the file and drops the base."""
@@ -68,10 +123,16 @@ class _CompatShims:
         _deprecated("mute_enabled", "muted")
         return self.muted
 
+    @mute_enabled.setter
+    def mute_enabled(self, enabled: bool) -> None:
+        _legacy_setter("mute_enabled", "await set_muted(...)")
+        _require_loop_thread(self, "mute_enabled")
+        self._api.mute_enabled(enabled)
+
     @property
     def volume_range(self) -> NumericRange:
         _deprecated("volume_range", "volume.range")
-        return self.volume.range
+        return self._volume.range
 
     @property
     def available_sources(self) -> list[str]:
@@ -114,11 +175,35 @@ class _CompatShims:
         ctl = self.trims.get(Trim.BASS)
         return ctl.value if ctl is not None else None
 
+    @trim_bass.setter
+    def trim_bass(self, value: float) -> None:
+        _legacy_setter("trim_bass", "await trims[Trim.BASS].set(...)")
+        _require_loop_thread(self, "trim_bass")
+        ctl = self.trims.get(Trim.BASS)
+        if ctl is None:
+            raise LyngdorfInvalidValueError(
+                f"trim_bass is not supported by model "
+                f"{self.model.config.model_name}"
+            )
+        ctl._send_set(value)
+
     @property
     def trim_treble(self) -> float | None:
         _deprecated("trim_treble", "trims[Trim.TREBLE].value")
         ctl = self.trims.get(Trim.TREBLE)
         return ctl.value if ctl is not None else None
+
+    @trim_treble.setter
+    def trim_treble(self, value: float) -> None:
+        _legacy_setter("trim_treble", "await trims[Trim.TREBLE].set(...)")
+        _require_loop_thread(self, "trim_treble")
+        ctl = self.trims.get(Trim.TREBLE)
+        if ctl is None:
+            raise LyngdorfInvalidValueError(
+                f"trim_treble is not supported by model "
+                f"{self.model.config.model_name}"
+            )
+        ctl._send_set(value)
 
     @property
     def trim_centre(self) -> float | None:
@@ -126,11 +211,35 @@ class _CompatShims:
         ctl = self.trims.get(Trim.CENTER)
         return ctl.value if ctl is not None else None
 
+    @trim_centre.setter
+    def trim_centre(self, value: float) -> None:
+        _legacy_setter("trim_centre", "await trims[Trim.CENTER].set(...)")
+        _require_loop_thread(self, "trim_centre")
+        ctl = self.trims.get(Trim.CENTER)
+        if ctl is None:
+            raise LyngdorfInvalidValueError(
+                f"trim_centre is not supported by model "
+                f"{self.model.config.model_name}"
+            )
+        ctl._send_set(value)
+
     @property
     def trim_height(self) -> float | None:
         _deprecated("trim_height", "trims[Trim.HEIGHT].value")
         ctl = self.trims.get(Trim.HEIGHT)
         return ctl.value if ctl is not None else None
+
+    @trim_height.setter
+    def trim_height(self, value: float) -> None:
+        _legacy_setter("trim_height", "await trims[Trim.HEIGHT].set(...)")
+        _require_loop_thread(self, "trim_height")
+        ctl = self.trims.get(Trim.HEIGHT)
+        if ctl is None:
+            raise LyngdorfInvalidValueError(
+                f"trim_height is not supported by model "
+                f"{self.model.config.model_name}"
+            )
+        ctl._send_set(value)
 
     @property
     def trim_lfe(self) -> float | None:
@@ -138,11 +247,34 @@ class _CompatShims:
         ctl = self.trims.get(Trim.LFE)
         return ctl.value if ctl is not None else None
 
+    @trim_lfe.setter
+    def trim_lfe(self, value: float) -> None:
+        _legacy_setter("trim_lfe", "await trims[Trim.LFE].set(...)")
+        _require_loop_thread(self, "trim_lfe")
+        ctl = self.trims.get(Trim.LFE)
+        if ctl is None:
+            raise LyngdorfInvalidValueError(
+                f"trim_lfe is not supported by model " f"{self.model.config.model_name}"
+            )
+        ctl._send_set(value)
+
     @property
     def trim_surround(self) -> float | None:
         _deprecated("trim_surround", "trims[Trim.SURROUND].value")
         ctl = self.trims.get(Trim.SURROUND)
         return ctl.value if ctl is not None else None
+
+    @trim_surround.setter
+    def trim_surround(self, value: float) -> None:
+        _legacy_setter("trim_surround", "await trims[Trim.SURROUND].set(...)")
+        _require_loop_thread(self, "trim_surround")
+        ctl = self.trims.get(Trim.SURROUND)
+        if ctl is None:
+            raise LyngdorfInvalidValueError(
+                f"trim_surround is not supported by model "
+                f"{self.model.config.model_name}"
+            )
+        ctl._send_set(value)
 
     @property
     def trim_bass_range(self) -> NumericRange | None:
@@ -191,22 +323,49 @@ class _CompatShims:
     @property
     def lipsync_range(self) -> NumericRange | None:
         _deprecated("lipsync_range", "lipsync.range")
-        return self.lipsync.range if self.lipsync is not None else None
+        return self._lipsync.range if self._lipsync is not None else None
 
     @property
     def zone_b_power_on(self) -> bool | None:
         _deprecated("zone_b_power_on", "zone_b.power_on")
         return self.zone_b.power_on if self.zone_b is not None else None
 
+    @zone_b_power_on.setter
+    def zone_b_power_on(self, enabled: bool) -> None:
+        _legacy_setter("zone_b_power_on", "await zone_b.set_power(...)")
+        _require_loop_thread(self, "zone_b_power_on")
+        self._require_zone_b("zone_b_power_on")
+        self._api.zone_b_power_on(enabled)
+
     @property
     def zone_b_mute_enabled(self) -> bool | None:
         _deprecated("zone_b_mute_enabled", "zone_b.muted")
         return self.zone_b.muted if self.zone_b is not None else None
 
+    @zone_b_mute_enabled.setter
+    def zone_b_mute_enabled(self, enabled: bool) -> None:
+        _legacy_setter("zone_b_mute_enabled", "await zone_b.set_muted(...)")
+        _require_loop_thread(self, "zone_b_mute_enabled")
+        self._require_zone_b("zone_b_mute_enabled")
+        self._api.zone_b_mute_enabled(enabled)
+
     @property
     def zone_b_source(self) -> str | None:
         _deprecated("zone_b_source", "zone_b.source")
         return self.zone_b.source if self.zone_b is not None else None
+
+    @zone_b_source.setter
+    def zone_b_source(self, name: str) -> None:
+        _legacy_setter("zone_b_source", "await zone_b.set_source(...)")
+        _require_loop_thread(self, "zone_b_source")
+        zone_b = self._require_zone_b("zone_b_source")
+        index = self._zone_b_sources.lookupIndex(name)
+        if index < 0:
+            raise LyngdorfInvalidValueError(
+                f"{name} is not a valid Zone B source name, and cannot be chosen"
+            )
+        del zone_b
+        self._api.change_zone_b_source(index)
 
     @property
     def zone_b_audio_input(self) -> str | None:
@@ -222,6 +381,13 @@ class _CompatShims:
     def zone_b_volume(self) -> float | None:
         _deprecated("zone_b_volume", "zone_b.volume.value")
         return self.zone_b.volume.value if self.zone_b is not None else None
+
+    @zone_b_volume.setter
+    def zone_b_volume(self, value: float) -> None:
+        _legacy_setter("zone_b_volume", "await zone_b.volume.set(...)")
+        _require_loop_thread(self, "zone_b_volume")
+        zone_b = self._require_zone_b("zone_b_volume")
+        zone_b.volume._send_set(value)
 
     @property
     def zone_b_volume_range(self) -> NumericRange | None:
@@ -322,7 +488,7 @@ class _CompatShims:
 
     def set_volume(self, value: float) -> Coroutine[Any, Any, None]:
         _deprecated("set_volume", "volume.set")
-        return self.volume.set(value)
+        return self._volume.set(value)
 
     def set_zone_b_volume(self, value: float) -> Coroutine[Any, Any, None]:
         _deprecated("set_zone_b_volume", "zone_b.volume.set")
@@ -335,11 +501,11 @@ class _CompatShims:
 
     def set_lipsync(self, ms: float) -> Coroutine[Any, Any, None]:
         _deprecated("set_lipsync", "lipsync.set")
-        if self.lipsync is None:
+        if self._lipsync is None:
             raise LyngdorfInvalidValueError(
                 f"lipsync is not supported by model " f"{self.model.config.model_name}"
             )
-        return self.lipsync.set(ms)
+        return self._lipsync.set(ms)
 
     def set_trim_bass(self, value: float) -> Coroutine[Any, Any, None]:
         _deprecated("set_trim_bass", "trims[Trim.BASS].set")
@@ -424,11 +590,11 @@ class _CompatShims:
 
     def volume_up(self) -> Coroutine[Any, Any, None]:
         _deprecated("volume_up", "volume.up")
-        return self.volume.up()
+        return self._volume.up()
 
     def volume_down(self) -> Coroutine[Any, Any, None]:
         _deprecated("volume_down", "volume.down")
-        return self.volume.down()
+        return self._volume.down()
 
     def zone_b_volume_up(self) -> Coroutine[Any, Any, None]:
         _deprecated("zone_b_volume_up", "zone_b.volume.up")
@@ -636,6 +802,29 @@ class _CompatShims:
             return lambda: None
         return self.player.on_position_jump(callback)
 
+    # -- 1.11-ONLY: the restored 1.x property setters --------------------------
+    #
+    # Attached at the end of the class body on purpose: `@name.setter`
+    # only needs `name` already bound in the class namespace, so keeping
+    # all eleven contiguous makes the 2.0 state one deletion rather than
+    # eleven edits interleaved through the read shims.
+    #
+    # Each mirrors its 1.x body and its 2.0 replacement's guards - same
+    # exception type, same message shape - so a consumer sees identical
+    # behaviour whichever surface it is on. The write itself goes through
+    # the control's sync sender rather than awaiting the coroutine: that
+    # IS the 1.x contract (enqueue and return), and it is what makes a
+    # setter possible at all.
+    def _require_zone_b(self, name: str) -> ZoneB:
+        """Guard for the Zone B setters, matching set_zone_b_volume's
+        existing exception type and message shape."""
+        zone_b = self.zone_b
+        if zone_b is None:
+            raise LyngdorfInvalidValueError(
+                f"{name} is not supported by model " f"{self.model.config.model_name}"
+            )
+        return zone_b
+
 
 async def _noop_raise_unsupported() -> bool:
     """Returns a coroutine that raises when awaited - for the
@@ -645,6 +834,7 @@ async def _noop_raise_unsupported() -> bool:
 
 # Registries for the completeness test — keep adjacent to the members so
 # a member added without a registry entry is visible in the same diff.
+
 
 SHIMMED_READS: frozenset[str] = frozenset(
     {

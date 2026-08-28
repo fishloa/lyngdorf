@@ -80,14 +80,33 @@ class TestReadShims:
         with pytest.warns(DeprecationWarning):
             assert tdai.zone_b_available_sources == []
 
-    def test_read_shims_are_read_only(self):
-        """D9 measured ruling: settability would buy fixtures nothing and
-        would BE a property setter. AttributeError on assignment."""
+    def test_restored_read_shims_are_writable_and_warn(self):
+        """1.11 INVERTS 2.0's read-only ruling for the 18 restored names.
+
+        2.0 asserted AttributeError on assignment. That is the behaviour
+        1.11 is published to suspend, so asserting it here would assert
+        the bug this release fixes. The write must land on the wire too -
+        a setter that warns and silently drops the value would satisfy a
+        "does it warn" test while doing nothing, which is the exact
+        failure mode the sync-bodied shims were designed against.
+        """
+        r = _receiver()
+        writes = _capture_writes(r)
+        with pytest.warns(DeprecationWarning):
+            r.mute_enabled = True
+        with pytest.warns(DeprecationWarning):
+            r.trim_bass = 3.0
+        assert writes, "the restored setters must reach the wire, not just warn"
+
+    def test_reads_that_were_never_1x_setters_stay_read_only(self):
+        """The inversion above is bounded. Only names that had a 1.x
+        setter get one back; a read shim that never had one must still
+        reject assignment, or 1.11 would be a wider surface than 1.10."""
         r = _receiver()
         with pytest.raises(AttributeError):
-            r.mute_enabled = True  # type: ignore[misc]
+            r.volume_range = None  # type: ignore[misc,assignment]
         with pytest.raises(AttributeError):
-            r.trim_bass = 3.0  # type: ignore[misc]
+            r.available_sources = []  # type: ignore[misc]
 
 
 class TestSyncBodiedWriteShims:

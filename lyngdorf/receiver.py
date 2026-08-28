@@ -21,7 +21,7 @@ from collections.abc import Callable, Mapping, Sequence
 
 import aiohttp
 
-from ._compat import _CompatShims
+from ._compat import _CompatShims, _legacy_setter, _require_loop_thread
 from .api import LyngdorfApi
 from .base import CountingNumberDict, register_in_list
 from .components import (
@@ -34,8 +34,9 @@ from .components import (
 )
 from .const import Msg
 from .controls import (
+    FloatNumericControl,
+    FloatSteppableControl,
     NumericControl,
-    SteppableControl,
     Trim,
     build_lipsync,
     build_trims,
@@ -244,16 +245,43 @@ class LyngdorfReceiver(_CompatShims):
     def power_on(self) -> bool | None:
         return self._power_on
 
+    @power_on.setter
+    def power_on(self, value: bool) -> None:
+        _legacy_setter("power_on", "await set_power(...)")
+        _require_loop_thread(self, "power_on")
+        self._api.power_on(value)
+
     async def set_power(self, on: bool) -> None:
         self._api.power_on(on)
 
     # -- volume & mute --------------------------------------------------------
 
     @property
-    def volume(self) -> SteppableControl:
+    def volume(self) -> FloatSteppableControl | None:
         """Main-zone volume - see NumericControl.range for the advisory
-        contract, and max_volume for the live user ceiling."""
-        return self._volume
+        contract, and max_volume for the live user ceiling.
+
+        1.11 ONLY. 2.0.0 returns a plain, always-present SteppableControl;
+        here the result is both a float (1.x) and a SteppableControl
+        (2.0), and is None until the device first reports a volume.
+
+        The None is not cosmetic, and it is not merely 1.x fidelity. A
+        consumer that guards `if receiver.volume is None` - as it must,
+        because 1.10 typed this `float | None` - would have that guard
+        become statically unreachable if this could never be None, and
+        Home Assistant type-checks with warn_unreachable. Removing the
+        None here would therefore not preserve their build; it would
+        break it in a new way.
+        """
+        if self._volume.value is None:
+            return None
+        return FloatSteppableControl(self._volume)
+
+    @volume.setter
+    def volume(self, value: float) -> None:
+        _legacy_setter("volume", "await volume.set(...)")
+        _require_loop_thread(self, "volume")
+        self._volume._send_set(value)
 
     @property
     def max_volume(self) -> float | None:
@@ -303,6 +331,17 @@ class LyngdorfReceiver(_CompatShims):
     def source(self) -> str | None:
         return self._source
 
+    @source.setter
+    def source(self, value: str) -> None:
+        _legacy_setter("source", "await set_source(...)")
+        _require_loop_thread(self, "source")
+        index = self._sources.lookupIndex(value)
+        if index < 0:
+            raise LyngdorfInvalidValueError(
+                f"{value} is not a valid source name, and cannot be chosen"
+            )
+        self._api.change_source(index)
+
     @property
     def sources(self) -> list[str]:
         return list(self._sources.values())
@@ -321,6 +360,17 @@ class LyngdorfReceiver(_CompatShims):
     def sound_mode(self) -> str | None:
         return self._sound_mode
 
+    @sound_mode.setter
+    def sound_mode(self, value: str) -> None:
+        _legacy_setter("sound_mode", "await set_sound_mode(...)")
+        _require_loop_thread(self, "sound_mode")
+        index = self._sound_modes.lookupIndex(value)
+        if index < 0:
+            raise LyngdorfInvalidValueError(
+                f"{value} is not a valid sound mode name, and cannot be chosen"
+            )
+        self._api.change_sound_mode(index)
+
     @property
     def sound_modes(self) -> list[str]:
         return list(self._sound_modes.values())
@@ -337,6 +387,17 @@ class LyngdorfReceiver(_CompatShims):
     def room_perfect_position(self) -> str | None:
         return self._room_perfect_position
 
+    @room_perfect_position.setter
+    def room_perfect_position(self, value: str) -> None:
+        _legacy_setter("room_perfect_position", "await set_room_perfect_position(...)")
+        _require_loop_thread(self, "room_perfect_position")
+        index = self._room_perfect_positions.lookupIndex(value)
+        if index < 0:
+            raise LyngdorfInvalidValueError(
+                f"{value} is not a valid RoomPerfect position, and cannot be chosen"
+            )
+        self._api.change_room_perfect_position(index)
+
     @property
     def room_perfect_positions(self) -> list[str]:
         return list(self._room_perfect_positions.values())
@@ -352,6 +413,17 @@ class LyngdorfReceiver(_CompatShims):
     @property
     def voicing(self) -> str | None:
         return self._voicing
+
+    @voicing.setter
+    def voicing(self, value: str) -> None:
+        _legacy_setter("voicing", "await set_voicing(...)")
+        _require_loop_thread(self, "voicing")
+        index = self._voicings.lookupIndex(value)
+        if index < 0:
+            raise LyngdorfInvalidValueError(
+                f"{value} is not a valid voicing, and cannot be chosen"
+            )
+        self._api.change_voicing(index)
 
     @property
     def voicings(self) -> list[str]:
@@ -408,10 +480,28 @@ class LyngdorfReceiver(_CompatShims):
         return self._trims
 
     @property
-    def lipsync(self) -> NumericControl | None:
+    def lipsync(self) -> FloatNumericControl | None:
         """None on the whole TDAI family. .range is the LIVE LIPSYNCRANGE
-        value, seeded from the documented default."""
-        return self._lipsync
+        value, seeded from the documented default.
+
+        1.11 ONLY - both a float and a NumericControl; see `volume`. None
+        now covers two cases that 1.10 and 2.0 each covered separately:
+        the model has no lipsync at all, and it has one the device has
+        not reported yet. Both were already None to a 1.x caller.
+        """
+        if self._lipsync is None or self._lipsync.value is None:
+            return None
+        return FloatNumericControl(self._lipsync)
+
+    @lipsync.setter
+    def lipsync(self, value: float) -> None:
+        _legacy_setter("lipsync", "await lipsync.set(...)")
+        _require_loop_thread(self, "lipsync")
+        if self._lipsync is None:
+            raise LyngdorfInvalidValueError(
+                f"lipsync is not supported by model {self.model.config.model_name}"
+            )
+        self._lipsync._send_set(value)
 
     # -- components -------------------------------------------------------------
 

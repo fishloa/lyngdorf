@@ -147,3 +147,72 @@ async def _pause(player: Player) -> bool:
 #     # error: Property "power_on" defined in "LyngdorfReceiver" is
 #     #   read-only  [misc]
 #     receiver.power_on = True
+
+
+# ---------------------------------------------------------------------------
+# 1.11 ONLY: both surfaces, type-checked together.
+#
+# This is the release's entire thesis as a compile test. A consumer
+# migrating platform by platform has, mid-migration, 1.x call sites and
+# 2.0 call sites in the same tree against the same pin. If both do not
+# type-check at once, the migration cannot be split into separate PRs and
+# 1.11.0 has no reason to exist.
+#
+# Deleted with the rest of the compat layer.
+# ---------------------------------------------------------------------------
+
+
+def legacy_reads_volume_as_a_float(receiver: LyngdorfReceiver) -> float | None:
+    """1.10 shape: the value IS the property, and may be None."""
+    volume = receiver.volume
+    if volume is None:
+        return None
+    return volume / 2.0  # arithmetic on it, as 1.x code does
+
+
+async def modern_sets_volume_through_the_control(receiver: LyngdorfReceiver) -> None:
+    """2.0 shape, same pin, same property."""
+    volume = receiver.volume
+    if volume is not None:
+        await volume.set(-25.0)
+        await volume.up()
+
+
+def modern_passes_volume_where_a_control_is_wanted(
+    receiver: LyngdorfReceiver,
+) -> tuple[float, float, float] | None:
+    """The dual type is a real NumericControl, not a look-alike: it
+    satisfies a signature written against the 2.0 surface."""
+    volume = receiver.volume
+    return None if volume is None else entity_bounds(volume)
+
+
+def legacy_assigns_the_restored_setters(receiver: LyngdorfReceiver) -> None:
+    """The 18 restored setters, in the shapes 1.x consumers use. Every
+    one of these is a `[misc] read-only` error against 2.0.0 - that is
+    the wall this release exists to remove."""
+    receiver.volume = -25.0
+    receiver.power_on = True
+    receiver.mute_enabled = True
+    receiver.source = "Apple TV"
+    receiver.sound_mode = "Stereo"
+    receiver.voicing = "Neutral"
+    receiver.room_perfect_position = "Focus 1"
+    receiver.lipsync = 80.0
+    receiver.trim_bass = 3.0
+    receiver.zone_b_volume = -30.0
+
+
+# --- Negative cases: each MUST fail. Uncomment one to verify the pin. ---
+#
+# def volume_is_not_unconditionally_a_float(receiver: LyngdorfReceiver) -> float:
+#     # error: Incompatible return value type (got "FloatSteppableControl |
+#     #   None", expected "float")  [return-value]
+#     return receiver.volume
+#
+# async def a_non_steppable_dual_control_cannot_step(
+#     receiver: LyngdorfReceiver,
+# ) -> None:
+#     # error: "FloatNumericControl" has no attribute "up"  [attr-defined]
+#     if (lipsync := receiver.lipsync) is not None:
+#         await lipsync.up()

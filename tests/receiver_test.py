@@ -71,11 +71,16 @@ class TestStructuralCapability:
         mapping key, never a method that raises."""
         r = LyngdorfReceiver(FAKE_IP, model)
         config = model.config
-        assert isinstance(r.volume, SteppableControl)
+        # 1.11: `volume` is a value view, None until the device reports.
+        # The structural question this test asks - does the model HAVE a
+        # volume control - is therefore asked of the control itself.
+        assert isinstance(r._volume, SteppableControl)
+        assert r.volume is None, "no device report yet, so no float view"
         assert (r.zone_b is not None) is config.has_zone_b
         assert (r.player is not None) is config.has_streaming
         assert (r.remote is not None) is bool(config.available_remote_keys())
-        assert (r.lipsync is not None) is (config.lipsync_default_range is not None)
+        assert (r._lipsync is not None) is (config.lipsync_default_range is not None)
+        assert r.lipsync is None, "no device report yet, so no float view"
         expected_bands = {
             band
             for band, field_name in (
@@ -120,10 +125,13 @@ class TestWireEventRouting:
         documented default is overwritten by !LIPSYNCRANGE(min,max)
         (comma-packed in one field - spec §9 item 7)."""
         r, _ = _prepared(LyngdorfModel.MP_60)
-        assert r.lipsync is not None
-        assert r.lipsync.range == NumericRange(min=0.0, max=500.0, step=1.0)
+        # Asked of the control, not the 1.11 value view: a range is
+        # available before any value has been reported, which is what
+        # 1.10 did and what the seeded-default contract means.
+        assert r._lipsync is not None
+        assert r._lipsync.range == NumericRange(min=0.0, max=500.0, step=1.0)
         _process_event(r, "!LIPSYNCRANGE(0,450)")
-        assert r.lipsync.range == NumericRange(min=0.0, max=450.0, step=1.0)
+        assert r._lipsync.range == NumericRange(min=0.0, max=450.0, step=1.0)
 
     def test_zone_b_events_route_into_the_component(self):
         r, _ = _prepared(LyngdorfModel.MP_60)
@@ -148,8 +156,25 @@ class TestWrites:
         r, writes = _prepared(LyngdorfModel.MP_60)
         await r.set_power(True)
         await r.set_muted(True)
-        await r.volume.set(-25.0)
+        _process_event(r, "!VOL(-100)")  # 1.11: no float view before a report
+        volume = r.volume
+        assert volume is not None
+        await volume.set(-25.0)
         assert writes[-3:] == ["POWERONMAIN", "MUTEON", "VOL(-250)"]
+
+    @pytest.mark.asyncio
+    async def test_legacy_setter_reaches_the_wire_identically(self):
+        """The 1.11 point: both surfaces produce the same bytes, so a
+        consumer can migrate call sites one at a time on one pin."""
+        r, writes = _prepared(LyngdorfModel.MP_60)
+        _process_event(r, "!VOL(-100)")
+        with pytest.warns(DeprecationWarning):
+            r.volume = -25.0
+        legacy = writes[-1]
+        volume = r.volume
+        assert volume is not None
+        await volume.set(-25.0)
+        assert legacy == writes[-1] == "VOL(-250)"
 
     @pytest.mark.asyncio
     async def test_set_source_validates_name_and_sends_index(self):
@@ -162,14 +187,47 @@ class TestWrites:
         with pytest.raises(LyngdorfInvalidValueError):
             await r.set_source("Nope")
 
-    def test_no_property_setter_exists_anywhere_on_the_class(self):
-        """spec §3/D9: zero writable properties - the async rule's
-        self-enforcing half. Checked over every property on the class
-        (including, after Task 2, the shim mixin's)."""
+    def test_exactly_the_eighteen_1x_setters_are_restored(self):
+        """1.11 INVERTS 2.0's zero-writable-properties rule, and this is
+        the test that was asserting it.
+
+        Pinned as an exact set, not a count and not "at least these":
+        1.11 is a bridge whose whole value is being 1.10's surface plus
+        2.0's surface and nothing else. A nineteenth setter would be a
+        name that never existed in 1.10, so no consumer could be relying
+        on it, and it would have to be removed again in 2.0 - a breaking
+        change introduced by the release whose purpose is to avoid one.
+
+        The list is written out rather than imported from _compat so that
+        deleting a setter cannot silently delete its own test.
+        """
+        expected = {
+            "volume",
+            "lipsync",
+            "power_on",
+            "source",
+            "sound_mode",
+            "room_perfect_position",
+            "voicing",
+            "mute_enabled",
+            "zone_b_volume",
+            "zone_b_mute_enabled",
+            "zone_b_source",
+            "zone_b_power_on",
+            "trim_bass",
+            "trim_treble",
+            "trim_centre",
+            "trim_height",
+            "trim_lfe",
+            "trim_surround",
+        }
+        assert len(expected) == 18
+        found = set()
         for klass in type(LyngdorfReceiver("x", LyngdorfModel.MP_60)).__mro__:
             for name, member in vars(klass).items():
-                if isinstance(member, property):
-                    assert member.fset is None, f"{name} has a setter"
+                if isinstance(member, property) and member.fset is not None:
+                    found.add(name)
+        assert found == expected
 
 
 class TestOnChange:
