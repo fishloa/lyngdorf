@@ -318,44 +318,29 @@ class TestLipsyncFactory:
         assert not isinstance(lipsync, SteppableControl)
 
 
-class TestValueAgreesWithStep:
-    """Issue #56. A control advertising `step=1.0` must not hold `50.0`.
+class TestLipsyncIsIntegral:
+    """Issue #56, and the SCOPE of it, which was decided twice.
 
-    None of these existed when the coercion was written, and the whole
-    suite passed both before and after it - a behaviour change visible in
-    every consumer's UI moved nothing at all here. The library's own
-    tests were as blind to value TYPE as the consumer fixture that read
-    `50` while the live value had become `50.0`.
+    A general coercion was implemented first: snap every value to its
+    control's `range.step` and store an int where that step is integral.
+    Correct, and it also caught bass/treble on the TDAI family, whose
+    step is 1.0 where the MP family's is 0.1.
+
+    Scoped back to lipsync alone. Both versions were correct, so
+    correctness was not the deciding axis - cost was. Restoring lipsync
+    nets ZERO user-visible change across the upgrade (`int` in 1.10,
+    float in 1.11/2.0.1, `int` again now). Coercing the TDAI trims would
+    net ONE, newly introduced, for owners who never had a defect:
+    `convert_decibel` has returned a float on every path in every
+    version, so a template comparing bass to "3.0" would break so that a
+    value could stop contradicting a step nobody reads.
+
+    The general form is the right end state and is recorded on #56 as
+    consciously scoped out - to be done in a release where it is the
+    announced change rather than a side effect of a lipsync fix. These
+    tests pin the narrow behaviour so that reinstating it is a decision
+    rather than an accident.
     """
-
-    @pytest.mark.parametrize("model", list(LyngdorfModel))
-    def test_no_control_holds_a_value_its_step_forbids(self, model):
-        """The population form, deliberately: over every control on every
-        model, not over lipsync by name. The defect was never that one
-        annotation was wrong - it was that nothing asked the question of
-        the surface as a whole."""
-        r = LyngdorfReceiver("127.0.0.1", model)
-        controls = [("volume", r.volume)]
-        if r._lipsync is not None:
-            controls.append(("lipsync", r._lipsync))
-        if r.zone_b is not None:
-            controls.append(("zone_b.volume", r.zone_b.volume))
-        controls += [(f"trims[{t.value}]", c) for t, c in r.trims.items()]
-
-        for name, ctl in controls:
-            step = ctl.range.step
-            ctl._update_value(3.7)
-            value = ctl.value
-            assert value is not None
-            if step == int(step):
-                assert isinstance(value, int), (
-                    f"{model.name} {name} advertises step={step} but holds "
-                    f"{value!r}, which renders as {str(value)!r}"
-                )
-            assert abs(round(value / step) * step - value) < 1e-9, (
-                f"{model.name} {name} holds {value!r}, not a multiple of "
-                f"step={step}"
-            )
 
     def test_lipsync_is_an_int_restoring_1x_behaviour(self):
         """1.10 did `self._lipsync = int(param1)` and typed the property
@@ -363,34 +348,48 @@ class TestValueAgreesWithStep:
         a consumer renders - `50` to `50.0` - breaking recorded history
         and templates comparing against "50"."""
         r = LyngdorfReceiver("127.0.0.1", LyngdorfModel.MP_60)
+        r._register_callbacks()
+        r._lipsync_callback("50", "")
         assert r._lipsync is not None
-        r._lipsync._update_value(50.0)
         assert r._lipsync.value == 50
         assert isinstance(r._lipsync.value, int)
-        assert str(r._lipsync.value) == "50"
+        assert str(r._lipsync.value) == "50", "the state string is the point"
 
-    def test_fractional_controls_are_untouched(self):
-        """The coercion is keyed off the step, so anything genuinely
-        fractional must be left alone. Volume steps 0.1 on every model."""
+    def test_lipsync_survives_a_fractional_wire_value(self):
+        """1.x used `int(param1)`, which raises ValueError on "50.0".
+        This path uses `round(float(...))`, so a device answering in that
+        form still yields an int rather than crashing the callback."""
         r = LyngdorfReceiver("127.0.0.1", LyngdorfModel.MP_60)
-        r.volume._update_value(-40.5)
-        assert r.volume.value == -40.5
-        assert isinstance(r.volume.value, float)
+        r._register_callbacks()
+        r._lipsync_callback("50.0", "")
+        assert r._lipsync is not None
+        assert r._lipsync.value == 50
+        assert isinstance(r._lipsync.value, int)
 
-    def test_tdai_bass_and_treble_are_also_coerced(self):
-        """Not lipsync-only, and this is the part a consumer must know:
-        the TDAI family steps bass/treble by 1.0 where the MP family
-        steps by 0.1, so those states change format too."""
-        tdai = LyngdorfReceiver("127.0.0.1", LyngdorfModel.TDAI_3400)
-        mp = LyngdorfReceiver("127.0.0.1", LyngdorfModel.MP_60)
-        tdai_bass = tdai.trims[Trim.BASS]
-        mp_bass = mp.trims[Trim.BASS]
-        tdai_bass._update_value(3.0)
-        mp_bass._update_value(3.0)
-        assert isinstance(tdai_bass.value, int), "TDAI steps bass by 1.0"
-        assert isinstance(mp_bass.value, float), "MP steps bass by 0.1"
+    @pytest.mark.parametrize("model", list(LyngdorfModel))
+    def test_nothing_else_is_coerced(self, model):
+        """The scoping, pinned over every control on every model rather
+        than over the TDAI trims by name.
 
-    def test_none_survives_coercion(self):
+        TDAI bass/treble are the ones that would move under the general
+        form - step 1.0 against the MP family's 0.1 - and they must not.
+        Written as a population because the previous version of this
+        file asserted the opposite, and a by-name test would leave the
+        other nine models unexamined either way.
+        """
+        r = LyngdorfReceiver("127.0.0.1", model)
+        controls = [("volume", r.volume)]
+        if r.zone_b is not None:
+            controls.append(("zone_b.volume", r.zone_b.volume))
+        controls += [(f"trims[{t.value}]", c) for t, c in r.trims.items()]
+        for name, ctl in controls:
+            ctl._update_value(3.0)
+            assert isinstance(ctl.value, float), (
+                f"{model.name} {name} was coerced to "
+                f"{type(ctl.value).__name__}; only lipsync is integral"
+            )
+
+    def test_none_survives(self):
         r = LyngdorfReceiver("127.0.0.1", LyngdorfModel.MP_60)
         r.volume._update_value(None)
         assert r.volume.value is None

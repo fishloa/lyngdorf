@@ -746,8 +746,42 @@ class LyngdorfReceiver(_CompatShims):
         self._notify_notification_callbacks()
 
     def _lipsync_callback(self, param1: str, param2: str) -> None:
+        """Store lipsync as an INT, as 1.x did (issue #56).
+
+        1.10 did `self._lipsync = int(param1)` and typed the property
+        `int | None`. 2.0 folded lipsync into NumericControl, whose value
+        is `float | None` for volume and the trims, and every value
+        became a float - so a consumer saw `50.0` where 1.x gave `50`.
+        That is the entity's state STRING in Home Assistant, so it
+        changes recorded history and breaks templates comparing against
+        "50". Nobody decided it; it fell out of the refactor.
+
+        The coercion lives here rather than in NumericControl, and that
+        is the narrower of two options that were both implemented. The
+        general form keyed off `range.step`, so any control the device
+        treats as integral agreed with its own step - correct, and it
+        also caught bass/treble on the TDAI family, whose step is 1.0
+        where the MP family's is 0.1.
+
+        Scoped back to lipsync because correctness was not the deciding
+        axis - both versions are correct. Cost was. Restoring lipsync is
+        a net-zero change across the upgrade: `int` in 1.10, float in
+        1.11/2.0.1, `int` again here. Coercing the TDAI trims would have
+        been a NEW user-visible change for owners who never had a
+        defect, since `convert_decibel` has returned a float on every
+        path in every version - spending a broken template on tidiness a
+        step nobody reads.
+
+        The general form remains the right end state and is recorded in
+        #56 as consciously scoped out, to be done in a release where it
+        is the announced change rather than a side effect of this one.
+
+        `round(float(...))` rather than 1.x's `int(param1)`: it yields an
+        int just the same, and survives a device that answers "50.0"
+        where 1.x would have raised ValueError.
+        """
         if (ls := self._lipsync) is not None:
-            ls._update_value(float(param1))
+            ls._update_value(round(float(param1)))
         self._notify_notification_callbacks()
 
     def _lipsync_range_callback(self, param1: str, ignored: str) -> None:
