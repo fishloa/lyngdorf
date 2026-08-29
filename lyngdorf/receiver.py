@@ -257,8 +257,27 @@ class LyngdorfReceiver(_CompatShims):
 
     @property
     def max_volume(self) -> float | None:
-        """The device's current MAXVOL setting, in dB, or None on models
-        that do not report it. The MP and P families both map
+        """The device's current MAXVOL setting, in dB.
+
+        None means TWO things here, and the type does not distinguish
+        them: the model has no MAXVOL command at all (the whole TDAI
+        family), or it has one and has not reported a value yet. The
+        second flips at runtime, so `max_volume is None` is NOT a
+        capability check - on an MP it is None at construction and
+        non-None once the device answers.
+
+        An earlier version of this docstring said "or None on models that
+        do not report it", which states only the structural half and
+        reads like a capability test. It is the last place in the package
+        where a None on the receiver varies at runtime: every component
+        (`player`, `zone_b`, `remote`), the `trims` keys and `lipsync`
+        are all structural, fixed at construction. Making this one
+        structural too means moving it onto the volume control, where it
+        belongs - it is a property of the volume, not of the receiver -
+        and that is a breaking change, so it is held for 2.1 (issue #54)
+        rather than overlooked.
+
+        The MP and P families both map
         Msg.MAX_VOLUME (docs/mp-40.md, docs/mp-50.md, docs/mp-60.md,
         docs/p-series.md all document `!MAXVOL`) - contrary to issue #40's
         original premise that this was MP-only. The TDAI family's manuals

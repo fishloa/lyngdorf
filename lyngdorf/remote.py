@@ -160,7 +160,15 @@ def resolve_remote_key(value: str | RemoteKey) -> RemoteKey | None:
     if isinstance(value, RemoteKey):
         return value
     if not isinstance(value, str):
-        return None
+        # Statically unreachable given the annotation - the parameter is
+        # `str | RemoteKey` and RemoteKey is handled above - and kept
+        # deliberately. Values reach this from a consumer's untyped
+        # edges: Home Assistant passes whatever a user typed into a
+        # service call, whatever the signature says. Returning None lets
+        # the caller raise one error naming the bad value and the model's
+        # supported keys; deleting it turns that into an AttributeError
+        # from .strip().
+        return None  # type: ignore[unreachable]
     try:
         return RemoteKey(value.strip().lower())
     except ValueError:

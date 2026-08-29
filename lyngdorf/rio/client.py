@@ -152,7 +152,14 @@ class RioClient:
                 # lock; re-check under it so we don't establish (and leak) a
                 # second connection.
                 if self.healthy:
-                    return
+                    # mypy narrows `healthy` to False from the `while`
+                    # condition and does not re-widen it across the await
+                    # on the lock, so it calls this unreachable. It is
+                    # not: re-checking UNDER the lock is the entire point,
+                    # since another attempt may have connected while this
+                    # one waited. Deleting it reinstates the duplicate-
+                    # connection leak the comment above describes.
+                    return  # type: ignore[unreachable]
                 try:
                     await self._async_establish_connection()
                 except Exception:  # pylint: disable=broad-except

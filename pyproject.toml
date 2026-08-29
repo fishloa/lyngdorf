@@ -68,6 +68,11 @@ warn_return_any = true
 no_implicit_reexport = true
 strict_equality = true
 extra_checks = true
+# Home Assistant's generated mypy.ini sets this, and a library has no
+# business reasoning about a consumer's dead code while running a weaker
+# check than the consumer does. Adopted after a shape shipped here that
+# would have forced a None guard their gate then rejected as unreachable.
+warn_unreachable = true
 
 # The D9 shim mixin (_CompatShims) uses TYPE_CHECKING to inherit from
 # LyngdorfReceiver's full surface, but the import cycle
