@@ -431,26 +431,33 @@ class LyngdorfReceiver(_CompatShims):
         """None on the whole TDAI family. .range is the LIVE LIPSYNCRANGE
         value, seeded from the documented default.
 
-        `.value` is a FLOAT, and 1.10's `lipsync` was an `int`. The
-        device deals in whole milliseconds, so a consumer sees `50.0`
-        where 1.10 gave `50` - a visible difference in a UI, in history
-        and in templates, and a real behaviour change across the major
-        version that was never called out.
+        `.value` is a FLOAT, and 1.10's `lipsync` was an `int`. KNOWN
+        DEFECT, not a design choice - issue #56, fixed in 2.1 where it is
+        free, and not before for the reason recorded there.
 
-        It is a consequence of folding lipsync into NumericControl,
-        whose `value` is `float | None` because volume and the trims are
-        genuinely fractional. Incidental rather than considered - but
-        kept deliberately now that it has been looked at, because a
-        per-control value type would push a union onto every consumer to
-        spare one control a trailing zero, and two things already carry
-        the integer-ness where it matters: `range.step` is 1.0 here
-        against 0.1 for volume, which is the machine-readable signal a
-        consumer should branch on, and the wire encoder coerces anyway -
-        `set(50.4)` sends `LIPSYNC(50)`. Nothing downstream can receive a
-        fractional lipsync.
+        A consumer sees `50.0` where 1.x gave `50`. In Home Assistant
+        that is the entity's state string, so it changes recorded history
+        and breaks templates comparing against "50". It has already
+        reached users: adopting the control-based read changed the format
+        at that moment, unannounced because unknown.
 
-        A consumer that wants to render whole milliseconds should format
-        from `range.step`, not special-case this property."""
+        It followed from folding lipsync into NumericControl, whose
+        `value` is `float | None` because volume and the trims are
+        genuinely fractional. An earlier version of this docstring
+        defended it, on the grounds that a per-control value type would
+        push a union onto every consumer to spare one control a trailing
+        zero. That misdescribed the case, and is corrected here rather
+        than deleted so the argument is not made a third time: lipsync's
+        integer-ness is STRUCTURAL. All six models with lipsync have step
+        1.0, `_lipsync_range_callback` hardcodes that step instead of
+        reading it from the device, and `build_lipsync` states that no
+        model steps lipsync. A control advertising `step=1.0` while
+        holding `50.0` contradicts itself.
+
+        No union is needed to fix it - an `int` satisfies a `float`
+        annotation under the numeric tower - and note for whoever does:
+        snapping to the step is NOT enough, `round(50.0 / 1.0) * 1.0` is
+        `50.0` and still renders "50.0". It must be coerced."""
         return self._lipsync
 
     # -- components -------------------------------------------------------------
