@@ -429,7 +429,28 @@ class LyngdorfReceiver(_CompatShims):
     @property
     def lipsync(self) -> NumericControl | None:
         """None on the whole TDAI family. .range is the LIVE LIPSYNCRANGE
-        value, seeded from the documented default."""
+        value, seeded from the documented default.
+
+        `.value` is a FLOAT, and 1.10's `lipsync` was an `int`. The
+        device deals in whole milliseconds, so a consumer sees `50.0`
+        where 1.10 gave `50` - a visible difference in a UI, in history
+        and in templates, and a real behaviour change across the major
+        version that was never called out.
+
+        It is a consequence of folding lipsync into NumericControl,
+        whose `value` is `float | None` because volume and the trims are
+        genuinely fractional. Incidental rather than considered - but
+        kept deliberately now that it has been looked at, because a
+        per-control value type would push a union onto every consumer to
+        spare one control a trailing zero, and two things already carry
+        the integer-ness where it matters: `range.step` is 1.0 here
+        against 0.1 for volume, which is the machine-readable signal a
+        consumer should branch on, and the wire encoder coerces anyway -
+        `set(50.4)` sends `LIPSYNC(50)`. Nothing downstream can receive a
+        fractional lipsync.
+
+        A consumer that wants to render whole milliseconds should format
+        from `range.step`, not special-case this property."""
         return self._lipsync
 
     # -- components -------------------------------------------------------------
