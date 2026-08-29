@@ -123,11 +123,27 @@ class NumericControl:
         without anyone deciding to. See issue #56.
 
         Coercion is keyed off the step rather than off the control's
-        name, so it holds for anything the device treats as integral -
-        lipsync on all six models that have it, and bass/treble on the
-        TDAI family, whose step is 1.0 where the MP family's is 0.1. No
+        name, so it holds for anything the device treats as integral. No
         annotation changes: an `int` satisfies `float` under Python's
         numeric tower, so no consumer sees a union.
+
+        That makes this TWO changes, not one, and only the first is a
+        restoration. Worth keeping separate, because the second needs
+        announcing and the first does not:
+
+        - lipsync, on all six models that have it: `int` in 1.10, float
+          in 2.0.0/2.0.1, `int` again here. Puts back what 2.0 changed
+          by accident.
+        - bass and treble on the TDAI family, whose step is 1.0 where
+          the MP family's is 0.1: float in 1.10, 1.11 AND 2.0.1, `int`
+          here for the first time. `convert_decibel` returns a float on
+          every path and always has, so a TDAI owner's bass trim goes
+          `3.0` to `3` having never had a defect.
+
+        The second is kept anyway, in a major version, because the
+        principle does not admit exceptions: `!BASS`/`!TREBLE` are whole
+        dB on that family, and a control advertising `step=1.0` while
+        holding `3.0` contradicts itself whichever control it is.
 
         Note for anyone revisiting this: snapping alone is NOT enough.
         `round(50.0 / 1.0) * 1.0` is `50.0` and still renders "50.0".
