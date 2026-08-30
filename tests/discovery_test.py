@@ -297,3 +297,53 @@ class TestSessionOwnership:
             r._api.async_disconnect = self._noop_disconnect  # type: ignore[method-assign]
             await r.disconnect()
             assert not injected.closed
+
+
+class TestNoBlockingCalls:
+    """Home Assistant's `async-dependency` rule, pinned.
+
+    "your library should also use asyncio. There are no exceptions to
+    this rule." Written as an absolute, so evidence that other platinum
+    libraries use executors does not help - it would be arguing against
+    the rule's text in review.
+
+    Spec decision D8 ruled the SSDP executor hop acceptable on exactly
+    that evidence. D8 is reversed; these tests are what stop it coming
+    back, because the executor form is the obvious way to write a
+    blocking socket call and nothing else in the suite would object.
+    """
+
+    def test_the_library_contains_no_executor_or_thread_offload(self):
+        """Population form, over every source file. A test naming
+        discovery.py would pass while the next blocking call went into
+        streaming/ or rio/."""
+        import pathlib
+
+        offenders = []
+        root = pathlib.Path(__file__).parent.parent / "lyngdorf"
+        for path in sorted(root.rglob("*.py")):
+            text = path.read_text()
+            for marker in ("run_in_executor", "to_thread", "ThreadPoolExecutor"):
+                if marker in text:
+                    offenders.append(f"{path.relative_to(root.parent)}: {marker}")
+        assert (
+            not offenders
+        ), "Home Assistant's async-dependency rule admits no exceptions: " + ", ".join(
+            offenders
+        )
+
+    @pytest.mark.asyncio
+    async def test_ssdp_search_spawns_no_thread(self):
+        """The observable form of the same thing. A future rewrite could
+        drop the literal `run_in_executor` and still offload - this
+        counts threads instead of reading source.
+
+        Points at an address that will not answer, so it exercises the
+        timeout path: the failing case is the one most likely to be
+        implemented with a blocking socket.
+        """
+        import threading
+
+        before = threading.active_count()
+        assert await discover_ssdp_location("192.0.2.1", timeout=0.5) is None
+        assert threading.active_count() == before, "SSDP search offloaded to a thread"

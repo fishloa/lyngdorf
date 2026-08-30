@@ -120,50 +120,44 @@ async def discover_ssdp_location(host: str, timeout: float = 5.0) -> str | None:
     session here would misstate what it does (spec §2.1).
     """
 
-    def _search() -> str | None:
-        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
-        sock.settimeout(timeout)
-        try:
-            sock.sendto(_SSDP_MSEARCH, (host, _SSDP_PORT))
-            data, _ = sock.recvfrom(4096)
+    loop = asyncio.get_running_loop()
+    reply: asyncio.Future[str] = loop.create_future()
+
+    class _Protocol(asyncio.DatagramProtocol):
+        def datagram_received(self, data: bytes, addr: object) -> None:
+            if reply.done():
+                return
             for line in data.decode(errors="replace").splitlines():
                 if line.lower().startswith("location:"):
-                    return line.split(":", 1)[1].strip()
-        except (OSError, TimeoutError):
-            pass
-        finally:
-            sock.close()
+                    reply.set_result(line.split(":", 1)[1].strip())
+                    return
+
+        def error_received(self, exc: Exception) -> None:
+            # ICMP port-unreachable and friends. Fail fast rather than
+            # sitting out the whole timeout for a host that has answered.
+            if not reply.done():
+                reply.set_exception(exc)
+
+    try:
+        transport, _ = await loop.create_datagram_endpoint(
+            _Protocol, local_addr=("0.0.0.0", 0), family=socket.AF_INET
+        )
+    except OSError:
+        _LOGGER.debug("SSDP search to %s could not open a socket", host)
         return None
 
-    # ------------------------------------------------------------------
-    # This is the library's ONE run_in_executor, and it is deliberate.
-    # Do not "fix" it into an asyncio datagram endpoint.
-    #
-    # Ruled in spec D8 on evidence from Home Assistant (#50): of the 86
-    # libraries behind platinum-tier integrations, 17 use run_in_executor,
-    # to_thread or a thread pool — several for exactly this class of
-    # blocking socket call. `xknx/io/util.py:93` offloading
-    # socket.gethostbyname is the direct parallel; aioshelly offloads
-    # address resolution, brother SNMP engine setup, androidtvremote2 a
-    # cert-chain load. The practical `async-dependency` bar is "nothing
-    # blocks the event loop", not "no thread ever".
-    #
-    # The hop is bounded twice — sock.settimeout(timeout) stops the
-    # thread, wait_for(timeout + 1) stops the await — discovery-time
-    # only, and avoidable: a caller with an ssdp_location calls
-    # fetch_device_serial directly and never reaches here. HA owns SSDP
-    # scanning centrally (46 integrations declare ssdp: matchers), so
-    # this must not be grown either; it serves manual entry, which exists
-    # precisely for the devices HA's scanner did not see.
-    # ------------------------------------------------------------------
-    loop = asyncio.get_running_loop()
     try:
-        return await asyncio.wait_for(
-            loop.run_in_executor(None, _search), timeout=timeout + 1
-        )
+        # NOT connected to the remote: the address goes on the datagram.
+        # A connected socket would drop a reply arriving from any source
+        # port other than 1900, and a device is not obliged to answer
+        # from the port it was asked on.
+        transport.sendto(_SSDP_MSEARCH, (host, _SSDP_PORT))
+        return await asyncio.wait_for(reply, timeout)
     except (TimeoutError, OSError):
         _LOGGER.debug("SSDP search to %s failed", host)
         return None
+    finally:
+        transport.close()
 
 
 async def fetch_device_serial(
