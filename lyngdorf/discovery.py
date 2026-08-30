@@ -175,6 +175,28 @@ async def fetch_device_serial(
     """Fetch the UPnP description XML at `location` and extract the
     device serial. Pure HTTP via aiohttp — no UDP anywhere on this path.
 
+    THE PORT IS NOT FIXED, and must not be documented as though it were.
+    Measured against a real MP-60: the SSDP LOCATION header pointed at a
+    high, device-assigned port in the ephemeral range, serving a
+    UUID-named XML file — not port 8080, not port 80, and not a
+    predictable path. It was stable across repeated M-SEARCHes within one
+    session, which says nothing about across a reboot; GUPnP, which the
+    device's own SERVER header names, ordinarily binds an arbitrary free
+    port at startup.
+
+    8080 in particular is a plausible wrong answer and worth naming as
+    one: `STREAMMAGIC_PORT` is 8080 and that IS a real Lyngdorf HTTP
+    service, but it is the streaming module's JSON API, a different
+    daemon from the UPnP description server. On the measured device
+    :8080 and the description port were not the same service, and :80
+    served the web UI. Do not conflate the three.
+
+    So this function takes `location` verbatim and never assumes a port,
+    and anyone documenting firewall requirements should write "the HTTP
+    port advertised in the device's UPnP description" rather than a
+    number. The fixed ports are TCP 84 (control) and UDP 1900 (the
+    unicast M-SEARCH); the description port is discovered, not known.
+
     An injected session is used and never closed (spec §8); with none
     supplied the function creates one for the single request and closes
     it. Returns None on any network or parse failure rather than raising:
