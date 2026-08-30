@@ -8,7 +8,6 @@ import warnings
 import pytest
 
 import lyngdorf
-from lyngdorf import _compat
 
 EXPECTED_ALL = {
     "LyngdorfReceiver",
@@ -42,65 +41,84 @@ def test_public_exports_match_the_spec():
     assert set(lyngdorf.__all__) == EXPECTED_ALL
 
 
-def test_receiver_alias_is_a_warning_shim():
-    with pytest.warns(DeprecationWarning, match="Receiver"):
-        assert lyngdorf.Receiver is lyngdorf.LyngdorfReceiver
+# -- 2.1: the shim layer is GONE, and that is what needs proving ------------
+#
+# These replace the tests that asserted each shim resolved and warned.
+# Inverted rather than deleted, in place, so the 2.0 -> 2.1 diff shows the
+# removal happening rather than a block of tests silently disappearing -
+# and so that a shim reintroduced by accident fails something.
+
+LEGACY_NAMES = [
+    "Receiver",
+    "async_create_receiver",
+    "async_find_receiver_model",
+    "async_get_device_serial",
+    "lookup_receiver_model",
+]
 
 
-@pytest.mark.parametrize("old", sorted(lyngdorf._compat.MODULE_SHIMS))
-def test_module_shim_resolves_and_warns(old):
-    """D9 category 4 shape: resolving the name warns. The warning fires
-    in the module __getattr__, which is PEP 562's idiom, so
-    `from lyngdorf import async_create_receiver` warns once at the
-    importing module's import, not once per call."""
-    with pytest.warns(DeprecationWarning, match="lyngdorf 2.1"):
+@pytest.mark.parametrize("old", LEGACY_NAMES)
+def test_1x_names_no_longer_resolve(old):
+    """Hand-written, not derived from a registry: the registry was in
+    _compat.py and is deleted, and a list generated from the code under
+    test could only ever agree with it."""
+    with pytest.raises(AttributeError):
         getattr(lyngdorf, old)
 
 
-@pytest.mark.parametrize(
-    "old",
-    ["async_create_receiver", "async_find_receiver_model", "async_get_device_serial"],
-)
-def test_module_shim_is_a_coroutine_function(old):
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore", DeprecationWarning)
-        assert inspect.iscoroutinefunction(getattr(lyngdorf, old))
+@pytest.mark.parametrize("mod", ["lyngdorf.device", "lyngdorf._compat"])
+def test_1x_modules_no_longer_import(mod):
+    """`lyngdorf.device` needed to be a real module, because a package
+    __getattr__ cannot rescue a submodule path. So its removal has to be
+    checked as an import, not an attribute lookup."""
+    import importlib
+
+    with pytest.raises(ModuleNotFoundError):
+        importlib.import_module(mod)
 
 
-def test_shimmed_names_are_not_in_dunder_all():
-    assert not (set(lyngdorf._compat.MODULE_SHIMS) & set(lyngdorf.__all__))
+def test_const_no_longer_re_exports_the_model_enum():
+    import lyngdorf.const
+
+    with pytest.raises(AttributeError):
+        _ = lyngdorf.const.LyngdorfModel
 
 
-@pytest.mark.asyncio
-async def test_legacy_get_device_serial_composes_the_split(monkeypatch):
-    seen: list[str] = []
+def test_diagnostics_no_longer_shims_the_1x_probe_name():
+    import lyngdorf.diagnostics
 
-    async def _loc(host, timeout=5.0):
-        seen.append(host)
-        return "http://d/desc.xml"
-
-    async def _serial(location, *, session=None, timeout=5.0):
-        seen.append(location)
-        return "abc123"
-
-    monkeypatch.setattr("lyngdorf.discovery.discover_ssdp_location", _loc)
-    monkeypatch.setattr("lyngdorf.discovery.fetch_device_serial", _serial)
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore", DeprecationWarning)
-        fn = lyngdorf.async_get_device_serial
-    assert await fn("10.0.0.5") == "abc123"
-    assert seen == ["10.0.0.5", "http://d/desc.xml"]
+    with pytest.raises(AttributeError):
+        _ = lyngdorf.diagnostics.async_probe_device_capabilities
 
 
-@pytest.mark.asyncio
-async def test_legacy_get_device_serial_returns_none_without_a_location(monkeypatch):
-    async def _loc(host, timeout=5.0):
-        return None
+def test_model_feature_predicates_are_gone():
+    """`has_zone_b_feature` and friends. Capability is structural in 2.x -
+    a model without Zone B has no ZoneB object - so these had no job left
+    beyond keeping 1.x callers compiling."""
+    from lyngdorf.models import LyngdorfModel
 
-    monkeypatch.setattr("lyngdorf.discovery.discover_ssdp_location", _loc)
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore", DeprecationWarning)
-        assert await lyngdorf.async_get_device_serial("10.0.0.5") is None
+    for name in (
+        "has_zone_b_feature",
+        "has_video_feature",
+        "has_surround_feature",
+    ):
+        assert not hasattr(LyngdorfModel.MP_60, name), name
+
+
+def test_nothing_still_references_the_deleted_shim_module():
+    """The layer was reachable from several places - the package
+    __getattr__, the receiver's base class, diagnostics, the model enum.
+    Greps the source rather than trusting that the imports above failing
+    means every reference went with them."""
+    import pathlib as _pathlib
+
+    root = _pathlib.Path(__file__).parent.parent / "lyngdorf"
+    offenders = [
+        str(f.relative_to(root.parent))
+        for f in sorted(root.rglob("*.py"))
+        if "_compat" in f.read_text()
+    ]
+    assert not offenders, f"still referencing the deleted shim layer: {offenders}"
 
 
 @pytest.mark.parametrize(
@@ -138,7 +156,7 @@ def _public_callables() -> list[tuple[str, object]]:
     found: list[tuple[str, object]] = []
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", DeprecationWarning)
-        names = list(lyngdorf.__all__) + list(_compat.MODULE_SHIMS)
+        names = list(lyngdorf.__all__)
         for name in names:
             obj = getattr(lyngdorf, name, None)
             if inspect.isfunction(obj):
@@ -199,4 +217,3 @@ def test_the_population_is_not_empty_and_nothing_is_skipped():
     names = {n for n, _ in _public_callables()}
     assert len(names) > 20
     assert "create_receiver" in names
-    assert "async_create_receiver" in names

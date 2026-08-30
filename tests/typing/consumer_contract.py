@@ -6,10 +6,9 @@ before it fails in Home Assistant. The negative cases are commented out
 with the exact error they must produce — uncomment one to check the
 pin still bites.
 
-That claim was false until now: CI only ever ran `mypy lyngdorf/`, so
-this file was type-checked by nobody and its guarantee was decorative.
-It is in the gate as of this commit — see run-tests.yml, which now names
-this directory explicitly.
+It is in the gate — see run-tests.yml, which names this directory
+explicitly. It once was not, and the guarantee was decorative until a
+consumer's type error found the gap.
 """
 
 from collections.abc import Awaitable, Callable
@@ -25,33 +24,6 @@ from lyngdorf import (
     ZoneB,
     create_receiver,
 )
-
-# The D9 compat surface, pinned in ANNOTATION position on purpose. A
-# deprecated name has to stay usable as a *type* for the release window,
-# not merely resolve at runtime - and those are different properties. The
-# first attempt at the const shim satisfied the second and failed the
-# first, because a module __getattr__ hands mypy a variable rather than a
-# class; consumers still annotating with the 1.x name got "Variable ...
-# is not valid as a type" plus attr-defined on every member access.
-#
-# Nothing in our own suite annotates with a compat name, so nothing here
-# could have caught it. That is why these three exist.
-from lyngdorf.const import LyngdorfModel as _CompatModel
-from lyngdorf.device import Receiver as _CompatReceiver
-from lyngdorf.device import lookup_receiver_model as _compat_lookup
-
-
-def compat_model_is_usable_as_a_type(model: _CompatModel) -> str:
-    return model.config.model_name
-
-
-def compat_receiver_is_usable_as_a_type(receiver: _CompatReceiver) -> bool | None:
-    return receiver.muted
-
-
-def compat_lookup_keeps_its_return_type(name: str) -> str | None:
-    model = _compat_lookup(name)
-    return None if model is None else model.config.model_name
 
 
 @dataclass(frozen=True, kw_only=True)

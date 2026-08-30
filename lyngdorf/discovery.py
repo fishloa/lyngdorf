@@ -27,9 +27,9 @@ from .exceptions import LyngdorfError
 from .models import LyngdorfModel
 
 if TYPE_CHECKING:
-    # Import-time this module cannot see receiver.py - receiver.py
-    # imports _compat.py, which imports back here - so the concrete
-    # import lives inside create_receiver's body. `from __future__ import
+    # Import-time this module cannot see receiver.py - discovery.py is
+    # imported from the package root before receiver.py finishes - so the
+    # concrete import lives inside create_receiver's body. `from __future__ import
     # annotations` makes every annotation a string, so this block is
     # enough for the return type without reinstating the cycle.
     from .receiver import LyngdorfReceiver

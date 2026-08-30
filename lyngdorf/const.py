@@ -18,25 +18,6 @@ not repeated here):
 """
 
 from enum import Enum
-from typing import TYPE_CHECKING
-
-if TYPE_CHECKING:
-    # Runtime resolution of this name goes through __getattr__ at the
-    # bottom of the file, which warns. But a module __getattr__ returning
-    # a class gives mypy a *variable*, not a type - so a consumer that
-    # still writes `def f(m: LyngdorfModel)` against the compat name got
-    # "Variable ... is not valid as a type" plus attr-defined on every
-    # member access. Found by type-checking a real consumer; invisible to
-    # our own suite, which would never annotate with a compat name.
-    #
-    # This block is the cure: mypy binds the real class, runtime does not
-    # (so the deprecation warning survives). Redundant-looking `as` alias
-    # is required - no_implicit_reexport is on.
-    #
-    # A plain module-level assignment would also type-check, but the
-    # warning would then have to fire at const's import, and const is
-    # imported by the package root - every user would eat it.
-    from .models import LyngdorfModel as LyngdorfModel
 
 # Connection Configuration
 DEFAULT_LYNGDORF_PORT = 84
@@ -236,27 +217,3 @@ ABSOLUTE_SETTER_MESSAGES: frozenset[Msg] = frozenset(
         Msg.BALANCE,
     }
 )
-
-
-def __getattr__(name: str) -> object:
-    """Deprecated 1.x re-export — deleted in 2.1.
-
-    ``LyngdorfModel`` lives in ``lyngdorf.models`` and is exported from
-    the package root; 1.x also re-exported it here. PEP 562 runs this
-    only when normal lookup fails, so it costs nothing for every other
-    attribute on this module.
-    """
-    if name == "LyngdorfModel":
-        import warnings
-
-        from .models import LyngdorfModel
-
-        warnings.warn(
-            "importing LyngdorfModel from lyngdorf.const is deprecated and "
-            "will be removed in lyngdorf 2.1; use `from lyngdorf import "
-            "LyngdorfModel`",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        return LyngdorfModel
-    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

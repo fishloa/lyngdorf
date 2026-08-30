@@ -3,7 +3,7 @@
 Each is None on a model without the feature (2.0 design §5, tier 1) - the
 receiver layer (WP4) calls the build_* factories once at construction and
 the attribute is thereby structural: `if receiver.zone_b:` replaces 1.x's
-has_zone_b_feature().
+ModelConfig.has_zone_b.
 
 Components own their cached state behind internal _update_* methods; the
 receiver's wire callbacks parse device replies (that is receiver-layer

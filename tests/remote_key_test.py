@@ -6,7 +6,7 @@ Before this, `Msg.CURSOR_UP`/`Msg.MENU`/etc. lived in the bidirectional
 send them - dead code, checked only by lookup-only assertions
 (`tests/basic_wiring_test.py`, before this issue) that verified the table
 was right without verifying the feature was reachable at all. These tests
-exercise the feature end-to-end: `Receiverawait .remote.send()`/
+exercise the feature end-to-end: `Remote.send()`/
 `press()` all the way down to what actually reaches the (mocked)
 transport, not just a dict lookup.
 
@@ -373,12 +373,14 @@ class TestWireCommandPerModel:
     @pytest.mark.asyncio
     async def test_tdai_has_no_wire_command_for_anything(self):
         receiver = _wire(LyngdorfReceiver(FAKE_IP, LyngdorfModel.TDAI_1120))
-        with pytest.raises(LyngdorfUnsupportedError):
-            await receiver.press(RemoteKey.UP)
+        # 2.1: the TDAI family has no remote keys, so it has no Remote
+        # component - the 1.x raise-at-call-time became absence.
+        assert receiver.remote is None
         assert _sent(receiver) == []
         receiver = _wire(LyngdorfReceiver(FAKE_IP, LyngdorfModel.TDAI_1120))
-        with pytest.raises(LyngdorfUnsupportedError):
-            await receiver.press(RemoteKey.UP)
+        # 2.1: the TDAI family has no remote keys, so it has no Remote
+        # component - the 1.x raise-at-call-time became absence.
+        assert receiver.remote is None
         assert _sent(receiver) == []
 
 
@@ -435,8 +437,9 @@ class TestBatchValidatesBeforeSending:
         remote keys at all - still must raise before sending, same as an
         unresolvable string."""
         receiver = _wire(LyngdorfReceiver(FAKE_IP, LyngdorfModel.TDAI_1120))
-        with pytest.raises(LyngdorfUnsupportedError):
-            await receiver.send_remote_commands(["up"])
+        # 2.1: no remote keys means no Remote component, so the 1.x
+        # raise-before-sending became there being nothing to call.
+        assert receiver.remote is None
         assert _sent(receiver) == []
 
     @pytest.mark.asyncio
@@ -518,11 +521,15 @@ class TestPressDelegatesToSendRemoteCommands:
     @pytest.mark.asyncio
     async def test_press_raises_for_unsupported_key(self):
         receiver = _wire(LyngdorfReceiver(FAKE_IP, LyngdorfModel.TDAI_1120))
-        with pytest.raises(LyngdorfUnsupportedError):
-            await receiver.press(RemoteKey.UP)
+        # 2.1: the TDAI family has no remote keys, so it has no Remote
+        # component - the 1.x raise-at-call-time became absence.
+        assert receiver.remote is None
+        assert _sent(receiver) == []
         receiver = _wire(LyngdorfReceiver(FAKE_IP, LyngdorfModel.TDAI_1120))
-        with pytest.raises(LyngdorfUnsupportedError):
-            await receiver.press(RemoteKey.UP)
+        # 2.1: the TDAI family has no remote keys, so it has no Remote
+        # component - the 1.x raise-at-call-time became absence.
+        assert receiver.remote is None
+        assert _sent(receiver) == []
 
 
 class TestRemoteKeysNeverCoalesce:

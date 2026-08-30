@@ -14,7 +14,9 @@ from lyngdorf.remote import RemoteKey
 class TestZoneBFactory:
     @pytest.mark.parametrize("model", list(LyngdorfModel))
     def test_presence_matches_model_config(self, model):
-        """spec §5 tier 1: `zone_b is None` replaces has_zone_b_feature()."""
+        """spec §5 tier 1: `zone_b is None` is the capability check. 1.x
+        asked has_zone_b_feature(); that predicate is deleted in 2.1,
+        because a model without Zone B has no ZoneB object to ask."""
         assert (build_zone_b(RecordingRio(model)) is not None) is (
             model.config.has_zone_b
         )

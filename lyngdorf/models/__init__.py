@@ -20,7 +20,6 @@ Usage:
 :license: MIT, see LICENSE for more details.
 """
 
-import warnings
 from enum import Enum
 from typing import cast
 
@@ -121,85 +120,6 @@ class LyngdorfModel(Enum):
         """
         return self._config.messages[key]
 
-    # --- D9 shims - delete in 2.1 (design §7: "shim (on LyngdorfModel)").
-    # Registered in lyngdorf._compat.SHIMMED_MODEL_FEATURE_CHECKS; the
-    # consumer-contract completeness test covers them. Internal code
-    # never calls these - it reads .config directly.
-
-    def has_zone_b_feature(self) -> bool:
-        """Check if this model supports Zone B (Zone 2) functionality.
-
-        Returns:
-            True if the model has Zone B support, False otherwise
-        """
-        warnings.warn(
-            "has_zone_b_feature is deprecated and will be removed in "
-            "lyngdorf 2.1; use receiver.zone_b is not None",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        return self._config.has_zone_b
-
-    def has_video_feature(self) -> bool:
-        """Check if this model supports video inputs and outputs.
-
-        Returns:
-            True if the model has video capability, False otherwise
-        """
-        warnings.warn(
-            "has_video_feature is deprecated and will be removed in "
-            "lyngdorf 2.1; use receiver.video_inputs (empty on TDAI)",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        return self._config.has_video
-
-    def has_surround_feature(self) -> bool:
-        """Check if this model has discrete per-channel multichannel trims
-        (center/height/LFE/surround speaker trims).
-
-        Returns:
-            True if the model has channel trim capability, False otherwise
-        """
-        warnings.warn(
-            "has_surround_feature is deprecated and will be removed in "
-            "lyngdorf 2.1; use Trim.CENTER in receiver.trims",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        return self._config.has_surround
-
-    def has_streaming_feature(self) -> bool:
-        """Check if this model has the embedded streaming module's
-        now-playing HTTP API (see lyngdorf/streaming.py).
-
-        Returns:
-            True if the model exposes now-playing metadata, False otherwise
-        """
-        warnings.warn(
-            "has_streaming_feature is deprecated and will be removed in "
-            "lyngdorf 2.1; use receiver.player is not None",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        return self._config.has_streaming
-
-    def has_lipsync_feature(self) -> bool:
-        """Check if this model supports lip sync (audio/video delay)
-        adjustment.
-
-        Returns:
-            True if the model maps Msg.LIP_SYNC, False otherwise (the
-            TDAI family)
-        """
-        warnings.warn(
-            "has_lipsync_feature is deprecated and will be removed in "
-            "lyngdorf 2.1; use receiver.lipsync is not None",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        return self._config.has_lipsync()
-
     def trim_bass_range(self) -> NumericRange | None:
         """The documented dB range (and step) for bass trim, or None on a
         model with no bass trim at all (TDAI-2170)."""
@@ -255,7 +175,7 @@ class LyngdorfModel(Enum):
 
     def zone_b_volume_range(self) -> NumericRange | None:
         """The documented dB range (and step) for Zone B volume, or None
-        on a model with no Zone B at all (see has_zone_b_feature)."""
+        on a model with no Zone B at all (see ModelConfig.has_zone_b)."""
         return self._config.zone_b_volume_range
 
     def power_state_on_value(self) -> str:
@@ -266,88 +186,6 @@ class LyngdorfModel(Enum):
             family (`!PWR(ON)`)
         """
         return self._config.power_state_on
-
-    def has_mute_state_in_parameter(self) -> bool:
-        """Check whether mute state arrives as a parameter on MUTE.
-
-        Returns:
-            True if the model reports mute as `!MUTE(ON)` / `!MUTE(OFF)`
-            (TDAI family), False if it uses distinct `!MUTEON` /
-            `!MUTEOFF` messages (MP and P families)
-        """
-        warnings.warn(
-            "has_mute_state_in_parameter is deprecated and will be "
-            "removed in lyngdorf 2.1; use receiver.muted directly",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        return self._config.mute_state_in_parameter
-
-    def has_bass_trim_feature(self) -> bool:
-        """Check whether this model has bass trim control at all.
-
-        Returns:
-            True if the model can set bass trim (absolute value, with or
-            without stepping - see has_bass_trim_step_feature), False if
-            it has no bass trim control whatsoever (TDAI-2170)
-        """
-        warnings.warn(
-            "has_bass_trim_feature is deprecated and will be removed in "
-            "lyngdorf 2.1; use Trim.BASS in receiver.trims",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        return self._config.has_bass_trim()
-
-    def has_treble_trim_feature(self) -> bool:
-        """Check whether this model has treble trim control at all.
-
-        Returns:
-            True if the model can set treble trim (absolute value, with
-            or without stepping - see has_treble_trim_step_feature),
-            False if it has no treble trim control whatsoever (TDAI-2170)
-        """
-        warnings.warn(
-            "has_treble_trim_feature is deprecated and will be removed "
-            "in lyngdorf 2.1; use Trim.TREBLE in receiver.trims",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        return self._config.has_treble_trim()
-
-    def has_bass_trim_step_feature(self) -> bool:
-        """Check whether this model can step bass trim up/down.
-
-        Returns:
-            True if the model supports incremental bass trim adjustment,
-            False if it only supports setting an absolute value (the TDAI
-            family)
-        """
-        warnings.warn(
-            "has_bass_trim_step_feature is deprecated and will be "
-            "removed in lyngdorf 2.1; use isinstance(receiver.trims["
-            "Trim.BASS], SteppableControl)",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        return self._config.has_bass_trim_step()
-
-    def has_treble_trim_step_feature(self) -> bool:
-        """Check whether this model can step treble trim up/down.
-
-        Returns:
-            True if the model supports incremental treble trim
-            adjustment, False if it only supports setting an absolute
-            value (the TDAI family)
-        """
-        warnings.warn(
-            "has_treble_trim_step_feature is deprecated and will be "
-            "removed in lyngdorf 2.1; use isinstance(receiver.trims["
-            "Trim.TREBLE], SteppableControl)",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        return self._config.has_treble_trim_step()
 
     def volume_up_command(self) -> str:
         return self._config.volume_up_command()
@@ -399,22 +237,6 @@ class LyngdorfModel(Enum):
 
     def trim_treble_down_command(self) -> str | None:
         return self._config.trim_treble_down_command()
-
-    def has_remote_keys_feature(self) -> bool:
-        """Check whether this model has any remote-control buttons at all.
-
-        Returns:
-            True if the model documents at least one remote key (the MP
-            and P families), False if it has none (the whole TDAI
-            family, which has no navigation hardware at all)
-        """
-        warnings.warn(
-            "has_remote_keys_feature is deprecated and will be removed "
-            "in lyngdorf 2.1; use receiver.remote is not None",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        return bool(self._config.available_remote_keys())
 
     def available_remote_keys(self) -> frozenset[RemoteKey]:
         """Every remote key this model's protocol documents at all.

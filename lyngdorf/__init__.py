@@ -8,10 +8,8 @@ Usage against the 2.0 surface:
     await receiver.volume.set(-25.0)
 """
 
-import warnings
 from importlib.metadata import PackageNotFoundError, version
 
-from . import _compat
 from .components import Player, Remote, ZoneB
 
 # Force const to load first (before components/controls/models chain)
@@ -64,36 +62,6 @@ __all__ = [
     "discover_ssdp_location",
     "fetch_device_serial",
 ]
-
-
-def __getattr__(name: str) -> object:
-    """D9 module-level shims — deleted in 2.1 with _compat.py.
-
-    PEP 562: this runs only when normal lookup fails, so the warning
-    fires when a legacy name is first *resolved*. For
-    `from lyngdorf import async_create_receiver` that is once, at the
-    importing module's import — which is how CPython's own module
-    deprecations behave, and enough for a consumer to find every site.
-    """
-    target = _MODULE_SHIM_TARGETS.get(name)
-    if target is None:
-        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
-    warnings.warn(
-        f"{name} is deprecated and will be removed in lyngdorf 2.1; "
-        f"use {_compat.MODULE_SHIMS[name]}",
-        DeprecationWarning,
-        stacklevel=2,
-    )
-    return target
-
-
-_MODULE_SHIM_TARGETS = {
-    "Receiver": LyngdorfReceiver,
-    "lookup_receiver_model": lookup_model,
-    "async_create_receiver": create_receiver,
-    "async_find_receiver_model": discover_model,
-    "async_get_device_serial": _compat.legacy_get_device_serial,
-}
 
 
 try:

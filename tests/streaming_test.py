@@ -1584,22 +1584,22 @@ class TestPositionModelGating:
 
     @pytest.mark.parametrize("model", STREAMING)
     def test_streaming_models_support_position(self, model):
-        assert LyngdorfReceiver("127.0.0.1", model).has_position is True
+        assert LyngdorfReceiver("127.0.0.1", model).player is not None
 
     @pytest.mark.parametrize("model", NON_STREAMING)
     def test_non_streaming_models_report_no_position(self, model):
         receiver = LyngdorfReceiver("127.0.0.1", model)
-        assert receiver.has_position is False
-        assert receiver.position_ms is None
-        assert receiver.position_updated_at is None
-        assert receiver.position_percent is None
+        # 2.1: capability is structural. "reports no position" IS "has no
+        # player" - there is no object left to return None from, which is
+        # the point of the component split.
+        assert receiver.player is None
 
     @pytest.mark.parametrize("model", NON_STREAMING)
     def test_non_streaming_stays_none_even_if_api_has_a_value(self, model):
         """The model gate wins over whatever the API layer holds."""
         receiver = LyngdorfReceiver("127.0.0.1", model)
         receiver._api._update_position(5000)
-        assert receiver.position_ms is None
+        assert receiver.player is None, "the model gate wins over the API layer"
 
 
 class TestPositionPercent:
@@ -1614,35 +1614,38 @@ class TestPositionPercent:
         return receiver
 
     def test_midway(self):
-        assert self.receiver_playing(1000, 500).position_percent == 0.5
+        assert self.receiver_playing(1000, 500).player.position_percent == 0.5
 
     def test_real_capture_values(self):
-        assert round(self.receiver_playing(723785, 484650).position_percent, 2) == 0.67
+        assert (
+            round(self.receiver_playing(723785, 484650).player.position_percent, 2)
+            == 0.67
+        )
 
     def test_start_of_track(self):
-        assert self.receiver_playing(1000, 0).position_percent == 0.0
+        assert self.receiver_playing(1000, 0).player.position_percent == 0.0
 
     def test_clamped_when_position_exceeds_duration(self):
-        assert self.receiver_playing(1000, 1500).position_percent == 1.0
+        assert self.receiver_playing(1000, 1500).player.position_percent == 1.0
 
     def test_none_without_duration(self):
-        assert self.receiver_playing(None, 500).position_percent is None
+        assert self.receiver_playing(None, 500).player.position_percent is None
 
     def test_none_without_position(self):
-        assert self.receiver_playing(1000, None).position_percent is None
+        assert self.receiver_playing(1000, None).player.position_percent is None
 
     def test_none_for_live_stream_zero_duration(self):
         """Live streams report duration 0; a percentage is meaningless."""
-        assert self.receiver_playing(0, 500).position_percent is None
+        assert self.receiver_playing(0, 500).player.position_percent is None
 
     def test_none_when_nothing_playing(self):
         receiver = LyngdorfReceiver("127.0.0.1", LyngdorfModel.MP_60)
         receiver._api._update_position(500)
-        assert receiver.position_percent is None
+        assert receiver.player.position_percent is None
 
     def test_non_streaming_model_has_no_poll_task(self):
         api = LyngdorfApi("127.0.0.1", LyngdorfModel.TDAI_2170)
-        assert not api._model.has_streaming_feature()
+        assert not api._model.config.has_streaming
 
 
 # -- Receiver now-playing integration --
@@ -1702,4 +1705,4 @@ class TestStreamingCapability:
         ],
     )
     def test_has_streaming_feature(self, model, expected):
-        assert model.has_streaming_feature() == expected
+        assert model.config.has_streaming == expected

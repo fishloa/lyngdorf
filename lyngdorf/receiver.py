@@ -21,7 +21,6 @@ from collections.abc import Callable, Mapping, Sequence
 
 import aiohttp
 
-from ._compat import _CompatShims
 from .api import LyngdorfApi
 from .base import CountingNumberDict, register_in_list
 from .components import (
@@ -89,7 +88,7 @@ _DIALECTS: dict[LyngdorfModel, Dialect] = {
 }
 
 
-class LyngdorfReceiver(_CompatShims):
+class LyngdorfReceiver:
     """A Lyngdorf A/V processor or integrated amplifier.
 
     Write semantics, stated once and inherited by every setter's docstring by

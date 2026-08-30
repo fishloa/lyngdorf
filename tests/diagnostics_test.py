@@ -1,4 +1,3 @@
-import inspect
 from unittest import mock
 
 import pytest
@@ -283,17 +282,3 @@ class TestModelCapabilities:
 
     def test_supports_message_false_for_zone_b_on_tdai(self):
         assert LyngdorfModel.TDAI_3400.supports_message(Msg.ZONE_B_VOLUME) is False
-
-
-class TestDiagnosticsShim:
-    def test_probe_capabilities_is_the_new_name(self):
-        from lyngdorf import diagnostics
-
-        assert inspect.iscoroutinefunction(diagnostics.probe_capabilities)
-
-    def test_old_name_is_a_warning_shim(self):
-        from lyngdorf import diagnostics
-
-        with pytest.warns(DeprecationWarning, match="probe_capabilities"):
-            fn = diagnostics.async_probe_device_capabilities
-        assert fn is diagnostics.probe_capabilities
