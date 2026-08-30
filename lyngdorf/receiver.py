@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import warnings
 from collections.abc import Callable, Mapping, Sequence
 
 import aiohttp
@@ -430,9 +431,9 @@ class LyngdorfReceiver:
         """None on the whole TDAI family. .range is the LIVE LIPSYNCRANGE
         value, seeded from the documented default.
 
-        `.value` is a FLOAT, and 1.10's `lipsync` was an `int`. KNOWN
-        DEFECT, not a design choice - issue #56, fixed in 2.1 where it is
-        free, and not before for the reason recorded there.
+        `.value` is an `int`, restoring 1.10's behaviour (issue #56).
+        2.0.0 and 2.0.1 returned a float, which changed the state string
+        a consumer renders; 2.0.2 put it back.
 
         A consumer sees `50.0` where 1.x gave `50`. In Home Assistant
         that is the entity's state string, so it changes recorded history
@@ -458,6 +459,39 @@ class LyngdorfReceiver:
         snapping to the step is NOT enough, `round(50.0 / 1.0) * 1.0` is
         `50.0` and still renders "50.0". It must be coerced."""
         return self._lipsync
+
+    @property
+    def lipsync_range(self) -> NumericRange | None:
+        """The permitted lipsync range, or None on a model without the
+        feature. Structural: available from construction, before the
+        device has reported anything.
+
+        DEPRECATED, and removed in 2.2. It exists for one reason: a
+        consumer crossing 1.11 -> 2.1 cannot express this question in a
+        form valid on both pins, and the version-bump PR is not allowed
+        to carry code.
+
+        On 2.1 alone it is redundant - `lipsync` is structural here, so
+        `receiver.lipsync.range` answers the same question and is what
+        you should migrate to. On 1.11 it is not: `lipsync` there is a
+        float/control dual that cannot exist before a value arrives, so
+        it reads None during the startup window and keying entity
+        creation off it drops the entity until a reload (issue #55).
+        `lipsync_range` was the only structural accessor on that pin.
+
+        So: a one-release window, deliberately, in the release whose
+        purpose is deleting exactly this kind of thing. Kept because the
+        alternative is forcing a code change into a manifest-only bump,
+        and time-boxed because that is the difference between a bridge
+        and a permanent second way to ask one question.
+        """
+        warnings.warn(
+            "lipsync_range is deprecated and will be removed in lyngdorf "
+            "2.2; use lipsync.range (lipsync is structural from 2.1)",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return self._lipsync.range if self._lipsync is not None else None
 
     # -- components -------------------------------------------------------------
 

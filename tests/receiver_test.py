@@ -3,6 +3,8 @@ capability, wire-event routing into components, write round-trips, and
 the on_change contract. The full behavioural suite arrives in Task 4's
 port; these pin the assembly itself."""
 
+import warnings
+
 import pytest
 
 from lyngdorf.const import Msg
@@ -191,3 +193,46 @@ class TestOnChange:
         unsub()  # and repeat: still a no-op
         _process_event(r, "!VOL(-110)")
         assert calls == [1]
+
+
+class TestLipsyncRangeBridge:
+    """The one deprecation 2.1 adds rather than removes. Removed in 2.2.
+
+    It exists because a consumer crossing 1.11 -> 2.1 cannot express
+    "does this model have lipsync, and what range" in a form valid on
+    both pins, and its version-bump PR carries no code. On 1.11
+    `lipsync` is a float/control dual that cannot exist before a value
+    arrives, so it reads None during the startup window; on 2.1 it is
+    structural. One accessor, one release, then gone.
+    """
+
+    @pytest.mark.parametrize("model", list(LyngdorfModel))
+    def test_structural_before_any_device_report(self, model):
+        """The whole point: answerable at construction. A consumer that
+        keys entity creation off it must not be told 'no lipsync' merely
+        because the device has not answered yet."""
+        r = LyngdorfReceiver(FAKE_IP, model)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", DeprecationWarning)
+            rng = r.lipsync_range
+        expected = model.config.lipsync_default_range is not None
+        assert (rng is not None) is expected
+        assert (r.lipsync is not None) is expected, "and agrees with the control"
+
+    def test_it_warns_so_the_window_closes(self):
+        """Deprecated on arrival. Without the warning this becomes a
+        permanent second way to ask one question, which is what the
+        release it ships in exists to delete."""
+        r = LyngdorfReceiver(FAKE_IP, LyngdorfModel.MP_60)
+        with pytest.warns(DeprecationWarning, match="2.2"):
+            _ = r.lipsync_range
+
+    def test_it_tracks_the_live_range(self):
+        """Not a snapshot of the documented default: the device's own
+        LIPSYNCRANGE reply overwrites it, and this must follow."""
+        r, _ = _prepared(LyngdorfModel.MP_60)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", DeprecationWarning)
+            assert r.lipsync_range == NumericRange(min=0.0, max=500.0, step=1.0)
+            _process_event(r, "!LIPSYNCRANGE(0,450)")
+            assert r.lipsync_range == NumericRange(min=0.0, max=450.0, step=1.0)
