@@ -159,6 +159,63 @@ class SteppableControl(NumericControl):
         self._send_down()
 
 
+class VolumeControl(SteppableControl):
+    """The main-zone volume on a model that reports a MAXVOL ceiling.
+
+    Capability as a subtype, the same idiom `SteppableControl` uses for
+    stepping (design §1.2, decision D4): the six MP and P models report
+    `!MAXVOL` and get this type; the four TDAI models document no such
+    command and get a plain SteppableControl, with no attribute to ask
+    about.
+
+    That is the whole point, and it fixes issue #54. `receiver.max_volume`
+    was `None` for two different reasons - the model has no MAXVOL, or it
+    has one and has not answered yet - and nothing in the type
+    distinguished them, so `max_volume is None` read as a capability
+    check and was wrong on an MP that simply had not replied. Here the
+    capability question is `isinstance(receiver.volume, VolumeControl)`,
+    answerable at construction, and `maximum_volume` is left meaning only
+    "not reported yet" - the same reading semantics as `value`.
+    """
+
+    def __init__(
+        self,
+        *,
+        initial_range: NumericRange,
+        send_set: Callable[[float], None],
+        send_up: Callable[[], None],
+        send_down: Callable[[], None],
+    ) -> None:
+        super().__init__(
+            initial_range=initial_range,
+            send_set=send_set,
+            send_up=send_up,
+            send_down=send_down,
+        )
+        self._maximum_volume: float | None = None
+
+    @property
+    def maximum_volume(self) -> float | None:
+        """The device's current MAXVOL setting in dB, or None until it
+        reports one. None NEVER means "this model has no ceiling" - a
+        model without the feature has no VolumeControl at all.
+
+        A user-settable safety ceiling, changeable from the front panel
+        or the official app, NOT the hardware's physical range - that is
+        `range`. Do not treat it as a fixed slider maximum; subscribe to
+        change notifications rather than caching it once.
+
+        Read as-is and never validated: a real MP-60 on firmware 5.4.2
+        answered `!MAXVOL(0)`, outside the range its own manual
+        documents, and 0.0 dB is a genuine value there rather than a
+        sentinel.
+        """
+        return self._maximum_volume
+
+    def _update_maximum_volume(self, value: float | None) -> None:
+        self._maximum_volume = value
+
+
 # ---------------------------------------------------------------------------
 # Per-model factories. The receiver layer (WP4) calls these once at
 # construction; capability is thereby structural (design §5): a model
@@ -178,7 +235,14 @@ def build_volume(rio: RioClient) -> SteppableControl:
     """
     volume_range = rio._model.config.volume_range
     assert volume_range is not None, "every supported model documents a volume range"
-    return SteppableControl(
+    from .const import Msg
+
+    kind = (
+        VolumeControl
+        if Msg.MAX_VOLUME in rio._model.config.messages
+        else SteppableControl
+    )
+    return kind(
         initial_range=volume_range,
         send_set=rio.volume,
         send_up=rio.volume_up,

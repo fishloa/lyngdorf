@@ -9,6 +9,7 @@ from lyngdorf.controls import (
     NumericControl,
     SteppableControl,
     Trim,
+    VolumeControl,
     build_lipsync,
     build_trims,
     build_volume,
@@ -393,3 +394,83 @@ class TestLipsyncIsIntegral:
         r = LyngdorfReceiver("127.0.0.1", LyngdorfModel.MP_60)
         r.volume._update_value(None)
         assert r.volume.value is None
+
+
+class TestMaximumVolumeIsStructural:
+    """Issue #54, and the last runtime-varying None on the receiver.
+
+    `receiver.max_volume` was None for two different reasons - the model
+    has no MAXVOL command, or it has one and has not answered yet - with
+    nothing in the type to tell them apart. So `max_volume is None` read
+    as a capability check and was wrong on an MP that had simply not
+    replied yet.
+    """
+
+    def test_no_receiver_property_has_a_runtime_varying_none(self):
+        """The done-when from #54, and deliberately asked of the whole
+        surface rather than of max_volume by name: the defect was never
+        that one annotation was wrong, it was that nothing asked the
+        question of the receiver as a whole.
+
+        A property whose None flips once the device speaks is a
+        capability check that lies. Every remaining Optional on the
+        receiver must be structural - fixed at construction.
+        """
+        import warnings as _w
+
+        r = LyngdorfReceiver("127.0.0.1", LyngdorfModel.MP_60)
+        r._register_callbacks()
+        with _w.catch_warnings():
+            _w.simplefilter("ignore", DeprecationWarning)
+            before = {
+                n: getattr(r, n) is None
+                for n in dir(type(r))
+                if not n.startswith("_")
+                and isinstance(getattr(type(r), n, None), property)
+            }
+            # everything the device can report
+            r._max_volume_callback("-200", "")
+            r._lipsync_callback("50", "")
+            r._volume_callback("-400", "")
+            after = {n: getattr(r, n) is None for n in before}
+        flipped = sorted(n for n in before if before[n] and not after[n])
+        assert flipped == ["max_volume"], (
+            f"properties whose None varies at runtime: {flipped}. Only the "
+            f"deprecated max_volume may, and it goes in 3.0."
+        )
+
+    @pytest.mark.parametrize("model", list(LyngdorfModel))
+    def test_the_capability_is_the_type(self, model):
+        r = LyngdorfReceiver("127.0.0.1", model)
+        from lyngdorf.const import Msg
+
+        expected = Msg.MAX_VOLUME in model.config.messages
+        assert isinstance(r.volume, VolumeControl) is expected
+        assert hasattr(r.volume, "maximum_volume") is expected
+
+    def test_none_only_ever_means_not_reported_yet(self):
+        r = LyngdorfReceiver("127.0.0.1", LyngdorfModel.MP_60)
+        r._register_callbacks()
+        assert isinstance(r.volume, VolumeControl)
+        assert r.volume.maximum_volume is None, "present, nothing reported"
+        r._max_volume_callback("-200", "")
+        assert r.volume.maximum_volume == -20.0
+
+    def test_zero_is_a_real_ceiling_not_a_sentinel(self):
+        """A real MP-60 on firmware 5.4.2 answered !MAXVOL(0), outside
+        the range its own manual documents. Surfaced as-is, never
+        validated."""
+        r = LyngdorfReceiver("127.0.0.1", LyngdorfModel.MP_60)
+        r._register_callbacks()
+        r._max_volume_callback("0", "")
+        assert isinstance(r.volume, VolumeControl)
+        assert r.volume.maximum_volume == 0.0
+
+    def test_the_old_accessor_still_works_and_warns(self):
+        """One release of overlap, so a consumer can move its pin and its
+        code in separate commits."""
+        r = LyngdorfReceiver("127.0.0.1", LyngdorfModel.MP_60)
+        r._register_callbacks()
+        r._max_volume_callback("-200", "")
+        with pytest.warns(DeprecationWarning, match="3.0"):
+            assert r.max_volume == -20.0

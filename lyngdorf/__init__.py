@@ -16,7 +16,7 @@ from .components import Player, Remote, ZoneB
 # so its bottom-of-file imports from .models complete before models
 # imports from it. See WP4 task 5 circular-import note.
 from .const import Msg  # noqa: F401
-from .controls import NumericControl, SteppableControl, Trim
+from .controls import NumericControl, SteppableControl, Trim, VolumeControl
 from .discovery import (
     create_receiver,
     discover_model,
@@ -40,6 +40,7 @@ __all__ = [
     "LyngdorfReceiver",
     "NumericControl",
     "SteppableControl",
+    "VolumeControl",
     "Trim",
     "ZoneB",
     "Player",

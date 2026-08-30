@@ -37,6 +37,7 @@ from .controls import (
     NumericControl,
     SteppableControl,
     Trim,
+    VolumeControl,
     build_lipsync,
     build_trims,
     build_volume,
@@ -257,56 +258,31 @@ class LyngdorfReceiver:
 
     @property
     def max_volume(self) -> float | None:
-        """The device's current MAXVOL setting, in dB.
+        """DEPRECATED, removed in 3.0. Use `volume.maximum_volume`, and
+        `isinstance(volume, VolumeControl)` for the capability.
 
-        None means TWO things here, and the type does not distinguish
-        them: the model has no MAXVOL command at all (the whole TDAI
-        family), or it has one and has not reported a value yet. The
-        second flips at runtime, so `max_volume is None` is NOT a
-        capability check - on an MP it is None at construction and
-        non-None once the device answers.
+        Kept one release with a warning rather than removed outright,
+        because that is the window a consumer needs to change a pin and
+        change code in separate commits.
 
-        An earlier version of this docstring said "or None on models that
-        do not report it", which states only the structural half and
-        reads like a capability test. It is the last place in the package
-        where a None on the receiver varies at runtime: every component
-        (`player`, `zone_b`, `remote`), the `trims` keys and `lipsync`
-        are all structural, fixed at construction. Making this one
-        structural too means moving it onto the volume control, where it
-        belongs - it is a property of the volume, not of the receiver -
-        and that is a breaking change, so it is held for 2.1 (issue #54)
-        rather than overlooked.
+        The reason it moved is issue #54: None here means two different
+        things - the model has no MAXVOL command (the whole TDAI family)
+        or it has one and has not answered yet - and nothing in the type
+        tells them apart, so `max_volume is None` reads as a capability
+        check and is wrong on an MP that has simply not replied. It was
+        the last property on the receiver whose None varied at runtime.
 
-        The MP and P families both map
-        Msg.MAX_VOLUME (docs/mp-40.md, docs/mp-50.md, docs/mp-60.md,
-        docs/p-series.md all document `!MAXVOL`) - contrary to issue #40's
-        original premise that this was MP-only. The TDAI family's manuals
-        (docs/tdai-1120.md, docs/tdai-2170.md, docs/tdai-3400.md) document
-        no MAXVOL command at all, so it stays None there.
-
-        The vendor-documented bounds are not reliable enough to validate
-        against: docs/mp-40.md/docs/mp-60.md give -55.0..-20.0 dB while
-        docs/p-series.md gives -55.0..+24.0 dB for the very same command,
-        and a real MP-60 on firmware 5.4.2 answered !MAXVOL(0), i.e.
-        0.0 dB - outside the MP-40/MP-60 documented range. The device's
-        own control websocket (a separate, richer status channel some
-        models expose) independently confirms this: it reports
-        `max_volume: {"min": -55.0, "max": 24.0, ...}`, matching
-        docs/p-series.md and confirming docs/mp-40.md/docs/mp-60.md's
-        `-55.0..-20.0` is simply wrong. `0.0 dB` is a genuine value from
-        that device, not a sentinel meaning "no limit". This value is
-        therefore read and surfaced as-is, never validated against any
-        range, and NOT used to narrow `volume_range` (see that property's
-        docstring for why) - do not add either.
-
-        This is a user-settable safety ceiling, not the hardware's
-        physical volume range - it can be changed at runtime from the
-        front panel or the official app, the same way
-        `homeassistant-projects/hass-lyngdorf`'s get_max()/set_max() work
-        against this same command. Do not treat it as a fixed slider
-        maximum; poll or subscribe to notification callbacks rather than
-        caching it once.
+        On the control that ambiguity is gone: a model without the
+        feature has no VolumeControl, so `maximum_volume` is left meaning
+        only "not reported yet".
         """
+        warnings.warn(
+            "max_volume is deprecated and will be removed in lyngdorf 3.0; "
+            "use volume.maximum_volume (and isinstance(volume, "
+            "VolumeControl) for the capability)",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         return self._max_volume
 
     @property
@@ -576,6 +552,8 @@ class LyngdorfReceiver:
 
     def _max_volume_callback(self, param1: str, ignored: str) -> None:
         self._max_volume = convert_decibel(param1)
+        if isinstance(self._volume, VolumeControl):
+            self._volume._update_maximum_volume(self._max_volume)
         self._notify_notification_callbacks()
 
     def _zone_b_volume_callback(self, param1: str, ignored: str) -> None:

@@ -13,6 +13,7 @@ EXPECTED_ALL = {
     "LyngdorfReceiver",
     "NumericControl",
     "SteppableControl",
+    "VolumeControl",
     "Trim",
     "ZoneB",
     "Player",
