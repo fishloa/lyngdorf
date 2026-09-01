@@ -6,8 +6,14 @@ related to the MP series but with no discrete channel trim controls
 (no TRIMBASS/TRIMTREB/TRIMCENTER/TRIMHEIGHT/TRIMLFE/TRIMSURRS/BAL) and no
 built-in streaming source (no STREAMTYPE).
 
-Note: this configuration is derived from the vendor External Control
-Manual only and has not been verified against real hardware.
+Verification status: this configuration was derived from the vendor
+External Control Manual. A P200 (firmware p20.5.4.1) has since been
+measured against it - see issue #57 - which confirmed !DEVICE, the
+!VERB(1) feedback levels, the split !POWER / !POWERZONE2 power model,
+the count+indexed enumeration bursts (!SRCS, !AUDMODEL, !RPFOCS), !VOL,
+!MUTE and UTF-8 name decoding, and contradicted the manual on the P200's
+volume bounds (see P200_VOLUME_RANGE). P100 and P300 remain
+manual-derived and unmeasured.
 
 :license: MIT, see LICENSE for more details.
 """
@@ -17,10 +23,10 @@ from ..remote import RemoteKey, RemoteKeyTable
 from .base import ModelConfig, NumericRange
 
 # Fallback for Receiver.lipsync_range before a real LIPSYNCRANGE? reply
-# arrives - see Receiver._lipsync_range_callback. The P series has never
-# been verified against real hardware (see module docstring); this
-# mirrors the MP-60 measurement (!LIPSYNCRANGE(0,500)) since both
-# families document the same LIPSYNC/LIPSYNCRANGE commands.
+# arrives - see Receiver._lipsync_range_callback. Still unmeasured on P
+# hardware: the P200 report in issue #57 did not cover LIPSYNCRANGE, so
+# this continues to mirror the MP-60 measurement (!LIPSYNCRANGE(0,500))
+# since both families document the same LIPSYNC/LIPSYNCRANGE commands.
 P_LIPSYNC_DEFAULT_RANGE = NumericRange(min=0.0, max=500.0, step=1.0)
 
 # !VOL/!ZVOL: -999..240 (-99.9..+24.0 dB), 0.1 dB step - docs/p-series.md
@@ -31,6 +37,30 @@ P_LIPSYNC_DEFAULT_RANGE = NumericRange(min=0.0, max=500.0, step=1.0)
 # head units, so that variant is deliberately not represented here. See
 # issue #42.
 P_VOLUME_RANGE = NumericRange(min=-99.9, max=24.0, step=0.1)
+
+# P200 only. A real P200 (firmware p20.5.4.1) accepts and reports !VOL(X)
+# for X = -799..200, i.e. -79.9..+20.0 dB - measured, and narrower at both
+# ends than the -999..240 the manual gives for the whole family (issue
+# #57). Hardware beats the manual, so the P200 diverges from
+# P_VOLUME_RANGE rather than the constant being "corrected" for models
+# nobody has measured: P100 and P300 keep the documented bounds until
+# someone puts a meter on one. This is exactly the per-model divergence
+# MP_VOLUME_RANGE's comment anticipates, and #36 (trim steps differing
+# within a family) is the precedent.
+#
+# Bounds only. The same report describes the P200 as moving in 0.5 dB
+# steps, which cannot be read off the wire encoding - X is an integer in
+# tenths, so -799 is a legal value that no 0.5 dB grid starting anywhere
+# contains, and -79.9 + 0.5k never lands on +20.0 either. The claim and
+# the encoding disagree, so `step` stays at the documented 0.1 until a
+# probe settles it. It matters: the consuming Home Assistant integration
+# maps its slider through min/max alone and never reads `step`, so a
+# genuine 0.5 dB grid would have to be rounded to *here*, in the library,
+# before !VOL is emitted - HA will not do it. See issue #57.
+#
+# !ZVOL is NOT covered by this measurement - only the main zone was
+# probed - so zone B keeps the manual's bounds below.
+P200_VOLUME_RANGE = NumericRange(min=-79.9, max=20.0, step=0.1)
 
 # Shared P Series Protocol Commands
 P_MESSAGES: dict[Msg, str] = {
@@ -239,7 +269,10 @@ P200_CONFIG = ModelConfig(
     has_zone_b=True,
     has_video=True,
     lipsync_default_range=P_LIPSYNC_DEFAULT_RANGE,
-    volume_range=P_VOLUME_RANGE,
+    # Measured, and narrower than the family's documented bounds - see
+    # P200_VOLUME_RANGE. Zone B was not probed, so !ZVOL keeps the
+    # manual's bounds.
+    volume_range=P200_VOLUME_RANGE,
     zone_b_volume_range=P_VOLUME_RANGE,
     # P200 only - see the MULTIVIEW note above P_REMOTE_KEYS.
     remote_keys=P200_REMOTE_KEYS,

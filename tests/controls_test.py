@@ -139,6 +139,46 @@ class TestVolumeFactory:
         assert build_volume(RecordingRio(LyngdorfModel.MP_60)).range.max == 24.0
         assert build_volume(RecordingRio(LyngdorfModel.TDAI_3400)).range.max == 12.0
 
+    def test_p200_volume_range_is_the_measured_one_not_the_manual_one(self):
+        """Issue #57: a real P200 (fw p20.5.4.1) accepts and reports
+        !VOL(X) for X = -799..200, narrower at BOTH ends than the
+        -999..240 docs/p-series.md gives for the family. Hardware beats
+        the manual. Asserted as literals, not against
+        `P_200.config.volume_range`, so a config edit back to the
+        documented bounds fails here instead of silently agreeing with
+        itself."""
+        p200 = build_volume(RecordingRio(LyngdorfModel.P_200))
+        assert (p200.range.min, p200.range.max) == (-79.9, 20.0)
+
+    def test_p200_measurement_does_not_leak_to_unmeasured_p_models(self):
+        """Only the P200 was measured. P100 and P300 keep the manual's
+        bounds until someone puts a meter on one - the same per-model
+        discipline MP_VOLUME_RANGE's comment describes and #36 (trim
+        steps differing inside one family) is the precedent for. Zone B
+        is unmeasured even on the P200: !ZVOL was never probed, so it
+        keeps the documented range too."""
+        for model in (LyngdorfModel.P_100, LyngdorfModel.P_300):
+            control = build_volume(RecordingRio(model))
+            assert (control.range.min, control.range.max) == (-99.9, 24.0)
+        p200 = LyngdorfModel.P_200.config
+        assert p200.zone_b_volume_range is not None
+        assert (p200.zone_b_volume_range.min, p200.zone_b_volume_range.max) == (
+            -99.9,
+            24.0,
+        )
+
+    def test_p200_volume_step_stays_at_the_documented_tenth(self):
+        """Issue #57 also describes the P200 as moving in 0.5 dB steps.
+        Not adopted: X is an integer in tenths on the wire, so -799 is a
+        legal value no 0.5 dB grid contains, and -79.9 + 0.5k never
+        reaches +20.0 either - the claim and the encoding contradict each
+        other. `step` stays 0.1 until a probe settles it. This test is
+        the reminder that changing it is a decision, not a typo fix: a
+        real 0.5 grid must also be rounded in the library, because the HA
+        integration maps its slider through min/max alone and never reads
+        `step`."""
+        assert build_volume(RecordingRio(LyngdorfModel.P_200)).range.step == 0.1
+
     @pytest.mark.asyncio
     async def test_wire_format_mp(self):
         rio = RecordingRio(LyngdorfModel.MP_60)
