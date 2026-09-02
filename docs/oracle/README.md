@@ -2,6 +2,9 @@
 
 Ground-truth hardware lookup tables per model, derived from firmware reverse engineering and vendor specs.
 
+Firmware packages, versions, binaries and addresses behind the
+`firmware-verified` entries are in [../firmware-provenance.md](../firmware-provenance.md).
+
 ## Verification Levels
 
 - **firmware-verified** -- extracted by disassembling ARM binaries from actual device firmware

@@ -594,6 +594,37 @@ All models communicate via TCP/IP on port 84 using ASCII commands:
 
 Protocol details available in the `/spec` folder.
 
+## Data provenance
+
+Most of this library is built from the vendor External Control Manuals in
+`/spec`, and from probing real hardware. **Some static lookup tables are
+neither** — notably the stream type indices, which `!STREAMTYPE` returns as
+bare integers that no manual explains, and whose meaning differs between
+device families.
+
+Those were recovered by **disassembling ARM binaries taken from official
+firmware update packages**:
+
+| Model(s) | Firmware package | Version |
+|---|---|---|
+| MP-40, MP-50, MP-60 | `update-streaming_5.4.1.gpg` | 5.4.1 |
+| TDAI-1120 | `update-tdai1120_2.6.3.swu` | 2.6.3 |
+| TDAI-3400 | `update-tdai3400-3-6-2.gpg` | 3.6.2 |
+| TDAI-2170 | `ti1_141a.upd` | 1.41a |
+| TDAI-2210 | *not analysed* — shares the TDAI-1120/3400 protocol |  |
+| P-100, P-200, P-300 | *not analysed* — manual, plus probing of a real P200 |  |
+
+Binaries, symbol names, addresses and what each yielded are in
+**[docs/firmware-provenance.md](docs/firmware-provenance.md)**. The tables
+themselves are in [docs/oracle/](docs/oracle/), where every entry is tagged
+`firmware-verified`, `spec-verified` or `code-only` — so you can tell which
+values are measured, which are transcribed, and which are assumed.
+
+This is interoperability work: reading published firmware to learn what the
+values a device already sends over its own documented protocol actually mean.
+No firmware is redistributed or modified here.
+
+
 ## License
 
 MIT License - see LICENSE file for details.
