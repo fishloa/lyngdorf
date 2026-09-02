@@ -101,6 +101,9 @@ async def discover_model(host: str, timeout: float = 5.0) -> LyngdorfModel | Non
     if not 0 <= start < end:
         _LOGGER.warning("Unexpected DEVICE reply from %s: %r", host, message.strip())
         return None
+    # Quotes only. `!DEVICE( "MP-60" )` is handled, but by lookup_model,
+    # which strips whitespace itself (issue #58) - normalising here too
+    # would be a second place to keep in step for no gain.
     model = lookup_model(message[start + 1 : end].strip('"'))
     if model is None:
         _LOGGER.warning("Model at %s is not supported: %r", host, message.strip())
@@ -228,8 +231,9 @@ async def fetch_device_serial(
 def lookup_model(model_name: str) -> LyngdorfModel | None:
     """Look up a LyngdorfModel by its string model name.
 
-    Case-insensitive: ``"mp-60"``, ``"MP-60"`` and ``"Mp-60"`` all
-    resolve to ``LyngdorfModel.MP_60``.
+    Case-insensitive, and tolerant of surrounding whitespace:
+    ``"mp-60"``, ``"MP-60"``, ``"Mp-60"`` and ``" MP-60\\n"`` all resolve
+    to ``LyngdorfModel.MP_60``.
 
     Public, and deliberately distinct from `discover_model`: this is a
     pure string lookup with no I/O, for resolving a model name a caller
@@ -238,12 +242,26 @@ def lookup_model(model_name: str) -> LyngdorfModel | None:
     They are not interchangeable, and a consumer resolving a persisted
     setting must not be forced to touch the network to do it.
 
+    A brand prefix is deliberately NOT tolerated (issue #58):
+    ``"Steinway Lyngdorf P200"`` returns None, and that is the intended
+    answer rather than a gap. The whitespace strip is unambiguous, but
+    prefix-stripping is substring matching, and a substring match that
+    guesses wrong resolves to the wrong ModelConfig - which connects
+    happily and then sends valid-looking commands with the wrong ranges
+    and command set. None is the better failure: the consuming Home
+    Assistant config flow aborts loudly on it (`unsupported_model`) and
+    the user can still add the device by hand. No device has ever been
+    observed reporting a prefixed modelName - a live P200 reports a bare
+    ``"P200"``, with the brand in the UPnP `manufacturer` field where it
+    belongs - so there is nothing here to be tolerant of. Revisit only
+    with a real device that does it.
+
     Was `lookup_receiver_model` in 1.x; that name is shimmed. It was
     briefly private during the 2.0 rewrite, which broke every consumer
     that resolves a stored model at setup - caught by running a real
     integration against the branch.
     """
-    search = model_name.lower()
+    search = model_name.strip().lower()
     for model in LyngdorfModel:
         if model.config.model_name.lower() == search:
             return model

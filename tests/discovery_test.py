@@ -196,6 +196,49 @@ class TestLookupModel:
     def test_lookup(self, name, expected):
         assert lookup_model(name) is expected
 
+    @pytest.mark.parametrize(
+        "name",
+        [" P200", "P200 ", "  P200  ", "\tP200", "P200\n", "\r\nP200\r\n"],
+    )
+    def test_surrounding_whitespace_is_ignored(self, name):
+        """Issue #58: the input is a vendor's UPnP `modelName`, a string
+        this library does not control, and it reaches lookup_model with
+        no normalisation from the consumer (HA's config flow passes
+        `discovery_info.upnp.get(ATTR_UPNP_MODEL_NAME)` straight in). A
+        stray space there aborted discovery as `unsupported_model` on a
+        fully supported device."""
+        assert lookup_model(name) is LyngdorfModel.P_200
+
+    @pytest.mark.parametrize(
+        "name",
+        [
+            "Steinway Lyngdorf P200",
+            "Lyngdorf MP-60",
+            "Model P200",
+            "P200 Surround Processor",
+        ],
+    )
+    def test_a_brand_prefix_is_deliberately_not_tolerated(self, name):
+        """Issue #58, and this asserts a DECISION, not a limitation - do
+        not "fix" it by adding substring matching.
+
+        Whitespace tolerance is unambiguous. Prefix tolerance is not: a
+        substring match that guesses wrong returns the wrong
+        ModelConfig, which connects successfully and then sends
+        valid-looking commands with the wrong ranges and command set.
+        None is the better failure - HA aborts loudly on it and the user
+        can still add the device by hand. No device has been observed
+        reporting a prefixed modelName (a live P200 reports a bare
+        "P200"; the brand lives in the UPnP `manufacturer` field), so
+        there is nothing real to be tolerant of."""
+        assert lookup_model(name) is None
+
+    def test_the_empty_string_and_whitespace_only_resolve_to_nothing(self):
+        """HA's config flow substitutes "" when `modelName` is absent
+        entirely, so this is a real input, not a contrived one."""
+        assert lookup_model("") is None
+        assert lookup_model("   ") is None
+
 
 class TestCreateReceiver:
     @pytest.mark.asyncio
