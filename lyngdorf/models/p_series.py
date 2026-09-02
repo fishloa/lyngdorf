@@ -11,9 +11,10 @@ External Control Manual. A P200 (firmware p20.5.4.1) has since been
 measured against it - see issue #57 - which confirmed !DEVICE, the
 !VERB(1) feedback levels, the split !POWER / !POWERZONE2 power model,
 the count+indexed enumeration bursts (!SRCS, !AUDMODEL, !RPFOCS), !VOL,
-!MUTE and UTF-8 name decoding, and contradicted the manual on the P200's
-volume bounds (see P200_VOLUME_RANGE). P100 and P300 remain
-manual-derived and unmeasured.
+!MUTE, UTF-8 name decoding, and the main-zone volume floor and step. It
+found one real divergence, in Zone B - see P200_ZONE_B_VOLUME_RANGE.
+Neither zone's upper bound has been measured on any P device. P100 and
+P300 remain entirely manual-derived and unmeasured.
 
 :license: MIT, see LICENSE for more details.
 """
@@ -36,31 +37,42 @@ P_LIPSYNC_DEFAULT_RANGE = NumericRange(min=0.0, max=500.0, step=1.0)
 # different scale (0..999 = 0..99.9 dB) - this library does not model
 # head units, so that variant is deliberately not represented here. See
 # issue #42.
+#
+# The main-zone floor and the step are now MEASURED, not just documented
+# (P200, firmware p20.5.4.1, issue #57): !VOL(-999) round-trips and
+# !VOL(-1000) clamps back to -999, so -99.9 is exactly right; !VOL(-794)
+# and !VOL(-793) both round-trip, so the wire really is addressable to
+# 0.1 dB and `step` is 0.1. The 0.5 dB figure in that issue's original
+# report turned out to be the DEFAULT INCREMENT of the bare !VOL+ /
+# !VOL- commands (!VOL+ moved -793 to -788, while !VOL+(1) moved -788 to
+# -787), which is a stepping behaviour, not a grid. Nothing needs
+# rounding before !VOL is emitted.
+#
+# The upper bound remains documentation-only for the whole family - the
+# P200 owner declined to measure it, reasonably, since probing +24.0 dB
+# means driving the amplifiers hard. Do not treat +24.0 as verified.
 P_VOLUME_RANGE = NumericRange(min=-99.9, max=24.0, step=0.1)
 
-# P200 only. A real P200 (firmware p20.5.4.1) accepts and reports !VOL(X)
-# for X = -799..200, i.e. -79.9..+20.0 dB - measured, and narrower at both
-# ends than the -999..240 the manual gives for the whole family (issue
-# #57). Hardware beats the manual, so the P200 diverges from
-# P_VOLUME_RANGE rather than the constant being "corrected" for models
-# nobody has measured: P100 and P300 keep the documented bounds until
-# someone puts a meter on one. This is exactly the per-model divergence
-# MP_VOLUME_RANGE's comment anticipates, and #36 (trim steps differing
-# within a family) is the precedent.
+# P200 Zone B only, and the only place P hardware has been found to
+# disagree with the manual. Measured on a P200, firmware p20.5.4.1
+# (issue #57): !ZVOL accepts -964 and reports it back, but !ZVOL(-999)
+# reads back as !ZVOL(-990) - the device clamps, so the Zone B floor is
+# -99.0 dB, one tenth of a dB narrower than the -99.9 the manual gives
+# both zones. The main zone really does reach -999 on the same unit,
+# measured in the same session, so this is a genuine per-zone
+# difference and not a transcription slip.
 #
-# Bounds only. The same report describes the P200 as moving in 0.5 dB
-# steps, which cannot be read off the wire encoding - X is an integer in
-# tenths, so -799 is a legal value that no 0.5 dB grid starting anywhere
-# contains, and -79.9 + 0.5k never lands on +20.0 either. The claim and
-# the encoding disagree, so `step` stays at the documented 0.1 until a
-# probe settles it. It matters: the consuming Home Assistant integration
-# maps its slider through min/max alone and never reads `step`, so a
-# genuine 0.5 dB grid would have to be rounded to *here*, in the library,
-# before !VOL is emitted - HA will not do it. See issue #57.
+# The upper bound was NOT measured - probing it means driving the
+# amplifiers loud - so +24.0 stays as documented rather than being
+# guessed at. Only `min` carries hardware evidence here.
 #
-# !ZVOL is NOT covered by this measurement - only the main zone was
-# probed - so zone B keeps the manual's bounds below.
-P200_VOLUME_RANGE = NumericRange(min=-79.9, max=20.0, step=0.1)
+# P200 only, for the same reason the MP family keeps its range per-model
+# rather than per-family: P100 and P300 have never been measured, and
+# #36 (trim steps differing within one family) is the precedent for not
+# assuming they match. If a P100 or P300 is ever probed and clamps the
+# same way, widen this to the family rather than adding a third
+# constant.
+P200_ZONE_B_VOLUME_RANGE = NumericRange(min=-99.0, max=24.0, step=0.1)
 
 # Shared P Series Protocol Commands
 P_MESSAGES: dict[Msg, str] = {
@@ -269,11 +281,10 @@ P200_CONFIG = ModelConfig(
     has_zone_b=True,
     has_video=True,
     lipsync_default_range=P_LIPSYNC_DEFAULT_RANGE,
-    # Measured, and narrower than the family's documented bounds - see
-    # P200_VOLUME_RANGE. Zone B was not probed, so !ZVOL keeps the
-    # manual's bounds.
-    volume_range=P200_VOLUME_RANGE,
-    zone_b_volume_range=P_VOLUME_RANGE,
+    volume_range=P_VOLUME_RANGE,
+    # Zone B clamps a tenth of a dB higher than the manual says and than
+    # the main zone does - measured, see P200_ZONE_B_VOLUME_RANGE.
+    zone_b_volume_range=P200_ZONE_B_VOLUME_RANGE,
     # P200 only - see the MULTIVIEW note above P_REMOTE_KEYS.
     remote_keys=P200_REMOTE_KEYS,
 )
