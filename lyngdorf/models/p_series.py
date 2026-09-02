@@ -6,22 +6,18 @@ related to the MP series but with no discrete channel trim controls
 (no TRIMBASS/TRIMTREB/TRIMCENTER/TRIMHEIGHT/TRIMLFE/TRIMSURRS/BAL) and no
 built-in streaming source (no STREAMTYPE).
 
-Verification status: this configuration was derived from the vendor
-External Control Manual. A P200 (firmware p20.5.4.1) has since been
-measured against it - see issue #57 - which confirmed !DEVICE, the
-!VERB(1) feedback levels, the split !POWER / !POWERZONE2 power model,
-the count+indexed enumeration bursts (!SRCS, !AUDMODEL, !RPFOCS), !VOL,
-!MUTE, UTF-8 name decoding, !LIPSYNCRANGE, and both volume ranges end to
-end. It found one real divergence, in Zone B - see
-P200_ZONE_B_VOLUME_RANGE. P100 and P300 remain entirely manual-derived
-and unmeasured, and this module deliberately does not extend the P200's
-measurements to them.
+Verification status: derived from the vendor External Control Manual,
+then measured against a real P200 (firmware p20.5.4.1) - see issue #57
+and the "Hardware measurements" section of docs/p-series.md, which is
+the authoritative record and overrides the manual where they differ.
+One real divergence was found, in Zone B. P100 and P300 remain
+manual-derived and unmeasured; the P200's results are deliberately not
+extended to them.
 
-The same capture showed P200 commands this module does not model at all
-(!STREAMTYPE, !ZSTREAMTYPE, !ZVIDIN, !MVIEW*, !INTERFACE, !SWUPD,
-!MQASTATUS, !STANDBYLEVEL, !DTSDIALOGAVAILABLE) - notably !STREAMTYPE,
-which the paragraph above says the family lacks. Tracked separately;
-they are additions, not corrections to what is here.
+That capture also showed P200 commands this module does not model
+(!STREAMTYPE among them, which the paragraph above says the family
+lacks). Listed in docs/p-series.md and tracked separately - they are
+additions, not corrections to what is here.
 
 :license: MIT, see LICENSE for more details.
 """
@@ -31,72 +27,37 @@ from ..remote import RemoteKey, RemoteKeyTable
 from .base import ModelConfig, NumericRange
 
 # Fallback for Receiver.lipsync_range before a real LIPSYNCRANGE? reply
-# arrives - see Receiver._lipsync_range_callback. This mirrored the MP-60
-# measurement on the grounds that both families document the same
-# LIPSYNC/LIPSYNCRANGE commands, and a P200 has since confirmed it
-# directly: !LIPSYNCRANGE? -> !LIPSYNCRANGE(0,500), identical to the
-# MP-60 (issue #57). The fallback and the real reply now agree on P
-# hardware, so the pre-reply window no longer reports a wrong range.
+# arrives - see Receiver._lipsync_range_callback. Borrowed from the MP-60
+# and since confirmed on a P200: !LIPSYNCRANGE(0,500), identical.
 P_LIPSYNC_DEFAULT_RANGE = NumericRange(min=0.0, max=500.0, step=1.0)
 
-# !VOL/!ZVOL: -999..240 (-99.9..+24.0 dB), 0.1 dB step - docs/p-series.md
-# documents the same bound as the MP family for both the main-zone and
-# Zone B volume commands (checked individually, not assumed). The P
-# series manual also documents a "Head Unit" variant with a completely
-# different scale (0..999 = 0..99.9 dB) - this library does not model
-# head units, so that variant is deliberately not represented here. See
-# issue #42.
+# !VOL/!ZVOL: -999..240 (-99.9..+24.0 dB), 0.1 dB step. Documented for
+# the family and MEASURED end to end on a P200 - both bounds, the clamp
+# behaviour and the step. See "Hardware measurements" in docs/p-series.md
+# for the probe results, and issue #42 for why the manual's "Head Unit"
+# variant (0..999) is deliberately not modelled.
 #
-# The main-zone floor and the step are now MEASURED, not just documented
-# (P200, firmware p20.5.4.1, issue #57): !VOL(-999) round-trips and
-# !VOL(-1000) clamps back to -999, so -99.9 is exactly right; !VOL(-794)
-# and !VOL(-793) both round-trip, so the wire really is addressable to
-# 0.1 dB and `step` is 0.1. The 0.5 dB figure in that issue's original
-# report turned out to be the DEFAULT INCREMENT of the bare !VOL+ /
-# !VOL- commands (!VOL+ moved -793 to -788, while !VOL+(1) moved -788 to
-# -787), which is a stepping behaviour, not a grid. Nothing needs
-# rounding before !VOL is emitted.
-#
-# The ceiling is measured too, with no input connected so the probe was
-# safe: !VOL(240) round-trips, !VOL(241) and !VOL(999) both clamp back to
-# 240, and a bare !VOL+ at the top is a no-op. So -999..240 is exactly
-# right for the P200 on both ends, and the whole of this constant now has
-# hardware behind it for that model.
-#
-# Note the ceiling is only reachable once the device's own max-volume
-# setting is raised: at its default the same unit answered !MAXVOL(0) and
-# clamped every set above 0.0 dB. That is the user ceiling, a separate
-# runtime quantity - see VolumeControl.maximum_volume - and it is exactly
-# why it must not be folded into this range (#54). This constant is the
-# hardware's capability; MAXVOL is what the user has allowed today.
+# This is the hardware's capability. The user's live ceiling is !MAXVOL,
+# a separate runtime quantity that clamps sets - see
+# VolumeControl.maximum_volume. Keeping them apart is the whole of #54;
+# do not fold one into the other.
 P_VOLUME_RANGE = NumericRange(min=-99.9, max=24.0, step=0.1)
 
-# P200 Zone B only, and the only place P hardware has been found to
-# disagree with the manual. Measured on a P200, firmware p20.5.4.1
-# (issue #57): !ZVOL accepts -964 and reports it back, but !ZVOL(-999)
-# reads back as !ZVOL(-990) - the device clamps, so the Zone B floor is
-# -99.0 dB, one tenth of a dB narrower than the -99.9 the manual gives
-# both zones. The main zone really does reach -999 on the same unit,
-# measured in the same session, so this is a genuine per-zone
-# difference and not a transcription slip.
+# P200 Zone B only - the one place P hardware disagrees with the manual.
+# Measured: !ZVOL(-999) reads back as !ZVOL(-990), so the floor is -99.0,
+# 0.9 dB narrower than documented. The ceiling matches the main zone. The
+# main zone reaches -999 on the same unit in the same session, so this is
+# a real per-zone difference, not a transcription slip. Probe results in
+# docs/p-series.md.
 #
-# The ceiling was measured afterwards and matches the main zone:
-# !ZVOL(240) round-trips, !ZVOL(241) and !ZVOL(999) clamp back to 240.
-# So the divergence really is the floor alone, 0.9 dB narrower than the
-# manual, with the top identical.
+# Zone B's own ceiling has NO query in this protocol, which is why
+# zone_b.volume is a plain SteppableControl: there is nothing that could
+# populate a maximum_volume. Pinned by
+# test_zone_b_volume_never_reports_a_maximum.
 #
-# Zone B has its own user ceiling, separate from !MAXVOL and with NO
-# query in this protocol: with !MAXVOL(240) set, Zone B still clamped at
-# 0.0 dB until its own menu setting was raised. That is why zone_b.volume
-# is a plain SteppableControl and not a VolumeControl - there is no
-# maximum_volume to report for it, and the absence is structural rather
-# than "not read yet". Do not add one without a command to populate it.
-#
-# P200 only, for the same reason the MP family keeps its range per-model
-# rather than per-family: P100 and P300 have never been measured, and
-# #36 (trim steps differing within one family) is the precedent for not
-# assuming they match. If a P100 or P300 is ever probed and clamps the
-# same way, widen this to the family rather than adding a third
+# P200 only. P100 and P300 are unmeasured and #36 (trim steps differing
+# inside one family) is the precedent for not assuming they match; widen
+# to the family if either is ever probed, rather than adding a third
 # constant.
 P200_ZONE_B_VOLUME_RANGE = NumericRange(min=-99.0, max=24.0, step=0.1)
 
@@ -160,8 +121,8 @@ P_MESSAGES: dict[Msg, str] = {
 # restricts it explicitly - "Multiview button (same as "PiP" on remote,
 # P200 only)" - a stated hardware restriction, not an omission the way
 # MP's missing `!BACK` was. There is no hardware measurement to overrule
-# it with (no P-series device has been available to test, per the module
-# docstring) and no third-party mapping either - unlike BACK,
+# it with - the P200 capture in #57 shows no !MULTIVIEW traffic either
+# way - and no third-party mapping, unlike BACK:
 # jsoutter/ha-lyngdorf does not implement MULTIVIEW at all. With no
 # contradicting evidence, follow the manual: P100_CONFIG and P300_CONFIG
 # get `P_REMOTE_KEYS` (no MULTIVIEW), P200_CONFIG gets `P200_REMOTE_KEYS`

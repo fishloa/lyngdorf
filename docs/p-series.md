@@ -13,6 +13,69 @@ range - see Values column).
 - Note: from deep sleep standby, the device may miss the first character(s) sent - send the ON command a couple of times to be sure.
 - No streaming source, channel trims (bass/treble/center/height/LFE/surround), or balance control exist in this protocol - this processor family relies on external sources and does not expose tone/channel trims over serial.
 
+## Hardware measurements (P200, firmware p20.5.4.1)
+
+Probed on a real device — see [#57](https://github.com/fishloa/lyngdorf/issues/57).
+Everything below **overrides the manual tables that follow**. P100 and P300 are
+unmeasured; do not assume they match.
+
+### Volume ranges
+
+| | Wire | dB | Notes |
+|---|---|---|---|
+| `!VOL` | -999..240 | -99.9..+24.0 | As documented. Clamps outside; `!VOL+` no-ops at the top |
+| `!ZVOL` | -990..240 | **-99.0**..+24.0 | Floor 0.9 dB narrower than documented. Top matches |
+
+Step is 0.1 dB (`-794` and `-793` both round-trip). The 0.5 dB figure seen in
+practice is the *default increment* of bare `!VOL+`/`!VOL-`, not a grid:
+`!VOL+` moved -793 → -788, `!VOL+(1)` moved -788 → -787. No rounding needed
+before emitting `!VOL`.
+
+### Ceilings
+
+`!MAXVOL` is a **live user ceiling that clamps writes**, main zone only:
+
+- At `!MAXVOL(0)`, every set from `!VOL(1)` to `!VOL(300)` read back `!VOL(0)`.
+  `0` is a real 0.0 dB ceiling, not "off".
+- **Read-only over the protocol.** `!MAXVOL(300)` was ignored; `!MAXVOL?` still
+  answered `!MAXVOL(0)`. Changeable only in the device's setup menu.
+- **Zone B has a separate ceiling with no query in this protocol.** With
+  `!MAXVOL(240)` set, Zone B still clamped at 0.0 dB until its own menu setting
+  was raised.
+
+### Standby
+
+- Device answers **every query** while in standby.
+- **Volume sets are silently discarded** — `!VOL(-794)` then `!VOL?` returned the
+  unchanged `!VOL(-450)`. No error, no reply, no state change.
+  See [#59](https://github.com/fishloa/lyngdorf/issues/59).
+- `!SRC(n)` **powers the main zone on** rather than being discarded.
+
+### Corrections to this manual
+
+| Manual says | Actually |
+|---|---|
+| `!POWER(0..3)` combined main+Zone B | Main only, `!POWER(0\|1)`; Zone B is `!POWERZONE2` |
+| `!ZVOL` floor -999 | -990 |
+| "No streaming source" (intro) | `!STREAMTYPE?` → `!STREAMTYPE(0)` exists |
+
+### Commands present on the P200 but absent from `models/p_series.py`
+
+`!STREAMTYPE` `!ZSTREAMTYPE` `!ZVIDIN` `!MVIEW` `!MVIEWACTIVE` `!MVIEWSRC`
+`!INTERFACE` `!SWUPD` `!MQASTATUS` `!STANDBYLEVEL` `!DTSDIALOGAVAILABLE`
+
+### Confirmed as documented
+
+`!DEVICE(P200)` · `!VERB` levels 0/1/2 · `!SRCS`/`!AUDMODEL`/`!RPFOCS`
+count+indexed bursts · `!LIPSYNCRANGE(0,500)` · `!MUTE` · `!DEFVOL(-450)` ·
+UTF-8 in names (`!RPFOC(2)"FlyttetLæn"`)
+
+### Official app behaviour (packet capture)
+
+- Drives volume with relative steps only — `!VOL±(n)`, `!ZVOL±(n)`, n = 1..5.
+- Re-sends `!VERB(1)` every ~3 s as a keepalive.
+- Emits an unsolicited `!CDINPUT(OFF)` after every source change.
+
 ## Commands
 
 | Command | Reply | Values | Description |

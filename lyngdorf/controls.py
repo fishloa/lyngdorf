@@ -205,25 +205,20 @@ class VolumeControl(SteppableControl):
         `range`. Do not treat it as a fixed slider maximum; subscribe to
         change notifications rather than caching it once.
 
-        Read as-is and never validated: a real MP-60 on firmware 5.4.2
-        answered `!MAXVOL(0)`, outside the range its own manual
-        documents, and 0.0 dB is a genuine value there rather than a
-        sentinel. A P200 confirmed what that means - at `!MAXVOL(0)`
-        every set from `!VOL(1)` to `!VOL(300)` read back `!VOL(0)`, so
-        it really is a live 0.0 dB ceiling that clamps writes, not an
-        "off" or "unset" marker (issue #57).
+        Read as-is and never validated, and a live ceiling that clamps
+        writes rather than a marker: on a P200 at `!MAXVOL(0)`, every set
+        from `!VOL(1)` to `!VOL(300)` read back `!VOL(0)`. 0.0 dB is a
+        real value there, not "off" or "unset".
 
-        Read-only, and not by choice of this library: the same P200
-        ignored `!MAXVOL(300)` outright, still answering `!MAXVOL(0)`
-        afterwards. The ceiling is changeable only in the device's own
-        setup menu. So there is deliberately no setter here, and adding
-        one would be writing a command the device discards. It is also a
-        safety setting, which is the same reason `!DEFVOL` is not
-        modelled at all - see the note in const.py.
+        Read-only, by the device's constraint rather than ours - the same
+        P200 ignored `!MAXVOL(300)` and still answered `!MAXVOL(0)`. The
+        ceiling changes only in the device's setup menu, so there is no
+        setter here and adding one would write a command that is
+        discarded. It is also a safety setting, the same reason `!DEFVOL`
+        is not modelled at all (see const.py).
 
-        Main zone only. Zone B has a separate ceiling with no query in
-        the protocol at all, which is why `zone_b.volume` is a plain
-        SteppableControl with no such attribute.
+        Main zone only: Zone B's ceiling has no query in the protocol,
+        which is why `zone_b.volume` is a plain SteppableControl.
         """
         return self._maximum_volume
 
