@@ -11,10 +11,17 @@ External Control Manual. A P200 (firmware p20.5.4.1) has since been
 measured against it - see issue #57 - which confirmed !DEVICE, the
 !VERB(1) feedback levels, the split !POWER / !POWERZONE2 power model,
 the count+indexed enumeration bursts (!SRCS, !AUDMODEL, !RPFOCS), !VOL,
-!MUTE, UTF-8 name decoding, and the main-zone volume floor and step. It
-found one real divergence, in Zone B - see P200_ZONE_B_VOLUME_RANGE.
-Neither zone's upper bound has been measured on any P device. P100 and
-P300 remain entirely manual-derived and unmeasured.
+!MUTE, UTF-8 name decoding, !LIPSYNCRANGE, and both volume ranges end to
+end. It found one real divergence, in Zone B - see
+P200_ZONE_B_VOLUME_RANGE. P100 and P300 remain entirely manual-derived
+and unmeasured, and this module deliberately does not extend the P200's
+measurements to them.
+
+The same capture showed P200 commands this module does not model at all
+(!STREAMTYPE, !ZSTREAMTYPE, !ZVIDIN, !MVIEW*, !INTERFACE, !SWUPD,
+!MQASTATUS, !STANDBYLEVEL, !DTSDIALOGAVAILABLE) - notably !STREAMTYPE,
+which the paragraph above says the family lacks. Tracked separately;
+they are additions, not corrections to what is here.
 
 :license: MIT, see LICENSE for more details.
 """
@@ -24,10 +31,12 @@ from ..remote import RemoteKey, RemoteKeyTable
 from .base import ModelConfig, NumericRange
 
 # Fallback for Receiver.lipsync_range before a real LIPSYNCRANGE? reply
-# arrives - see Receiver._lipsync_range_callback. Still unmeasured on P
-# hardware: the P200 report in issue #57 did not cover LIPSYNCRANGE, so
-# this continues to mirror the MP-60 measurement (!LIPSYNCRANGE(0,500))
-# since both families document the same LIPSYNC/LIPSYNCRANGE commands.
+# arrives - see Receiver._lipsync_range_callback. This mirrored the MP-60
+# measurement on the grounds that both families document the same
+# LIPSYNC/LIPSYNCRANGE commands, and a P200 has since confirmed it
+# directly: !LIPSYNCRANGE? -> !LIPSYNCRANGE(0,500), identical to the
+# MP-60 (issue #57). The fallback and the real reply now agree on P
+# hardware, so the pre-reply window no longer reports a wrong range.
 P_LIPSYNC_DEFAULT_RANGE = NumericRange(min=0.0, max=500.0, step=1.0)
 
 # !VOL/!ZVOL: -999..240 (-99.9..+24.0 dB), 0.1 dB step - docs/p-series.md
@@ -48,9 +57,18 @@ P_LIPSYNC_DEFAULT_RANGE = NumericRange(min=0.0, max=500.0, step=1.0)
 # -787), which is a stepping behaviour, not a grid. Nothing needs
 # rounding before !VOL is emitted.
 #
-# The upper bound remains documentation-only for the whole family - the
-# P200 owner declined to measure it, reasonably, since probing +24.0 dB
-# means driving the amplifiers hard. Do not treat +24.0 as verified.
+# The ceiling is measured too, with no input connected so the probe was
+# safe: !VOL(240) round-trips, !VOL(241) and !VOL(999) both clamp back to
+# 240, and a bare !VOL+ at the top is a no-op. So -999..240 is exactly
+# right for the P200 on both ends, and the whole of this constant now has
+# hardware behind it for that model.
+#
+# Note the ceiling is only reachable once the device's own max-volume
+# setting is raised: at its default the same unit answered !MAXVOL(0) and
+# clamped every set above 0.0 dB. That is the user ceiling, a separate
+# runtime quantity - see VolumeControl.maximum_volume - and it is exactly
+# why it must not be folded into this range (#54). This constant is the
+# hardware's capability; MAXVOL is what the user has allowed today.
 P_VOLUME_RANGE = NumericRange(min=-99.9, max=24.0, step=0.1)
 
 # P200 Zone B only, and the only place P hardware has been found to
@@ -62,9 +80,17 @@ P_VOLUME_RANGE = NumericRange(min=-99.9, max=24.0, step=0.1)
 # measured in the same session, so this is a genuine per-zone
 # difference and not a transcription slip.
 #
-# The upper bound was NOT measured - probing it means driving the
-# amplifiers loud - so +24.0 stays as documented rather than being
-# guessed at. Only `min` carries hardware evidence here.
+# The ceiling was measured afterwards and matches the main zone:
+# !ZVOL(240) round-trips, !ZVOL(241) and !ZVOL(999) clamp back to 240.
+# So the divergence really is the floor alone, 0.9 dB narrower than the
+# manual, with the top identical.
+#
+# Zone B has its own user ceiling, separate from !MAXVOL and with NO
+# query in this protocol: with !MAXVOL(240) set, Zone B still clamped at
+# 0.0 dB until its own menu setting was raised. That is why zone_b.volume
+# is a plain SteppableControl and not a VolumeControl - there is no
+# maximum_volume to report for it, and the absence is structural rather
+# than "not read yet". Do not add one without a command to populate it.
 #
 # P200 only, for the same reason the MP family keeps its range per-model
 # rather than per-family: P100 and P300 have never been measured, and

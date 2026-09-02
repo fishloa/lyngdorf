@@ -42,6 +42,26 @@ class TestZoneBFactory:
         assert isinstance(zone_b.volume, SteppableControl)
         assert zone_b.volume.range == LyngdorfModel.MP_60.config.zone_b_volume_range
 
+    @pytest.mark.parametrize("model", list(LyngdorfModel))
+    def test_zone_b_volume_never_reports_a_maximum(self, model):
+        """Zone B's ceiling is a device menu setting with NO query in the
+        protocol - measured on a P200, which still clamped Zone B at 0.0
+        dB with !MAXVOL(240) set on the main zone, until its own separate
+        Zone B setting was raised (#57).
+
+        So `maximum_volume` must be absent here, not None: `!MAXVOL` is
+        main-zone only, and there is no command that could ever populate
+        a Zone B equivalent. That is the #54 rule - a None that means
+        "no such feature" is a capability check that lies - applied to
+        the zone rather than the receiver. If a query for it is ever
+        found, this becomes a VolumeControl and this test changes with
+        it; until then, do not add the attribute.
+        """
+        zone_b = build_zone_b(RecordingRio(model))
+        if zone_b is None:
+            pytest.skip(f"{model.config.model_name} has no Zone B")
+        assert not hasattr(zone_b.volume, "maximum_volume")
+
 
 class TestZoneB:
     def _zone_b(self, rio: RecordingRio) -> ZoneB:
