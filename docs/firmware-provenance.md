@@ -5,8 +5,8 @@ Where this library's static lookup tables come from.
 Several tables — stream type indices in particular — are not documented in any
 vendor manual. They were recovered by **disassembling ARM binaries extracted
 from official firmware update packages** — the GPG-encrypted `.gpg` / `.swu`
-files published on the Lyngdorf download center. Tooling: `gpg`/`cpio` to unpack, `radare2` and
-`arm-linux-gnueabihf-objdump`/`readelf` to disassemble.
+files published on the Lyngdorf download center. Tooling: `gpg`/`cpio` to
+unpack, `radare2` and `arm-linux-gnueabihf-objdump`/`readelf` to disassemble.
 
 Per-model results, including the tables themselves, are in
 [`docs/oracle/`](oracle/). Each entry there is tagged `firmware-verified`,
