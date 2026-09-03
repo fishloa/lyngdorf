@@ -42,6 +42,13 @@ now the authoritative record for that family.
   re-arms.
 - `!STREAMTYPE` / `!ZSTREAMTYPE` mapped and queried at setup for the P
   series.
+- A **warning when a device reports an audio-input index the library has
+  no name for**, latched per index. The protocol offers no way to
+  enumerate audio inputs — there is `!SRCS` for sources but nothing
+  equivalent here, so `ModelConfig.audio_inputs` is the *only* mapping
+  that exists and is maintained by hand. An index missing from it is a
+  gap in this library's data, and previously the user just saw
+  `audio-13` with nothing said.
 
 ### Changed
 

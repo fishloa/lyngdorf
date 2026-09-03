@@ -149,6 +149,8 @@ class LyngdorfReceiver:
         # Flat cached state (design §2.2's non-component members).
         config = model.config
         self._audio_inputs = config.audio_inputs
+        # Indices already complained about - see _name_audio_input.
+        self._unknown_audio_inputs: set[int] = set()
         self._video_inputs = config.video_inputs
         self._stream_types = config.stream_types
         self._sources = CountingNumberDict()
@@ -618,19 +620,50 @@ class LyngdorfReceiver:
                 zb._sources.add(int(param1), param2)
         self._notify_notification_callbacks()
 
+    def _name_audio_input(self, param1: str) -> str:
+        """Map a reported audio-input index to its name, complaining once
+        if we have no entry for it.
+
+        The protocol offers no way to enumerate audio inputs. There is
+        `!SRCS` for sources, but nothing equivalent here - the device
+        answers `!AUDIN(X)` with a bare integer and the vendor manual
+        says "See table of audio inputs for the translation of the number
+        to actual audio input". So the table in ModelConfig is not a
+        convenience, it is the only mapping that exists, and it is
+        maintained by hand from manuals and measurement.
+
+        Which means an index we do not have is a defect in this library's
+        data, not a device fault - and the user sees "audio-13" where a
+        real name belongs. The fallback keeps things working; the warning
+        is how the gap ever gets fixed. Latched per index so a device
+        pushing !AUDIN on every source change produces one line, not one
+        per change.
+        """
+        index = int(param1)
+        known = self._audio_inputs.get(index)
+        if known is not None:
+            return known
+        if index not in self._unknown_audio_inputs:
+            self._unknown_audio_inputs.add(index)
+            _LOGGER.warning(
+                "%s: %s reported audio input %d, which this library has no "
+                "name for - showing 'audio-%d' instead. This is a gap in "
+                "the library's input table for this model, not a device "
+                "fault; please report it with the model and firmware.",
+                self.host,
+                self._model.config.model_name,
+                index,
+                index,
+            )
+        return f"audio-{param1}"
+
     def _audio_input_callback(self, param1: str, param2: str) -> None:
-        if int(param1) in self._audio_inputs:
-            self._audio_input = self._audio_inputs[int(param1)]
-        else:
-            self._audio_input = f"audio-{param1}"
+        self._audio_input = self._name_audio_input(param1)
         self._notify_notification_callbacks()
 
     def _zone_b_audio_input_callback(self, param1: str, param2: str) -> None:
         if (zb := self._zone_b) is not None:
-            if int(param1) in self._audio_inputs:
-                zb._update_audio_input(self._audio_inputs[int(param1)])
-            else:
-                zb._update_audio_input(f"audio-{param1}")
+            zb._update_audio_input(self._name_audio_input(param1))
         self._notify_notification_callbacks()
 
     def _video_input_callback(self, param1: str, param2: str) -> None:

@@ -3,6 +3,7 @@ capability, wire-event routing into components, write round-trips, and
 the on_change contract. The full behavioural suite arrives in Task 4's
 port; these pin the assembly itself."""
 
+import logging
 import warnings
 
 import pytest
@@ -236,3 +237,52 @@ class TestLipsyncRangeBridge:
             assert r.lipsync_range == NumericRange(min=0.0, max=500.0, step=1.0)
             _process_event(r, "!LIPSYNCRANGE(0,450)")
             assert r.lipsync_range == NumericRange(min=0.0, max=450.0, step=1.0)
+
+
+class TestUnknownAudioInputIsReported:
+    """The protocol has NO way to enumerate audio inputs - `!SRCS` exists
+    for sources, nothing equivalent here. The device answers `!AUDIN(X)`
+    with a bare integer and the manual says to consult a printed table.
+
+    So `ModelConfig.audio_inputs` is not a convenience, it is the only
+    mapping that exists, hand-maintained from manuals and measurement.
+    An index missing from it is a defect in this library's data, and
+    without a log nobody ever learns to fix it - the user just sees
+    "audio-13" and assumes the device said something odd.
+    """
+
+    def _receiver(self):
+        return LyngdorfReceiver("127.0.0.1", LyngdorfModel.P_100)
+
+    def test_known_index_resolves_and_says_nothing(self, caplog):
+        r = self._receiver()
+        with caplog.at_level(logging.DEBUG, logger="lyngdorf.receiver"):
+            r._audio_input_callback("37", "")
+        assert r.audio_input == "Spotify"
+        assert caplog.records == []
+
+    def test_unknown_index_falls_back_and_warns(self, caplog):
+        """The fallback keeps the device usable; the warning is how the
+        table gets corrected. Both matter."""
+        r = self._receiver()
+        with caplog.at_level(logging.WARNING, logger="lyngdorf.receiver"):
+            r._audio_input_callback("99", "")
+        assert r.audio_input == "audio-99"
+        assert len(caplog.records) == 1
+        message = caplog.records[0].getMessage()
+        assert "p100" in message
+        assert "99" in message
+        # Must not read as a device fault - it is ours.
+        assert "not a device" in message
+
+    def test_it_is_latched_per_index(self, caplog):
+        """`!AUDIN` pushes on every source change, so an unlatched
+        warning would be one line per change for as long as the device
+        stays on that input."""
+        r = self._receiver()
+        with caplog.at_level(logging.WARNING, logger="lyngdorf.receiver"):
+            for _ in range(5):
+                r._audio_input_callback("99", "")
+            r._audio_input_callback("98", "")
+            r._audio_input_callback("99", "")
+        assert len(caplog.records) == 2
