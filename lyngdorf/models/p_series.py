@@ -342,13 +342,25 @@ P_AUDIO_INPUTS = {
     44: "Qobuz",
 }
 
+# P100 has no 16-channel input: the manual marks index 20 "optional for
+# P200/P300", the same annotation it uses for the HDMI inputs and video
+# outputs the P100 lacks. Audio Return Channel (24) is unmarked and so
+# stays. Dropping the four rather than leaving them harmless-but-wrong,
+# because "this model has a 16-channel AES option" is a claim a consumer
+# could reasonably render in a UI.
+P100_AUDIO_INPUTS = {
+    index: name
+    for index, name in P_AUDIO_INPUTS.items()
+    if index not in (20, 21, 22, 23)
+}
+
 P100_CONFIG = ModelConfig(
     model_name="p100",
     manufacturer="Lyngdorf",
     messages=P_STREAMING_MESSAGES,
     setup_commands=P_STREAMING_SETUP_MESSAGES,
     video_inputs=P100_VIDEO_INPUTS,
-    audio_inputs=P_AUDIO_INPUTS,
+    audio_inputs=P100_AUDIO_INPUTS,
     stream_types=P_STREAM_TYPES,
     has_streaming=True,
     has_zone_b=True,

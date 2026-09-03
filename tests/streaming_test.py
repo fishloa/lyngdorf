@@ -1813,11 +1813,16 @@ class TestStreamingCapability:
         than a hardware difference."""
         inputs = model.config.audio_inputs
         assert inputs[2] == "8 Channel Analog"
+        # 16-channel (20-23) is "optional for P200/P300" per the manual,
+        # the same annotation it uses for what the P100 lacks elsewhere.
+        assert (20 in inputs) is (model is not LyngdorfModel.P_100)
         assert inputs[13] == "Analog 1 (Unbalanced)"
         assert inputs[17] == "Analog 5 (Balanced)"
         assert inputs[24] == "Audio Return Channel"
         assert inputs[37] == "Spotify"
-        assert inputs[21] != "Audio Return Channel"
+        # The manual's error, guarded in both shapes: 21 must never be
+        # Audio Return Channel. On the P100 it is absent entirely.
+        assert inputs.get(21) != "Audio Return Channel"
 
     def test_the_whole_p_family_streams(self):
         """The P200 is measured (#60). The P100 and P300 rest on the
