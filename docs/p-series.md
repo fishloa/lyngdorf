@@ -51,18 +51,62 @@ before emitting `!VOL`.
   See [#59](https://github.com/fishloa/lyngdorf/issues/59).
 - `!SRC(n)` **powers the main zone on** rather than being discarded.
 
+### Streaming — the P200 has it
+
+Settled with a live Spotify Connect session. `!SRC(4)"Spotify"` →
+`!STREAMTYPE(2)`, and `2` is Spotify in the **MP** numbering, so the P200 shares
+the MP stream-type table.
+
+`!STREAMTYPE` reports what the **streaming module is playing**, not the selected
+source: it stayed `2` with an unrelated source selected while the Spotify
+session lived, and dropped to `0` once switching sources ended it. **`0` means
+idle, not "no streaming module"** — which is how the earlier capture with
+nothing playing was misread.
+
+Audio-input indices are the MP table too: `1` HDMI, `11` Internal Player,
+`24` Audio Return Channel, `37` Spotify, `41` Storage, `42` airable. The manual's
+P table stops at `21` and gives `21` as ARC.
+
+The unit also answers the StreamUnlimited HTTP JSON API on port 8080 for every
+path `streaming/client.py` uses — now-playing, playTime, play modes, event
+queue, transport — and reports `settings:/version` `5.4.1`, the same streaming
+firmware as the MP family.
+
+Zone B takes streaming sources or follows the main zone:
+`!ZSRCCOUNT(6)` = Follow Main, Spotify, Network Player, airable, AirPlay, Storage.
+
+**Source names and indices are user-configurable and shift when reordered —
+never persist an index.**
+
+Only Spotify (`2`) is directly confirmed; the rest of the table is carried over
+from MP. P100/P300 are unmeasured.
+
+### Legal but silent queries
+
+These answer nothing at all (1.5 s silence), presumably needing the relevant
+feature active. From outside, indistinguishable from an unknown verb — anything
+polling them must tolerate never getting a reply.
+
+`!MVIEWACTIVE?` · `!MVIEWSRC?` · `!ZVIDIN?` · `!MQASTATUS?` · `!CDINPUT?`
+
+Answered normally: `!INTERFACE(IP)` · `!SWUPD(1)` · `!STANDBYLEVEL(1)` ·
+`!DTSDIALOGAVAILABLE(0)` · `!MVIEW(0)` · `!ZAUDIN(1)` · `!LIPSYNC(0)`
+
 ### Corrections to this manual
 
 | Manual says | Actually |
 |---|---|
 | `!POWER(0..3)` combined main+Zone B | Main only, `!POWER(0\|1)`; Zone B is `!POWERZONE2` |
 | `!ZVOL` floor -999 | -990 |
-| "No streaming source" (intro) | `!STREAMTYPE?` → `!STREAMTYPE(0)` exists |
+| "No streaming source" (intro) | **Wrong for the P200** — full streaming module, MP numbering |
+| P audio-input table (0..21) | P200 uses the MP-60 table (ARC is `24`, not `21`) |
 
 ### Commands present on the P200 but absent from `models/p_series.py`
 
-`!STREAMTYPE` `!ZSTREAMTYPE` `!ZVIDIN` `!MVIEW` `!MVIEWACTIVE` `!MVIEWSRC`
-`!INTERFACE` `!SWUPD` `!MQASTATUS` `!STANDBYLEVEL` `!DTSDIALOGAVAILABLE`
+`!ZVIDIN` `!MVIEW` `!MVIEWACTIVE` `!MVIEWSRC` `!INTERFACE` `!SWUPD`
+`!MQASTATUS` `!STANDBYLEVEL` `!DTSDIALOGAVAILABLE`
+
+(`!STREAMTYPE` and `!ZSTREAMTYPE` are now modelled — P200 only.)
 
 ### Confirmed as documented
 

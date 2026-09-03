@@ -11,8 +11,9 @@ not repeated here):
 - TDAI Family: TDAI-1120/TDAI-2210/TDAI-3400 share one protocol; TDAI-2170
   is the odd one out, with an older, more limited protocol - see
   models/tdai_series.py
-- P Family: MP-like protocol, no channel trims, no streaming source - see
-  models/p_series.py
+- P Family: MP-like protocol, no channel trims. Streaming is NOT uniform:
+  the P200 has the module and uses the MP stream-type numbering, the
+  P100/P300 are unmeasured - see models/p_series.py
 
 :license: MIT, see LICENSE for more details.
 """

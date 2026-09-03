@@ -3,8 +3,12 @@
 This module contains configurations for the P family of Steinway Lyngdorf
 multichannel processors (P100, P200, P300), which share a protocol closely
 related to the MP series but with no discrete channel trim controls
-(no TRIMBASS/TRIMTREB/TRIMCENTER/TRIMHEIGHT/TRIMLFE/TRIMSURRS/BAL) and no
-built-in streaming source (no STREAMTYPE).
+(no TRIMBASS/TRIMTREB/TRIMCENTER/TRIMHEIGHT/TRIMLFE/TRIMSURRS/BAL).
+
+Streaming is NOT uniform across this family. The manual implies none of
+them have it; a real P200 does, and answers both !STREAMTYPE and the
+StreamUnlimited HTTP API the MP models use (issue #60). P100 and P300
+are unmeasured and keep the manual's position - see P200_STREAM_TYPES.
 
 Verification status: derived from the vendor External Control Manual,
 then measured against a real P200 (firmware p20.5.4.1) - see issue #57
@@ -14,10 +18,13 @@ One real divergence was found, in Zone B. P100 and P300 remain
 manual-derived and unmeasured; the P200's results are deliberately not
 extended to them.
 
-That capture also showed P200 commands this module does not model
-(!STREAMTYPE among them, which the paragraph above says the family
-lacks). Listed in docs/p-series.md and tracked separately - they are
-additions, not corrections to what is here.
+A handful of P200 queries remain unmodelled - !MVIEW*, !INTERFACE,
+!SWUPD, !MQASTATUS, !STANDBYLEVEL, !DTSDIALOGAVAILABLE, !ZVIDIN. Listed
+in docs/p-series.md, tracked in #60. Several are legal but SILENT on
+this hardware (!MVIEWACTIVE, !MVIEWSRC, !ZVIDIN, !MQASTATUS and
+!CDINPUT answered nothing at all), so anything polling them must
+tolerate never getting a reply - from outside, indistinguishable from
+an unknown verb.
 
 :license: MIT, see LICENSE for more details.
 """
@@ -25,6 +32,7 @@ additions, not corrections to what is here.
 from ..const import Msg
 from ..remote import RemoteKey, RemoteKeyTable
 from .base import ModelConfig, NumericRange
+from .mp_series import MP60_AUDIO_INPUTS, MP60_STREAM_TYPES
 
 # Fallback for Receiver.lipsync_range before a real LIPSYNCRANGE? reply
 # arrives - see Receiver._lipsync_range_callback. Borrowed from the MP-60
@@ -153,6 +161,43 @@ P200_REMOTE_KEYS = RemoteKeyTable(
     digit_format=P_REMOTE_KEYS.digit_format,
 )
 
+# P200 only. The P200 has the embedded StreamUnlimited streaming module
+# and the family docstring above is wrong about it - measured, with a
+# live Spotify Connect session (issue #60):
+#
+#   !SRC(4)"Spotify"  !STREAMTYPE? -> !STREAMTYPE(2)
+#
+# 2 is Spotify in MP60_STREAM_TYPES, so the P200 uses the MP numbering
+# rather than one of its own. !STREAMTYPE follows what the streaming
+# MODULE is playing, not the selected source: it stayed 2 while the
+# Spotify session was alive with an unrelated source selected, and went
+# to 0 once switching sources ended it. So 0 means "idle", not "this
+# model has no streaming" - which is how the earlier !STREAMTYPE(0)
+# capture with nothing playing was misread.
+#
+# Only Spotify (2) is directly confirmed; the rest of the table is
+# carried over from MP on the strength of index 2 matching. The device
+# also answers the StreamUnlimited HTTP JSON API on port 8080 for every
+# path streaming/client.py uses, and reports settings:/version 5.4.1 -
+# the same streaming firmware as the MP family, which is why sharing
+# their table is reasonable rather than merely convenient.
+P200_STREAM_TYPES = MP60_STREAM_TYPES
+
+# P200 only, and NOT P_AUDIO_INPUTS. Measured indices on the P200 were
+# 1 HDMI, 11 Internal Player, 24 Audio Return Channel, 37 Spotify,
+# 41 Storage, 42 airable - the MP-60 table. P_AUDIO_INPUTS stops at 21
+# and gives 21 as ARC, where this unit reports 24, so the manual's table
+# is simply not what the P200 uses. P100 and P300 keep P_AUDIO_INPUTS
+# until one is measured.
+P200_AUDIO_INPUTS = MP60_AUDIO_INPUTS
+
+# P200 only - the streaming queries the rest of the family does not get.
+P200_MESSAGES: dict[Msg, str] = {
+    **P_MESSAGES,
+    Msg.STREAM_TYPE: "STREAMTYPE",
+    Msg.ZONE_B_STREAM_TYPE: "ZSTREAMTYPE",
+}
+
 # Shared P Series Setup Command Sequence
 P_SETUP_MESSAGES: list[str] = [
     f"{P_MESSAGES[Msg.VERBOSE]}(1)",
@@ -180,6 +225,14 @@ P_SETUP_MESSAGES: list[str] = [
     f"{P_MESSAGES[Msg.MUTE]}?",
     f"{P_MESSAGES[Msg.ZONE_B_MUTE]}?",
     f"{P_MESSAGES[Msg.MAX_VOLUME]}?",
+]
+
+# P200 only - P_SETUP_MESSAGES plus the two streaming queries. Both
+# answer on this model (issue #60).
+P200_SETUP_MESSAGES: list[str] = [
+    *P_SETUP_MESSAGES,
+    f"{P200_MESSAGES[Msg.STREAM_TYPE]}?",
+    f"{P200_MESSAGES[Msg.ZONE_B_STREAM_TYPE]}?",
 ]
 
 # P100 Hardware Configuration
@@ -259,11 +312,16 @@ P_VIDEO_OUTPUTS = {
 P200_CONFIG = ModelConfig(
     model_name="p200",
     manufacturer="Lyngdorf",
-    messages=P_MESSAGES,
-    setup_commands=P_SETUP_MESSAGES,
+    # The P200 diverges from the rest of the family on all four of these -
+    # it has the streaming module, uses the MP stream-type numbering and
+    # the MP audio-input table, and answers the streaming queries. All
+    # measured (issue #60); P100 and P300 keep the manual's tables.
+    messages=P200_MESSAGES,
+    setup_commands=P200_SETUP_MESSAGES,
     video_inputs=P_VIDEO_INPUTS,
-    audio_inputs=P_AUDIO_INPUTS,
-    stream_types={},
+    audio_inputs=P200_AUDIO_INPUTS,
+    stream_types=P200_STREAM_TYPES,
+    has_streaming=True,
     video_outputs=P_VIDEO_OUTPUTS,
     has_zone_b=True,
     has_video=True,

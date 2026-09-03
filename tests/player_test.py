@@ -86,17 +86,21 @@ class TestBuildPlayer:
         assert (player is not None) is model.config.has_streaming
 
     def test_presence_anchors(self):
-        """Anchors from spec §2.5: None on the TDAI-2170 and the whole P
-        series; present on MP-40/50/60 and TDAI-1120/2210/3400."""
+        """Anchors from spec §2.5, amended by measurement: None on the
+        TDAI-2170 and on the P100/P300; present on MP-40/50/60,
+        TDAI-1120/2210/3400 - and on the P200, which turned out to have
+        the streaming module despite the family manual (issue #60). The
+        P family is no longer uniform here, which is exactly why P100
+        and P300 stay in the None list until one is measured."""
         engine = FakeEngine()
         for model in (
             LyngdorfModel.TDAI_2170,
             LyngdorfModel.P_100,
-            LyngdorfModel.P_200,
             LyngdorfModel.P_300,
         ):
             assert build_player(model, engine) is None
         for model in (
+            LyngdorfModel.P_200,
             LyngdorfModel.MP_40,
             LyngdorfModel.MP_50,
             LyngdorfModel.MP_60,

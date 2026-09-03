@@ -1570,11 +1570,14 @@ class TestPositionModelGating:
         LyngdorfModel.TDAI_1120,
         LyngdorfModel.TDAI_2210,
         LyngdorfModel.TDAI_3400,
+        # P200 only of the P family - measured, issue #60. It has the
+        # streaming module and answers the same HTTP API as the MP
+        # models. P100/P300 are unmeasured and stay below.
+        LyngdorfModel.P_200,
     ]
     NON_STREAMING = [
         LyngdorfModel.TDAI_2170,
         LyngdorfModel.P_100,
-        LyngdorfModel.P_200,
         LyngdorfModel.P_300,
     ]
 
@@ -1700,9 +1703,49 @@ class TestStreamingCapability:
             (LyngdorfModel.TDAI_2170, False),
             (LyngdorfModel.TDAI_3400, True),
             (LyngdorfModel.P_100, False),
-            (LyngdorfModel.P_200, False),
+            # Measured on real hardware, issue #60 - the P200 has the
+            # streaming module even though the manual implies otherwise.
+            (LyngdorfModel.P_200, True),
             (LyngdorfModel.P_300, False),
         ],
     )
     def test_has_streaming_feature(self, model, expected):
         assert model.config.has_streaming == expected
+
+    def test_p200_uses_the_mp_stream_type_and_audio_input_tables(self):
+        """Issue #60. With a live Spotify Connect session the P200
+        answered !STREAMTYPE(2), and 2 is Spotify in the MP numbering -
+        so it shares the MP table rather than having one of its own. Its
+        audio-input indices matched MP too (24 = Audio Return Channel,
+        where the P manual's table says 21 and stops at 21 entirely).
+
+        Asserted against the MP-60 config rather than as literals: the
+        claim IS "these are the same tables", so if MP ever diverges
+        this must be revisited rather than silently drifting."""
+        p200 = LyngdorfModel.P_200.config
+        mp60 = LyngdorfModel.MP_60.config
+        assert p200.stream_types == mp60.stream_types
+        assert p200.audio_inputs == mp60.audio_inputs
+        assert p200.audio_inputs[24] == "Audio Return Channel"
+
+    def test_streaming_is_not_uniform_across_the_p_family(self):
+        """The P200 has the streaming module; the P100 and P300 have
+        never been measured and keep the manual's position. This is the
+        same per-model discipline as the volume ranges (#57) and #36 is
+        the precedent. Do not "tidy" the family into agreeing - if a
+        P100 or P300 is ever probed, widen it then, on evidence."""
+        assert LyngdorfModel.P_200.config.has_streaming is True
+        for model in (LyngdorfModel.P_100, LyngdorfModel.P_300):
+            assert model.config.has_streaming is False
+            assert model.config.stream_types == {}
+
+    def test_p200_maps_the_streaming_queries(self):
+        """!STREAMTYPE and !ZSTREAMTYPE both answer on the P200, and
+        neither is in the shared P_MESSAGES the other two models use."""
+        from lyngdorf.const import Msg
+
+        p200 = LyngdorfModel.P_200.config
+        assert p200.messages[Msg.STREAM_TYPE] == "STREAMTYPE"
+        assert p200.messages[Msg.ZONE_B_STREAM_TYPE] == "ZSTREAMTYPE"
+        for model in (LyngdorfModel.P_100, LyngdorfModel.P_300):
+            assert Msg.STREAM_TYPE not in model.config.messages

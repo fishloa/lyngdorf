@@ -387,11 +387,14 @@ class TestLyngdorfReceiverCapabilities:
         LyngdorfModel.TDAI_1120,
         LyngdorfModel.TDAI_2210,
         LyngdorfModel.TDAI_3400,
+        # P200 only of the P family - measured, issue #60. It has the
+        # streaming module and answers the same HTTP API as the MP
+        # models. P100/P300 are unmeasured and stay below.
+        LyngdorfModel.P_200,
     ]
     NON_STREAMING = [
         LyngdorfModel.TDAI_2170,
         LyngdorfModel.P_100,
-        LyngdorfModel.P_200,
         LyngdorfModel.P_300,
     ]
 
@@ -454,7 +457,6 @@ class TestLyngdorfReceiverCapabilities:
         [
             LyngdorfModel.TDAI_2170,
             LyngdorfModel.P_100,
-            LyngdorfModel.P_200,
             LyngdorfModel.P_300,
         ],
     )
