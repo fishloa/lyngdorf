@@ -87,6 +87,66 @@ now the authoritative record for that family.
   (#59). Source selection is not affected; `!SRC(n)` powers the zone on.
   Unresolved in this release.
 
+## 2.1.0
+
+The release that finished the 2.0 migration: every `DeprecationWarning`
+naming 2.1 is now a hard error, and the last executor hop is gone.
+Reconstructed after the fact — this release shipped without a changelog
+entry.
+
+### Breaking
+
+- **The entire compatibility shim layer is deleted** — 1169 lines.
+  `_compat.py`, `lyngdorf/device.py`, the package and `const` module
+  `__getattr__` blocks, one shim in `diagnostics`, and the eleven
+  deprecated `has_*_feature()` predicates on `LyngdorfModel`. Every one
+  of these carried a `DeprecationWarning` naming 2.1 as its removal.
+
+  Removed with it: `lyngdorf.device` and `lyngdorf.const` as importable
+  submodule paths, `Receiver` (use `LyngdorfReceiver`),
+  `async_create_receiver` / `async_find_receiver_model` /
+  `async_get_device_serial`, and `async_probe_device_capabilities`.
+
+  `lyngdorf/api.py` is deliberately **not** deleted despite #52. It is
+  not a shim — it is the live wire client, and `receiver.py` builds one.
+
+### Changed
+
+- **The SSDP M-SEARCH is real asyncio**, not `run_in_executor`. This was
+  the library's last executor hop and the blocker on the consuming
+  integration's platinum tier, whose async-dependency rule admits no
+  exceptions. Uses `loop.create_datagram_endpoint`, deliberately *not*
+  connected to the remote — a connected socket would drop a reply
+  arriving from any source port other than 1900, and a device is not
+  obliged to answer from the port it was asked on. Still unicast to a
+  known host, so a device on another subnet can still be added by IP.
+  Verified against a real MP-60.
+
+### Deprecated
+
+- `LyngdorfReceiver.lipsync_range` — kept for exactly one release as a
+  migration bridge, removed in 2.2. On 2.1 it is redundant (`lipsync` is
+  structural, so `lipsync.range` answers the same question), but no
+  single spelling is valid on both 1.11 and 2.1, and the change can only
+  land at the version bump — the one PR not allowed to carry code (#55).
+
+  Do **not** reach for `LyngdorfModel.config.lipsync_default_range` as
+  an alternative: `ModelConfig` is not exported, so that returns a type
+  the package does not support.
+
+### Documentation
+
+- The UPnP description server's port is recorded as **device-assigned
+  and unpredictable**, measured against a real MP-60 rather than guessed
+  — a high ephemeral port serving a UUID-named XML file. `8080` was the
+  standing assumption and is wrong: that is `STREAMMAGIC_PORT`, the
+  streaming module's JSON API, a different daemon. Three services, three
+  ports, easily conflated.
+
+### Infrastructure
+
+- CI runs on the `2.1` branch, not only `main`.
+
 ## 2.0.0
 
 Breaking. See [MIGRATION.md](MIGRATION.md) for the complete 1.x → 2.0
