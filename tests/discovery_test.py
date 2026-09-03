@@ -315,9 +315,7 @@ class TestSessionOwnership:
         r = await create_receiver("127.0.0.1", LyngdorfModel.MP_60)
         assert r._streaming is not None
 
-    @pytest.mark.parametrize(
-        "model", [LyngdorfModel.TDAI_2170, LyngdorfModel.P_100, LyngdorfModel.P_300]
-    )
+    @pytest.mark.parametrize("model", [LyngdorfModel.TDAI_2170])
     @pytest.mark.asyncio
     async def test_non_streaming_model_never_creates_a_streaming_client(self, model):
         """spec §8: streaming client is None, the poll loop never starts,

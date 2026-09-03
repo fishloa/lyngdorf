@@ -79,7 +79,21 @@ Zone B takes streaming sources or follows the main zone:
 never persist an index.**
 
 Only Spotify (`2`) is directly confirmed; the rest of the table is carried over
-from MP. P100/P300 are unmeasured.
+from MP.
+
+**The P100 and P300 have the module too**, on this manual's own evidence rather
+than measurement. The manual marks every P100 restriction explicitly —
+`20 16-Channel Input (optional for P200/P300)`, `5-9 HDMI/Internal (applicable
+for P200/P300 only)`, `VIDEO OUTPUTS (applicable for P200/P300 only)`, even
+*"The P100 and Head Unit features the installer menu only"* — and leaves
+`11 Internal Player` and `12 USB` unmarked. An unmarked row in a table that
+annotates every other per-model difference is evidence, not silence, and index
+`11` agrees with both the MP table and the P200's measured `!AUDIN(11)`.
+
+The manual documents no `!STREAMTYPE` for *any* P model, including the P200
+which demonstrably has it — so its absence there says nothing either way. Weaker
+footing than the P200; if a P100 or P300 is ever probed and lacks streaming,
+narrow it rather than arguing with the device.
 
 ### Legal but silent queries
 

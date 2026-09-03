@@ -181,7 +181,44 @@ P200_REMOTE_KEYS = RemoteKeyTable(
 # path streaming/client.py uses, and reports settings:/version 5.4.1 -
 # the same streaming firmware as the MP family, which is why sharing
 # their table is reasonable rather than merely convenient.
-P200_STREAM_TYPES = MP60_STREAM_TYPES
+# The WHOLE P family has the streaming module, not just the P200.
+#
+# The P200 is measured (issue #60). P100 and P300 rest on the vendor
+# manual, and specifically on how carefully it marks model restrictions:
+#
+#   20 16-Channel Input (optional for P200/P300)
+#    5 HDMI 5 (applicable for P200/P300 only)
+#    9 Internal (applicable for P200/P300 only)
+#   VIDEO OUTPUTS (applicable for P200/P300 only)
+#   "The P100 and Head Unit features the installer menu only."
+#
+# Every P100 limitation is called out explicitly, including an on-screen
+# menu difference. In that table:
+#
+#   11 Internal Player      <- unmarked
+#   12 USB                  <- unmarked
+#
+# An unmarked entry in a document that annotates every other per-model
+# restriction is positive evidence, not merely silence. Index 11 also
+# agrees with the MP table and with the P200's measured !AUDIN(11), so
+# it is not a transcription artefact.
+#
+# The manual documents no !STREAMTYPE for ANY P model - including the
+# P200, which demonstrably has it - so the command's absence there says
+# nothing either way. The manual predates the per-service audio inputs
+# (its Audio Return Channel is 21, where the P200 reports 24, and it
+# lacks 37/41/42 entirely), which is consistent with it describing an
+# earlier firmware rather than a different capability.
+#
+# This is manual-derived, NOT measured, for P100/P300. It is a weaker
+# footing than the P200 and is recorded as such. If either is ever
+# probed and lacks streaming, narrow this rather than arguing with the
+# device.
+P_STREAM_TYPES = MP60_STREAM_TYPES
+
+# Kept as a name because P200_CONFIG referenced it before the manual
+# settled the rest of the family; identical to P_STREAM_TYPES.
+P200_STREAM_TYPES = P_STREAM_TYPES
 
 # P200 only, and NOT P_AUDIO_INPUTS. Measured indices on the P200 were
 # 1 HDMI, 11 Internal Player, 24 Audio Return Channel, 37 Spotify,
@@ -191,12 +228,16 @@ P200_STREAM_TYPES = MP60_STREAM_TYPES
 # until one is measured.
 P200_AUDIO_INPUTS = MP60_AUDIO_INPUTS
 
-# P200 only - the streaming queries the rest of the family does not get.
-P200_MESSAGES: dict[Msg, str] = {
+# The streaming queries. Measured on a P200; extended to P100/P300 on
+# the manual's own evidence - see P_HAS_STREAMING below.
+P_STREAMING_MESSAGES: dict[Msg, str] = {
     **P_MESSAGES,
     Msg.STREAM_TYPE: "STREAMTYPE",
     Msg.ZONE_B_STREAM_TYPE: "ZSTREAMTYPE",
 }
+
+# Retained name; P200 uses the same table as the rest of the family.
+P200_MESSAGES = P_STREAMING_MESSAGES
 
 # Shared P Series Setup Command Sequence
 P_SETUP_MESSAGES: list[str] = [
@@ -229,11 +270,13 @@ P_SETUP_MESSAGES: list[str] = [
 
 # P200 only - P_SETUP_MESSAGES plus the two streaming queries. Both
 # answer on this model (issue #60).
-P200_SETUP_MESSAGES: list[str] = [
+P_STREAMING_SETUP_MESSAGES: list[str] = [
     *P_SETUP_MESSAGES,
-    f"{P200_MESSAGES[Msg.STREAM_TYPE]}?",
-    f"{P200_MESSAGES[Msg.ZONE_B_STREAM_TYPE]}?",
+    f"{P_STREAMING_MESSAGES[Msg.STREAM_TYPE]}?",
+    f"{P_STREAMING_MESSAGES[Msg.ZONE_B_STREAM_TYPE]}?",
 ]
+
+P200_SETUP_MESSAGES = P_STREAMING_SETUP_MESSAGES
 
 # P100 Hardware Configuration
 # Entry-level processor: 4 HDMI inputs, no video output routing
@@ -271,11 +314,16 @@ P_AUDIO_INPUTS = {
 P100_CONFIG = ModelConfig(
     model_name="p100",
     manufacturer="Lyngdorf",
-    messages=P_MESSAGES,
-    setup_commands=P_SETUP_MESSAGES,
+    messages=P_STREAMING_MESSAGES,
+    setup_commands=P_STREAMING_SETUP_MESSAGES,
     video_inputs=P100_VIDEO_INPUTS,
+    # NOT the MP table the P200 uses - that is measured for the P200 and
+    # would be a guess here, and it describes physical inputs the P100
+    # provably does not have. An unrecognised high index (a per-service
+    # streaming input) reads as unknown rather than wrong.
     audio_inputs=P_AUDIO_INPUTS,
-    stream_types={},
+    stream_types=P_STREAM_TYPES,
+    has_streaming=True,
     has_zone_b=True,
     has_video=True,
     lipsync_default_range=P_LIPSYNC_DEFAULT_RANGE,
@@ -337,11 +385,14 @@ P200_CONFIG = ModelConfig(
 P300_CONFIG = ModelConfig(
     model_name="p300",
     manufacturer="Lyngdorf",
-    messages=P_MESSAGES,
-    setup_commands=P_SETUP_MESSAGES,
+    messages=P_STREAMING_MESSAGES,
+    setup_commands=P_STREAMING_SETUP_MESSAGES,
     video_inputs=P_VIDEO_INPUTS,
+    # See the note in P100_CONFIG - manual table, not the P200's
+    # measured MP one.
     audio_inputs=P_AUDIO_INPUTS,
-    stream_types={},
+    stream_types=P_STREAM_TYPES,
+    has_streaming=True,
     video_outputs=P_VIDEO_OUTPUTS,
     has_zone_b=True,
     has_video=True,

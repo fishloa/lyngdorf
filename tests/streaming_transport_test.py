@@ -387,15 +387,15 @@ class TestLyngdorfReceiverCapabilities:
         LyngdorfModel.TDAI_1120,
         LyngdorfModel.TDAI_2210,
         LyngdorfModel.TDAI_3400,
-        # P200 only of the P family - measured, issue #60. It has the
-        # streaming module and answers the same HTTP API as the MP
-        # models. P100/P300 are unmeasured and stay below.
+        # The whole P family - P200 measured (#60), P100/P300 on the
+        # manual's own evidence (it marks every other P100 restriction
+        # and leaves "11 Internal Player" unmarked).
+        LyngdorfModel.P_100,
         LyngdorfModel.P_200,
+        LyngdorfModel.P_300,
     ]
     NON_STREAMING = [
         LyngdorfModel.TDAI_2170,
-        LyngdorfModel.P_100,
-        LyngdorfModel.P_300,
     ]
 
     def test_every_model_is_covered(self):
@@ -456,8 +456,6 @@ class TestLyngdorfReceiverCapabilities:
         "model",
         [
             LyngdorfModel.TDAI_2170,
-            LyngdorfModel.P_100,
-            LyngdorfModel.P_300,
         ],
     )
     def test_play_mode_none_on_non_streaming_models(self, model):

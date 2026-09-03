@@ -1632,15 +1632,15 @@ class TestPositionModelGating:
         LyngdorfModel.TDAI_1120,
         LyngdorfModel.TDAI_2210,
         LyngdorfModel.TDAI_3400,
-        # P200 only of the P family - measured, issue #60. It has the
-        # streaming module and answers the same HTTP API as the MP
-        # models. P100/P300 are unmeasured and stay below.
+        # The whole P family - P200 measured (#60), P100/P300 on the
+        # manual's own evidence (it marks every other P100 restriction
+        # and leaves "11 Internal Player" unmarked).
+        LyngdorfModel.P_100,
         LyngdorfModel.P_200,
+        LyngdorfModel.P_300,
     ]
     NON_STREAMING = [
         LyngdorfModel.TDAI_2170,
-        LyngdorfModel.P_100,
-        LyngdorfModel.P_300,
     ]
 
     def test_every_model_is_covered(self):
@@ -1764,11 +1764,11 @@ class TestStreamingCapability:
             (LyngdorfModel.TDAI_1120, True),
             (LyngdorfModel.TDAI_2170, False),
             (LyngdorfModel.TDAI_3400, True),
-            (LyngdorfModel.P_100, False),
+            (LyngdorfModel.P_100, True),
             # Measured on real hardware, issue #60 - the P200 has the
             # streaming module even though the manual implies otherwise.
             (LyngdorfModel.P_200, True),
-            (LyngdorfModel.P_300, False),
+            (LyngdorfModel.P_300, True),
         ],
     )
     def test_has_streaming_feature(self, model, expected):
@@ -1790,24 +1790,44 @@ class TestStreamingCapability:
         assert p200.audio_inputs == mp60.audio_inputs
         assert p200.audio_inputs[24] == "Audio Return Channel"
 
-    def test_streaming_is_not_uniform_across_the_p_family(self):
-        """The P200 has the streaming module; the P100 and P300 have
-        never been measured and keep the manual's position. This is the
-        same per-model discipline as the volume ranges (#57) and #36 is
-        the precedent. Do not "tidy" the family into agreeing - if a
-        P100 or P300 is ever probed, widen it then, on evidence."""
-        assert LyngdorfModel.P_200.config.has_streaming is True
-        for model in (LyngdorfModel.P_100, LyngdorfModel.P_300):
-            assert model.config.has_streaming is False
-            assert model.config.stream_types == {}
+    def test_the_whole_p_family_streams(self):
+        """The P200 is measured (#60). The P100 and P300 rest on the
+        manual, which marks every other P100 restriction explicitly -
+        16-channel input, HDMI 5-8, the internal video input, video
+        outputs, even the on-screen menu - and leaves "11 Internal
+        Player" unmarked. An unmarked row in a table that annotates
+        every other per-model difference is evidence, not silence.
 
-    def test_p200_maps_the_streaming_queries(self):
-        """!STREAMTYPE and !ZSTREAMTYPE both answer on the P200, and
-        neither is in the shared P_MESSAGES the other two models use."""
+        Weaker footing than the P200 and recorded as such: if a P100 or
+        P300 is ever probed and lacks streaming, narrow this rather than
+        arguing with the device."""
+        for model in (
+            LyngdorfModel.P_100,
+            LyngdorfModel.P_200,
+            LyngdorfModel.P_300,
+        ):
+            assert model.config.has_streaming is True
+            assert model.config.stream_types == LyngdorfModel.MP_60.config.stream_types
+
+    def test_only_the_tdai_2170_has_no_streaming(self):
+        """The TDAI-2170 is now the sole non-streaming model, and that
+        one is firmware-verified rather than assumed: its image is a
+        bare-metal DSP update with no NSDK in it at all (docs/oracle/
+        tdai-2170.md). Do not weaken this to a per-family rule."""
+        non_streaming = [m for m in LyngdorfModel if not m.config.has_streaming]
+        assert non_streaming == [LyngdorfModel.TDAI_2170]
+
+    def test_the_p_family_maps_the_streaming_queries(self):
+        """Both queries answer on the P200 and are now mapped for the
+        whole family, so a P100/P300 setup burst asks for them too."""
         from lyngdorf.const import Msg
 
-        p200 = LyngdorfModel.P_200.config
-        assert p200.messages[Msg.STREAM_TYPE] == "STREAMTYPE"
-        assert p200.messages[Msg.ZONE_B_STREAM_TYPE] == "ZSTREAMTYPE"
-        for model in (LyngdorfModel.P_100, LyngdorfModel.P_300):
-            assert Msg.STREAM_TYPE not in model.config.messages
+        for model in (
+            LyngdorfModel.P_100,
+            LyngdorfModel.P_200,
+            LyngdorfModel.P_300,
+        ):
+            config = model.config
+            assert config.messages[Msg.STREAM_TYPE] == "STREAMTYPE"
+            assert config.messages[Msg.ZONE_B_STREAM_TYPE] == "ZSTREAMTYPE"
+            assert any(c.startswith("STREAMTYPE") for c in config.setup_commands)
