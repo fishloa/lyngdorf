@@ -10,6 +10,7 @@ what the hardware actually sends.
 import asyncio
 import contextlib
 import json
+import logging
 from pathlib import Path
 from urllib.parse import quote, unquote
 
@@ -759,6 +760,67 @@ async def _read_http_request(reader: asyncio.StreamReader) -> bytes:
             return b""
         data += chunk
     return data
+
+
+class TestStreamingUnreachableIsLoud:
+    """A model configured `has_streaming` whose :8080 API is absent or
+    unparseable must SAY SO, once, at ERROR.
+
+    Every other failure on the poll path logs at DEBUG, which is correct
+    for something the backoff loop rides out. This case is different: the
+    loop will retry forever, the user gets no now-playing and no
+    transport, and by default no explanation - so a wrong `has_streaming`
+    in this library looks exactly like a device with nothing to show. The
+    silence was the bug.
+    """
+
+    def _poll(self):
+        from lyngdorf.streaming.client import StreamingClient
+        from lyngdorf.streaming.poll import NowPlayingPoll
+
+        return NowPlayingPoll("127.0.0.1", StreamingClient("127.0.0.1", 8080))
+
+    def test_first_failure_is_an_error(self, caplog):
+        poll = self._poll()
+        with caplog.at_level(logging.ERROR, logger="lyngdorf.streaming.poll"):
+            poll._report_streaming_unreachable()
+        assert len(caplog.records) == 1
+        assert caplog.records[0].levelno == logging.ERROR
+        message = caplog.records[0].getMessage()
+        assert "8080" in message
+        # The message must point at the two things that actually cause
+        # this, or it is a log line nobody can act on.
+        assert "streaming-capable" in message
+        assert "model configuration" in message
+
+    def test_it_is_latched_so_a_retry_loop_does_not_spam(self, caplog):
+        """The poll loop retries with backoff forever. Without the latch
+        this becomes one ERROR per retry for as long as the device is
+        off, which trains people to ignore it."""
+        poll = self._poll()
+        with caplog.at_level(logging.ERROR, logger="lyngdorf.streaming.poll"):
+            for _ in range(10):
+                poll._report_streaming_unreachable()
+        assert len(caplog.records) == 1
+
+    def test_recovery_is_reported_and_rearms(self, caplog):
+        """A recovery must be visible - otherwise the only record of the
+        outage is an ERROR that never gets a closing line - and it must
+        re-arm, so a second outage is reported too."""
+        poll = self._poll()
+        with caplog.at_level(logging.WARNING, logger="lyngdorf.streaming.poll"):
+            poll._report_streaming_unreachable()
+            poll._report_streaming_reachable()
+            poll._report_streaming_unreachable()
+        levels = [r.levelno for r in caplog.records]
+        assert levels == [logging.ERROR, logging.WARNING, logging.ERROR]
+
+    def test_recovery_alone_says_nothing(self, caplog):
+        """A healthy device must not log on every successful poll."""
+        poll = self._poll()
+        with caplog.at_level(logging.DEBUG, logger="lyngdorf.streaming.poll"):
+            poll._report_streaming_reachable()
+        assert caplog.records == []
 
 
 class TestStreamingClient:

@@ -74,6 +74,9 @@ class NowPlayingPoll:
         self._play_mode: PlayMode | None = None
         self._play_mode_callbacks: list[Callable[[PlayMode | None], None]] = []
         self._global_play_modes: frozenset[PlayMode] = frozenset()
+        # One-shot latch for the loud "streaming API is not there"
+        # report - see _report_streaming_unreachable.
+        self._streaming_unreachable_reported = False
 
     def start(self) -> None:
         """Ask for the poll to be running; safe to call repeatedly."""
@@ -137,6 +140,54 @@ class NowPlayingPoll:
         if self._now_playing_wanted:
             self._ensure_now_playing_task()
 
+    def _report_streaming_unreachable(self) -> None:
+        """Say loudly, once, that the :8080 streaming API is not usable.
+
+        Everything else on this path logs at DEBUG, which is right for a
+        transient failure the backoff loop will ride out. This one is
+        not transient in the case that matters: the model config claims
+        `has_streaming`, so the library will poll port 8080 forever, and
+        if nothing is listening - or something answers with a body this
+        client cannot parse - the user gets no now-playing, no
+        transport, and by default no explanation either.
+
+        That silence is the actual bug. A model declared streaming-
+        capable that cannot reach its streaming API is a configuration
+        error worth an ERROR, because the fix is ours (a wrong
+        `has_streaming` for that model) or the user's (wrong host,
+        blocked port), and neither is discoverable from a silent absence
+        of entities.
+
+        Latched, so a device that is simply off - or a module that sleeps
+        in standby - produces one line per outage rather than one per
+        retry. `_report_streaming_reachable` clears the latch, so a
+        genuine recovery is also visible.
+        """
+        if self._streaming_unreachable_reported:
+            return
+        self._streaming_unreachable_reported = True
+        _LOGGER.error(
+            "%s: this model is configured as streaming-capable, but its "
+            "streaming API on port %d is unreachable or returned a "
+            "response this library could not parse. Now-playing metadata "
+            "and transport controls will not work. If this device really "
+            "has no streaming module, that is a bug in the library's "
+            "model configuration - please report it with the model name.",
+            self._host,
+            self._streaming._port,
+        )
+
+    def _report_streaming_reachable(self) -> None:
+        """Clear the latch, and say so if we had complained."""
+        if not self._streaming_unreachable_reported:
+            return
+        self._streaming_unreachable_reported = False
+        _LOGGER.warning(
+            "%s: streaming API on port %d is responding again",
+            self._host,
+            self._streaming._port,
+        )
+
     async def _poll_now_playing(self) -> None:
         """Long-poll loop for now-playing changes on the :8080 API.
 
@@ -178,10 +229,7 @@ class NowPlayingPoll:
                             self._host, self._streaming._port, session=client
                         )
                         if queue_id is None:
-                            _LOGGER.debug(
-                                "%s: failed to create now-playing queue, retrying",
-                                self._host,
-                            )
+                            self._report_streaming_unreachable()
                             await asyncio.sleep(backoff)
                             backoff = min(30.0, backoff * 2)
                             continue
@@ -197,10 +245,12 @@ class NowPlayingPoll:
                                 self._host,
                             )
                             queue_id = None
+                            self._report_streaming_unreachable()
                             await asyncio.sleep(backoff)
                             backoff = min(30.0, backoff * 2)
                             continue
 
+                        self._report_streaming_reachable()
                         backoff = 1.0
 
                     events = await async_poll_now_playing_events(
