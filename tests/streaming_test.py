@@ -1774,21 +1774,50 @@ class TestStreamingCapability:
     def test_has_streaming_feature(self, model, expected):
         assert model.config.has_streaming == expected
 
-    def test_p200_uses_the_mp_stream_type_and_audio_input_tables(self):
+    def test_p200_uses_the_mp_stream_type_table(self):
         """Issue #60. With a live Spotify Connect session the P200
         answered !STREAMTYPE(2), and 2 is Spotify in the MP numbering -
-        so it shares the MP table rather than having one of its own. Its
-        audio-input indices matched MP too (24 = Audio Return Channel,
-        where the P manual's table says 21 and stops at 21 entirely).
+        so it shares the MP table rather than having one of its own.
 
         Asserted against the MP-60 config rather than as literals: the
-        claim IS "these are the same tables", so if MP ever diverges
-        this must be revisited rather than silently drifting."""
-        p200 = LyngdorfModel.P_200.config
-        mp60 = LyngdorfModel.MP_60.config
-        assert p200.stream_types == mp60.stream_types
-        assert p200.audio_inputs == mp60.audio_inputs
-        assert p200.audio_inputs[24] == "Audio Return Channel"
+        claim IS "this is the same table", so if MP ever diverges this
+        must be revisited rather than silently drifting."""
+        assert (
+            LyngdorfModel.P_200.config.stream_types
+            == LyngdorfModel.MP_60.config.stream_types
+        )
+
+    @pytest.mark.parametrize(
+        "model",
+        [LyngdorfModel.P_100, LyngdorfModel.P_200, LyngdorfModel.P_300],
+    )
+    def test_p_audio_inputs_merge_both_published_tables(self, model):
+        """Neither published table is correct alone, and the failure
+        modes differ in kind - which is why this is a merge rather than a
+        choice between them.
+
+        From the manual: the physical inputs. 2 (8 Channel Analog) and
+        13-17 (Analog 1-5) exist on these processors and appear in NO MP
+        table, so taking MP wholesale would silently lose them.
+
+        From MP: 20-24 and the per-service streaming inputs. A real P200
+        reports Audio Return Channel as 24; the manual says 21, and gives
+        21 to ARC where MP gives it to "16-Channel 2.0". So on that range
+        the manual is not merely incomplete, it names an index WRONG -
+        an input the device really reports would render as something
+        else entirely. A missing name is recoverable; a confidently
+        wrong one is not.
+
+        Applied to all three models because the divergence is a firmware
+        generation (the manual predates the per-service inputs) rather
+        than a hardware difference."""
+        inputs = model.config.audio_inputs
+        assert inputs[2] == "8 Channel Analog"
+        assert inputs[13] == "Analog 1 (Unbalanced)"
+        assert inputs[17] == "Analog 5 (Balanced)"
+        assert inputs[24] == "Audio Return Channel"
+        assert inputs[37] == "Spotify"
+        assert inputs[21] != "Audio Return Channel"
 
     def test_the_whole_p_family_streams(self):
         """The P200 is measured (#60). The P100 and P300 rest on the

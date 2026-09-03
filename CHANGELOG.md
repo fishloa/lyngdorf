@@ -16,12 +16,15 @@ now the authoritative record for that family.
   measured; the P100 and P300 rest on the vendor manual, which marks
   every other P100 restriction explicitly and leaves `11 Internal
   Player` unmarked (#60).
-- **P200 `audio_inputs` is now the MP-60 table**, not the P manual's.
-  The device reports `24` for Audio Return Channel where the manual says
-  `21`, and reports `37`/`41`/`42` where the manual's table stops at
-  `21`. Index-to-name lookups on a P200 change accordingly. P100 and
-  P300 keep the manual's table — it describes physical inputs they have
-  and the MP one does not.
+- **`audio_inputs` for the whole P series is rebuilt**, merging both
+  published tables because neither is correct alone. The manual supplies
+  the physical inputs — `2` (8 Channel Analog) and `13`–`17` (Analog
+  1–5) appear in no MP table. MP supplies `20`–`24` and the per-service
+  streaming inputs: a real P200 reports Audio Return Channel as `24`,
+  while the manual gives `21` to ARC and MP gives `21` to "16-Channel
+  2.0". On that range the manual is not merely incomplete — it names an
+  index *wrong*, so an input the device really reports would render as
+  something else. Index-to-name lookups on all three P models change.
 
 ### Added
 

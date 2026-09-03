@@ -32,7 +32,7 @@ an unknown verb.
 from ..const import Msg
 from ..remote import RemoteKey, RemoteKeyTable
 from .base import ModelConfig, NumericRange
-from .mp_series import MP60_AUDIO_INPUTS, MP60_STREAM_TYPES
+from .mp_series import MP60_STREAM_TYPES
 
 # Fallback for Receiver.lipsync_range before a real LIPSYNCRANGE? reply
 # arrives - see Receiver._lipsync_range_callback. Borrowed from the MP-60
@@ -220,14 +220,6 @@ P_STREAM_TYPES = MP60_STREAM_TYPES
 # settled the rest of the family; identical to P_STREAM_TYPES.
 P200_STREAM_TYPES = P_STREAM_TYPES
 
-# P200 only, and NOT P_AUDIO_INPUTS. Measured indices on the P200 were
-# 1 HDMI, 11 Internal Player, 24 Audio Return Channel, 37 Spotify,
-# 41 Storage, 42 airable - the MP-60 table. P_AUDIO_INPUTS stops at 21
-# and gives 21 as ARC, where this unit reports 24, so the manual's table
-# is simply not what the P200 uses. P100 and P300 keep P_AUDIO_INPUTS
-# until one is measured.
-P200_AUDIO_INPUTS = MP60_AUDIO_INPUTS
-
 # The streaming queries. Measured on a P200; extended to P100/P300 on
 # the manual's own evidence - see P_HAS_STREAMING below.
 P_STREAMING_MESSAGES: dict[Msg, str] = {
@@ -288,6 +280,30 @@ P100_VIDEO_INPUTS = {
     4: "HDMI 4",
 }
 
+# The P family's audio inputs, and NEITHER published table is right on
+# its own - this is a merge, and both halves are load-bearing.
+#
+# The manual's table is correct for the physical inputs: 2 (8 Channel
+# Analog) and 13-17 (Analog 1-5) exist on these processors and appear in
+# no MP table at all. Take those from the manual.
+#
+# It is wrong from 20 up. A real P200 reports Audio Return Channel as
+# 24, where the manual says 21 - and the manual gives 21 to ARC while
+# the MP table gives 21 to "16-Channel 2.0". So on this range the manual
+# does not merely omit entries, it names one WRONG, which is worse: an
+# index the device really sends would render as the wrong input. Take
+# 20-24 and the per-service streaming inputs (35-44) from MP, which the
+# P200 measurement confirms (37 Spotify, 41 Storage, 42 airable, 24 ARC
+# - issue #60).
+#
+# The manual predates those per-service inputs (added to the MP line in
+# firmware 5.0.1), which is why it describes an older device rather than
+# a different one. That is also why this applies to all three models
+# and not just the measured P200: the divergence is a firmware
+# generation, not a hardware difference, and the three share a software
+# line. A P100 given the manual's table alone would report ARC as
+# "Audio Return Channel" at an index its firmware uses for something
+# else.
 P_AUDIO_INPUTS = {
     0: "None",
     1: "HDMI",
@@ -307,8 +323,23 @@ P_AUDIO_INPUTS = {
     15: "Analog 3 (Unbalanced)",
     16: "Analog 4 (Unbalanced)",
     17: "Analog 5 (Balanced)",
-    20: "16-Channel Input (optional for P200/P300)",
-    21: "Audio Return Channel",
+    # 20-24 from MP, not the manual - see above.
+    20: "16-Channel (optional AES module)",
+    21: "16-Channel 2.0 (optional AES module)",
+    22: "16-Channel 5.1 (optional AES module)",
+    23: "16-Channel 7.1 (optional AES module)",
+    24: "Audio Return Channel",
+    # Per-streaming-service inputs. 37/41/42 measured on a P200.
+    35: "vTuner",
+    36: "TIDAL",
+    37: "Spotify",
+    38: "Airplay",
+    39: "Roon",
+    40: "DLNA",
+    41: "Storage",
+    42: "airable",
+    43: "PureAudio",
+    44: "Qobuz",
 }
 
 P100_CONFIG = ModelConfig(
@@ -317,10 +348,6 @@ P100_CONFIG = ModelConfig(
     messages=P_STREAMING_MESSAGES,
     setup_commands=P_STREAMING_SETUP_MESSAGES,
     video_inputs=P100_VIDEO_INPUTS,
-    # NOT the MP table the P200 uses - that is measured for the P200 and
-    # would be a guess here, and it describes physical inputs the P100
-    # provably does not have. An unrecognised high index (a per-service
-    # streaming input) reads as unknown rather than wrong.
     audio_inputs=P_AUDIO_INPUTS,
     stream_types=P_STREAM_TYPES,
     has_streaming=True,
@@ -367,7 +394,7 @@ P200_CONFIG = ModelConfig(
     messages=P200_MESSAGES,
     setup_commands=P200_SETUP_MESSAGES,
     video_inputs=P_VIDEO_INPUTS,
-    audio_inputs=P200_AUDIO_INPUTS,
+    audio_inputs=P_AUDIO_INPUTS,
     stream_types=P200_STREAM_TYPES,
     has_streaming=True,
     video_outputs=P_VIDEO_OUTPUTS,
@@ -388,8 +415,6 @@ P300_CONFIG = ModelConfig(
     messages=P_STREAMING_MESSAGES,
     setup_commands=P_STREAMING_SETUP_MESSAGES,
     video_inputs=P_VIDEO_INPUTS,
-    # See the note in P100_CONFIG - manual table, not the P200's
-    # measured MP one.
     audio_inputs=P_AUDIO_INPUTS,
     stream_types=P_STREAM_TYPES,
     has_streaming=True,
