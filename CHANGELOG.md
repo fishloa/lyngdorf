@@ -64,6 +64,19 @@ now the authoritative record for that family.
   difference. Roughly 0.7% of Zone B slider travel for a consumer
   mapping through `range`.
 
+### Fixed
+
+- **`LyngdorfApi` leaked an aiohttp session per instance.** `_ensure_poll`
+  builds a `StreamingClient` that owns its session, and
+  `async_disconnect` never closed it — `LyngdorfReceiver.disconnect`
+  does, so this only bit a direct `LyngdorfApi` user. Fixed with the same
+  ownership rule the session itself follows: close only what this object
+  created.
+- **The poll task is now awaited to a stop before its session closes**
+  (`NowPlayingPoll.aclose`). `stop()` only requests cancellation, so the
+  dying task's last in-flight request could lazily recreate the session
+  that had just been closed.
+
 ### Deprecated
 
 - `LyngdorfReceiver.max_volume` — use `volume.maximum_volume`, and

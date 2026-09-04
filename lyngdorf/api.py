@@ -57,6 +57,11 @@ class LyngdorfApi(RioClient):
     ) -> None:
         super().__init__(host, model)
         self._poll = poll
+        # Same ownership rule the session follows (spec §8): close only
+        # what this object created. An injected poll belongs to the
+        # caller - LyngdorfReceiver builds one, hands it over, and closes
+        # its streaming client itself in `disconnect`.
+        self._owns_poll = poll is None
 
     def _ensure_poll(self) -> NowPlayingPoll:
         if self._poll is None:
@@ -176,6 +181,21 @@ class LyngdorfApi(RioClient):
             if self._protocol is not None:
                 self._protocol.close()
                 self._protocol = None
+        # Outside the lock: closing the aiohttp session awaits, and a
+        # connect racing this should queue on the lock rather than on a
+        # socket teardown.
+        if self._owns_poll and self._poll is not None:
+            # `_ensure_poll` builds a StreamingClient with no session, so
+            # it owns one. Nothing else will ever close it - a direct
+            # LyngdorfApi user has no receiver to do it for them - and
+            # the leak showed up as aiohttp's "Unclosed client session"
+            # on every test run that drove this class directly.
+            #
+            # aclose(), not stop(): the poll task must be awaited to a
+            # stop before the session goes, or its last in-flight request
+            # lazily recreates the very session we just closed.
+            await self._poll.aclose()
+            await self._poll._streaming.close()
 
     # -- NowPlayingEngine delegation (consumed by Player) --------------------
 

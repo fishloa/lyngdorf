@@ -9,6 +9,7 @@ NowPlayingEngine so Player can consume it unchanged.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import traceback
 from collections.abc import Callable
@@ -87,6 +88,28 @@ class NowPlayingPoll:
         self._now_playing_wanted = False
         if self._now_playing_task is not None:
             self._now_playing_task.cancel()
+
+    async def aclose(self) -> None:
+        """Stop the poll and wait for the task to actually finish.
+
+        `stop()` only requests cancellation; it does not wait. That is
+        fine for a power-off, where the poll is expected to start again.
+        It is NOT fine before closing the streaming client: the task is
+        still running at that point, and its next request lazily
+        recreates the session that was just closed - which is exactly the
+        "Unclosed client session" aiohttp reports at interpreter exit.
+
+        Cancelling and awaiting closes that window. The task's own
+        CancelledError is expected and swallowed; anything else has
+        already been logged by the done-callback.
+        """
+        self.stop()
+        task = self._now_playing_task
+        if task is None:
+            return
+        task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await task
 
     def set_power_state(self, power_on: bool) -> None:
         """Follow device power with the now-playing poll.

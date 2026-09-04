@@ -1,4 +1,5 @@
 import asyncio
+import contextlib
 import logging
 
 import pytest
@@ -16,6 +17,70 @@ _LOGGER = logging.getLogger(__package__)
 #: guard so a regression stalls one test by 2s with a warning, never the
 #: whole suite. See `_guarantee_disconnect` below.
 _DISCONNECT_TEARDOWN_TIMEOUT = 2.0
+
+
+@pytest_asyncio.fixture(autouse=True)
+async def _close_every_streaming_session(monkeypatch):
+    """Close every aiohttp session this test caused to be created.
+
+    Sibling of `_guarantee_disconnect`, and needed for the same reason at
+    a lower level. That fixture tracks `LyngdorfApi.async_connect`, so it
+    only sees receivers a test actually connects. Plenty of tests build a
+    `NowPlayingPoll` or a `StreamingClient` directly, or start a poll
+    without ever disconnecting, and those sessions are created lazily
+    deep inside the poll loop (`_session()` on first request) where no
+    test can see them to clean up.
+
+    The result was aiohttp's "Unclosed client session" at interpreter
+    exit - one line, attributed to whichever test happened to be running
+    when the garbage collector got round to it, rather than to the test
+    that leaked it. Instrumenting showed 15 leaked sessions behind that
+    single message.
+
+    This tracks construction instead of use, so it catches them wherever
+    they come from. `close()` is idempotent and never touches an injected
+    session, so closing one a test already closed is free.
+    """
+    from lyngdorf.streaming import client as _client_mod
+
+    created: list[_client_mod.StreamingClient] = []
+    original_init = _client_mod.StreamingClient.__init__
+
+    def _tracking_init(self, *args: object, **kwargs: object) -> None:
+        original_init(self, *args, **kwargs)
+        created.append(self)
+
+    monkeypatch.setattr(_client_mod.StreamingClient, "__init__", _tracking_init)
+
+    yield
+
+    for client in created:
+        with contextlib.suppress(Exception):
+            await client.close()
+
+
+async def _close_owned_streaming_session(api: LyngdorfApi) -> None:
+    """Close a streaming session the api created for itself.
+
+    `async_disconnect` already does this on the happy path. This exists
+    for the path the fixture is *for*: a disconnect that hangs, fails, or
+    - as in tests/disconnect_guarantee_test.py - has been monkeypatched
+    to do nothing at all. In those cases the aiohttp session survives the
+    test and surfaces as "Unclosed client session" at interpreter exit,
+    attributed to whatever happened to be running at GC time rather than
+    to the test that leaked it.
+
+    Guaranteeing the disconnect without guaranteeing this left the
+    fixture half-finished. Safe to call twice; `StreamingClient.close()`
+    is idempotent and never touches an injected session.
+    """
+    poll = getattr(api, "_poll", None)
+    if poll is None or not getattr(api, "_owns_poll", False):
+        return
+    with contextlib.suppress(Exception):
+        await poll.aclose()
+    with contextlib.suppress(Exception):
+        await poll._streaming.close()
 
 
 @pytest_asyncio.fixture(autouse=True)
@@ -58,7 +123,9 @@ async def _guarantee_disconnect(monkeypatch):
             await asyncio.wait_for(
                 api.async_disconnect(), timeout=_DISCONNECT_TEARDOWN_TIMEOUT
             )
+            await _close_owned_streaming_session(api)
         except TimeoutError:
+            await _close_owned_streaming_session(api)
             _LOGGER.warning(
                 "%s: async_disconnect() did not complete within %ss during "
                 "test teardown - unexpected since the aiohttp port made "
