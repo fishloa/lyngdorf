@@ -42,7 +42,7 @@ class TestZoneBFactory:
         assert isinstance(zone_b.volume, SteppableControl)
         assert zone_b.volume.range == LyngdorfModel.MP_60.config.zone_b_volume_range
 
-    @pytest.mark.parametrize("model", list(LyngdorfModel))
+    @pytest.mark.parametrize("model", [m for m in LyngdorfModel if m.config.has_zone_b])
     def test_zone_b_volume_never_reports_a_maximum(self, model):
         """Zone B's ceiling is a device menu setting with NO query in the
         protocol - measured on a P200, which still clamped Zone B at 0.0
@@ -58,8 +58,11 @@ class TestZoneBFactory:
         it; until then, do not add the attribute.
         """
         zone_b = build_zone_b(RecordingRio(model))
-        if zone_b is None:
-            pytest.skip(f"{model.config.model_name} has no Zone B")
+        assert zone_b is not None, (
+            f"{model.config.model_name} declares has_zone_b but builds no "
+            "ZoneB - the parametrisation above is filtered on that flag, so "
+            "these two must agree"
+        )
         assert not hasattr(zone_b.volume, "maximum_volume")
 
 
