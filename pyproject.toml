@@ -48,11 +48,22 @@ ignore = [
 
 [tool.mypy]
 python_version = "3.11"
-# The whole package is now checked to `--strict` (spec D3, #49). WP0's
-# per-module override block, which enrolled each 2.0 module as it was
-# written, has done its job and is gone. `strict = true` is still not
-# used: the flags are enumerated so a future per-module exemption cannot
-# reintroduce WP0's measured global-leak bug.
+# The whole package is checked at `--strict` or better (spec D3, #49) -
+# every flag `--strict` implies, enumerated, plus `warn_unreachable`,
+# which it does not.
+#
+# Enumerated rather than `strict = true` so that upgrading mypy cannot
+# silently change what CI enforces. A new check added to `--strict`
+# upstream would otherwise arrive as a red build on an unrelated
+# dependency bump, and this library's CI is a release gate for a
+# consumer. The cost is the other half of the same trade: a new check is
+# not adopted until someone adds it here deliberately, so re-diff this
+# block against `--strict` when bumping mypy.
+#
+# (An earlier comment justified this as preventing a per-module
+# exemption from disabling everything at once. That does not hold -
+# mypy accepts `strict` in an override either way - so the real reason
+# is recorded above instead.)
 warn_unused_configs = true
 warn_redundant_casts = true
 strict_bytes = true
@@ -73,18 +84,6 @@ extra_checks = true
 # check than the consumer does. Adopted after a shape shipped here that
 # would have forced a None guard their gate then rejected as unreachable.
 warn_unreachable = true
-
-# The D9 shim mixin (_CompatShims) uses TYPE_CHECKING to inherit from
-# LyngdorfReceiver's full surface, but the import cycle
-# (_compat.py → receiver.py → _compat.py) means mypy sees the base as
-# Any under strict; the attr-defined and no-any-return cures are worse
-# than the problem (they'd mask real bugs). This override exactly
-# replicates the 1.x state: _compat.py ships typed in the wheel (it
-# carries no type: ignore comments), but strict does not enforce
-# concrete-attribute resolution across the mixin boundary.
-[[tool.mypy.overrides]]
-module = "lyngdorf._compat"
-disable_error_code = "attr-defined, no-any-return"
 
 [build-system]
 requires = ["poetry-core"]

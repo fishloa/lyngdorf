@@ -3,17 +3,42 @@
 Problems that are understood but not fixed. Each entry says what happens,
 why, how to avoid it, and what fixing it would involve.
 
-## One bounded, discovery-time-only UDP executor hop
+## Volume writes are silently discarded in standby
 
-`discover_ssdp_location` runs a blocking `socket.recvfrom()` inside
-`loop.run_in_executor(None, ...)`. It is bounded twice — `sock.settimeout`
-stops the thread, `wait_for(timeout + 1)` stops the await — and only runs
-during discovery. Callers that already hold the UPnP location (e.g. from
-their own SSDP cache) call `fetch_device_serial` directly and never reach
-the hop. The decision to retain it is documented in spec D8, supported by
-evidence from Home Assistant's own integration ecosystem (#50).
+Measured on a P200 (firmware p20.5.4.1): with the zone off, `!VOL(-794)`
+followed by `!VOL?` returned the unchanged previous value. The device
+answers every query while in standby but discards volume writes — no
+error, no reply, no state change — so the library cannot tell a
+discarded write from one that landed.
+
+Source selection is **not** affected: `!SRC(n)` powers the main zone on
+rather than being ignored, so this is specific to volume rather than a
+property of writes.
+
+Avoid it by checking `receiver.power_on` before setting volume. Fixing it
+properly means raising a distinct, catchable exception from the volume
+setters when the zone is known to be off — scoped to where it is
+measured, and never raised when `power_on` is `None` (not yet reported),
+since a spurious failure during the startup window would be worse than
+the bug. Tracked in #59.
 
 ## Resolved
+
+### One bounded, discovery-time-only UDP executor hop (resolved in 2.1)
+
+`discover_ssdp_location` ran a blocking `socket.recvfrom()` inside
+`loop.run_in_executor`. It was bounded twice and only ran during
+discovery, and spec D8 retained it deliberately, citing evidence that 17
+of the 86 libraries behind platinum-tier Home Assistant integrations use
+an executor.
+
+2.1 removed it anyway (`loop.create_datagram_endpoint`, deliberately not
+connected to the remote so a reply from any source port is accepted).
+The platinum async-dependency rule admits no exceptions in its own text,
+so the evidence D8 rested on argued against the rule rather than
+satisfying it. **There is now no `run_in_executor` anywhere in the
+library**, and D8 is reversed rather than merely unmet.
+
 
 ### The now-playing poll's HTTP calls are not genuinely cancellable (resolved in 2.0)
 

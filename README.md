@@ -142,13 +142,23 @@ receiver.muted = True  # Mute
 # correctly-bounded slider (e.g. Home Assistant's `number` platform).
 print(receiver.volume_range)   # NumericRange(-99.9, 24.0, 0.1) on an MP
 
-# The device's current user-settable safety ceiling, in dB (MP and P
-# series; None on the TDAI family, whose manuals document no MAXVOL
-# command at all). Not a hardware maximum, and it can change at runtime -
-# see max_volume's docstring before using it as a fixed slider bound.
-# Deliberately NOT folded into volume_range above - see volume_range's
-# docstring for why a capability and a user preference are kept separate.
-print(receiver.max_volume)
+# The device's current user-settable safety ceiling, in dB. It lives on
+# the volume control, and its presence IS the capability check: the MP
+# and P models report !MAXVOL and get a VolumeControl, the TDAI family
+# documents no such command and gets a plain SteppableControl with no
+# such attribute.
+#
+# A live ceiling that CLAMPS writes, not a hardware maximum, and it can
+# change at runtime from the front panel - do not cache it as a fixed
+# slider bound. Deliberately NOT folded into volume_range above: that is
+# the hardware's capability, this is the user's current preference, and
+# see volume_range's docstring for why they are kept apart.
+from lyngdorf import VolumeControl
+
+if isinstance(receiver.volume, VolumeControl):
+    print(receiver.volume.maximum_volume)   # None until the device reports
+
+# receiver.max_volume still works but is deprecated, and removed in 3.0.
 ```
 
 ### Source Selection

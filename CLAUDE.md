@@ -23,7 +23,9 @@ poetry run black .      # Format code
 
 ## Dependencies
 
-- `attrs` - Data classes (imported as `attr`)
+- `aiohttp` - the only runtime dependency. All device HTTP (the streaming
+  module's `:8080` JSON API) goes through it; the `:84` control protocol
+  is raw asyncio. `attrs` was removed in 2.0 - use `dataclasses`.
 
 ## Testing Requirements
 
@@ -33,10 +35,16 @@ poetry run black .      # Format code
 
 1. **New Features**: Every new feature, method, or capability MUST have unit tests
    - Public API methods require tests
-   - Feature detection methods (e.g., `has_zone_b_feature()`, `has_video_feature()`) require tests
    - Model-specific configurations require tests
+   - Capability is **structural**, not a predicate: a model without a
+     feature has no object for it (`player is None`, `zone_b is None`,
+     `Trim.X not in trims`). The `has_*_feature()` methods were deleted
+     in 2.1. Test the presence or absence of the object, and assert it
+     against `ModelConfig` rather than hardcoding a model list.
 
-2. **Test Patterns**: Follow existing patterns in `tests/basic_wiring_test.py`
+2. **Test Patterns**: Follow existing patterns in the suite - `tests/receiver_test.py`
+   for receiver state and callbacks, `tests/components_test.py` for Zone B
+   and Remote, `tests/controls_test.py` for the numeric controls
    - Group related tests in test classes
    - Use descriptive test names that explain what is being tested
    - Test both positive and negative cases
@@ -62,10 +70,23 @@ poetry run black .      # Format code
 
 ### Examples
 
-See `tests/basic_wiring_test.py` for examples:
-- `TestLyngdorfModel` class for model enum tests
-- Feature detection tests (zone_b, video capabilities)
-- Model lookup and configuration tests
+- `tests/controls_test.py` - `TestVolumeFactory` for per-model ranges
+  asserted against `ModelConfig`, and for the anchors that stop a config
+  bug satisfying its own test
+- `tests/components_test.py` - `TestZoneBFactory` for structural
+  capability (parametrise over the models that have the feature; do not
+  enter and skip)
+- `tests/discovery_test.py` - `TestLookupModel` for model resolution
+- `tests/session_leak_test.py` - for anything touching the connect /
+  disconnect lifecycle
+
+### Hardware claims
+
+Anything asserted about a device belongs in `docs/<model>.md` with how it
+was established. Distinguish **measured** from **manual-derived**: the P
+family has now twice been found non-uniform where the manual implied
+otherwise, so a measurement on one model is not evidence about its
+siblings. See `docs/p-series.md` and `docs/firmware-provenance.md`.
 
 ## Release Process
 
