@@ -4,7 +4,6 @@ the on_change contract. The full behavioural suite arrives in Task 4's
 port; these pin the assembly itself."""
 
 import logging
-import warnings
 
 import pytest
 
@@ -196,47 +195,52 @@ class TestOnChange:
         assert calls == [1]
 
 
-class TestLipsyncRangeBridge:
-    """The one deprecation 2.1 adds rather than removes. Removed in 2.2.
+class TestLipsyncRangeDeletionIsPermanent:
+    """`lipsync_range` was a one-release bridge and 2.2 is that release.
 
-    It exists because a consumer crossing 1.11 -> 2.1 cannot express
+    It existed because a consumer crossing 1.11 -> 2.1 could not express
     "does this model have lipsync, and what range" in a form valid on
-    both pins, and its version-bump PR carries no code. On 1.11
-    `lipsync` is a float/control dual that cannot exist before a value
-    arrives, so it reads None during the startup window; on 2.1 it is
-    structural. One accessor, one release, then gone.
+    both pins, and its version-bump PR carries no code. That crossing is
+    done, so the alias goes.
+
+    This test replaces the three that pinned its behaviour. It exists to
+    stop it coming back: the whole argument for the bridge was that it
+    was time-boxed, and an untested deletion is one sympathetic bug
+    report away from being restored "just for one more release" - which
+    is precisely the permanent second way of asking one question it was
+    built to avoid. `lipsync.range` is the answer, and it is structural.
     """
 
     @pytest.mark.parametrize("model", list(LyngdorfModel))
-    def test_structural_before_any_device_report(self, model):
-        """The whole point: answerable at construction. A consumer that
-        keys entity creation off it must not be told 'no lipsync' merely
-        because the device has not answered yet."""
+    def test_the_attribute_is_gone(self, model):
         r = LyngdorfReceiver(FAKE_IP, model)
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore", DeprecationWarning)
-            rng = r.lipsync_range
+        assert not hasattr(r, "lipsync_range"), (
+            "lipsync_range is back. It was deleted deliberately in 2.2 - "
+            "use lipsync.range, which is structural and answers the same "
+            "question. See issue #54."
+        )
+
+    @pytest.mark.parametrize("model", list(LyngdorfModel))
+    def test_lipsync_range_still_answers_the_question_it_replaced(self, model):
+        """The deletion is only safe because the replacement is
+        structural - available at construction, before the device has
+        reported anything. A consumer keying entity creation off it must
+        not be told "no lipsync" merely because nothing has arrived yet.
+        """
+        r = LyngdorfReceiver(FAKE_IP, model)
         expected = model.config.lipsync_default_range is not None
-        assert (rng is not None) is expected
-        assert (r.lipsync is not None) is expected, "and agrees with the control"
+        assert (r.lipsync is not None) is expected
+        if r.lipsync is not None:
+            assert r.lipsync.range == model.config.lipsync_default_range
 
-    def test_it_warns_so_the_window_closes(self):
-        """Deprecated on arrival. Without the warning this becomes a
-        permanent second way to ask one question, which is what the
-        release it ships in exists to delete."""
-        r = LyngdorfReceiver(FAKE_IP, LyngdorfModel.MP_60)
-        with pytest.warns(DeprecationWarning, match="2.2"):
-            _ = r.lipsync_range
-
-    def test_it_tracks_the_live_range(self):
+    def test_the_replacement_tracks_the_live_range(self):
         """Not a snapshot of the documented default: the device's own
         LIPSYNCRANGE reply overwrites it, and this must follow."""
         r, _ = _prepared(LyngdorfModel.MP_60)
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore", DeprecationWarning)
-            assert r.lipsync_range == NumericRange(min=0.0, max=500.0, step=1.0)
-            _process_event(r, "!LIPSYNCRANGE(0,450)")
-            assert r.lipsync_range == NumericRange(min=0.0, max=450.0, step=1.0)
+        assert r.lipsync is not None
+        assert r.lipsync.range == NumericRange(min=0.0, max=500.0, step=1.0)
+        _process_event(r, "!LIPSYNCRANGE(0,450)")
+        assert r.lipsync.range == NumericRange(min=0.0, max=450.0, step=1.0)
 
 
 class TestUnknownAudioInputIsReported:

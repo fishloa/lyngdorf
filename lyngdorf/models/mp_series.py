@@ -44,7 +44,7 @@ from .base import ModelConfig, NumericRange
 MP_BASS_TREBLE_TRIM_RANGE = NumericRange(min=-12.0, max=12.0, step=0.1)
 # !TRIMCENTER/!TRIMHEIGHT/!TRIMLFE/!TRIMSURRS: -100..100 (-10..+10 dB).
 MP_CHANNEL_TRIM_RANGE = NumericRange(min=-10.0, max=10.0, step=0.1)
-# Fallback for Receiver.lipsync_range before a real LIPSYNCRANGE? reply
+# Fallback for `receiver.lipsync.range` before a real LIPSYNCRANGE? reply
 # arrives - see Receiver._lipsync_range_callback. Matches a real MP-60's
 # measured reply on firmware 5.4.2: !LIPSYNCRANGE(0,500).
 LIPSYNC_DEFAULT_RANGE = NumericRange(min=0.0, max=500.0, step=1.0)

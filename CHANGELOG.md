@@ -9,6 +9,14 @@ now the authoritative record for that family.
 
 ### Breaking
 
+- **`LyngdorfReceiver.lipsync_range` is removed.** Use
+  `receiver.lipsync.range`, which is structural — available at
+  construction, before the device has reported anything. The alias was
+  added in 2.1 as a deliberately time-boxed bridge for consumers
+  crossing 1.11 → 2.1, whose version-bump PR could carry no code. That
+  crossing is done, so it goes: keeping it would have made a temporary
+  bridge into a permanent second way of asking one question, which is
+  what it was built to avoid.
 - The **whole P series now reports streaming** (`has_streaming=True`,
   `player is not None`). Previously all three models were configured as
   having no streaming module. A consumer that treats `player is None` as

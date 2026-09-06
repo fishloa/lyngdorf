@@ -34,7 +34,7 @@ from ..remote import RemoteKey, RemoteKeyTable
 from .base import ModelConfig, NumericRange
 from .mp_series import MP60_STREAM_TYPES
 
-# Fallback for Receiver.lipsync_range before a real LIPSYNCRANGE? reply
+# Fallback for `receiver.lipsync.range` before a real LIPSYNCRANGE? reply
 # arrives - see Receiver._lipsync_range_callback. Borrowed from the MP-60
 # and since confirmed on a P200: !LIPSYNCRANGE(0,500), identical.
 P_LIPSYNC_DEFAULT_RANGE = NumericRange(min=0.0, max=500.0, step=1.0)

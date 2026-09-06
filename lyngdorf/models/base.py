@@ -183,7 +183,7 @@ class ModelConfig:
             discrete multichannel speaker trims - MP series only (see
             has_surround); None everywhere else, including the TDAI family
             (which has bass/treble trim but no per-channel trims at all).
-        lipsync_default_range: The range to report for `Receiver.lipsync_range`
+        lipsync_default_range: The range to report for `receiver.lipsync.range`
             before the device has answered a `LIPSYNCRANGE?` query (or on a
             model where it never will, if this is None). The MP and P
             families both map Msg.LIP_SYNC_MIN_MAX and query it at

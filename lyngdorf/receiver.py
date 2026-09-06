@@ -438,39 +438,6 @@ class LyngdorfReceiver:
         `50.0` and still renders "50.0". It must be coerced."""
         return self._lipsync
 
-    @property
-    def lipsync_range(self) -> NumericRange | None:
-        """The permitted lipsync range, or None on a model without the
-        feature. Structural: available from construction, before the
-        device has reported anything.
-
-        DEPRECATED, and removed in 2.2. It exists for one reason: a
-        consumer crossing 1.11 -> 2.1 cannot express this question in a
-        form valid on both pins, and the version-bump PR is not allowed
-        to carry code.
-
-        On 2.1 alone it is redundant - `lipsync` is structural here, so
-        `receiver.lipsync.range` answers the same question and is what
-        you should migrate to. On 1.11 it is not: `lipsync` there is a
-        float/control dual that cannot exist before a value arrives, so
-        it reads None during the startup window and keying entity
-        creation off it drops the entity until a reload (issue #55).
-        `lipsync_range` was the only structural accessor on that pin.
-
-        So: a one-release window, deliberately, in the release whose
-        purpose is deleting exactly this kind of thing. Kept because the
-        alternative is forcing a code change into a manifest-only bump,
-        and time-boxed because that is the difference between a bridge
-        and a permanent second way to ask one question.
-        """
-        warnings.warn(
-            "lipsync_range is deprecated and will be removed in lyngdorf "
-            "2.2; use lipsync.range (lipsync is structural from 2.1)",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        return self._lipsync.range if self._lipsync is not None else None
-
     # -- components -------------------------------------------------------------
 
     @property
