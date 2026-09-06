@@ -102,6 +102,24 @@ To cut a release:
 1. Bump `version` in `pyproject.toml`, commit, push to `main`.
 2. Wait for `Run tests` to go green on that commit.
 3. `gh release create vX.Y.Z` - this creates and pushes the `vX.Y.Z` tag, which triggers `publish.yml`.
-4. Confirm the `Publish` run succeeded (`gh run list`) and the new version shows on PyPI (its JSON API can lag a few seconds after a real publish).
+4. Confirm the `Publish` run succeeded (`gh run list`).
+5. Confirm the version is **installable**, which is not the same question:
+
+   ```bash
+   curl -s https://pypi.org/simple/lyngdorf/ | grep X.Y.Z    # what installers read
+   ```
+
+   **Do not use the JSON API for this.** It was the documented check here
+   and it is the wrong one. Measured on the 2.2.0 release: the wheel
+   uploaded at 03:47:16Z, the JSON API showed both files immediately, and
+   a `uv` resolve at 03:50:56Z still failed with "no version of
+   lyngdorf==2.2.0". The two surfaces propagate independently and the
+   simple index is the one that gates installs, so a green `Publish` run
+   plus a JSON hit can still mean a consumer's CI cannot resolve the
+   package. That cost a real CI cycle downstream.
+
+   A `pip index versions lyngdorf` or a dry-run resolve answers the same
+   question directly. Tell any consumer waiting on the release only after
+   this passes, not after step 4.
 
 **One-time setup** (already done for this repo): PyPI Trusted Publishing must be configured at https://pypi.org/manage/project/lyngdorf/settings/publishing/ with owner `fishloa`, repo `lyngdorf`, workflow filename `publish.yml`, no environment. Without it, `publish.yml` fails outright (no fallback token).
