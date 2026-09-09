@@ -792,6 +792,16 @@ class TestStreamingUnreachableIsLoud:
         # this, or it is a log line nobody can act on.
         assert "streaming-capable" in message
         assert "model configuration" in message
+        # The leading cause must be named FIRST. A whole-device outage
+        # (deep sleep, unplugged cable) reaches here because
+        # _handle_disconnected stops the monitor and write queue but not
+        # this poll, and the :84 reconnect logs only at DEBUG - so this
+        # is the loudest line in the log for an outage that has nothing
+        # to do with the model config. Measured since: the streaming
+        # module does NOT sleep in network standby on a P200 or an
+        # MP-60, so "off the network" is the realistic cause and a
+        # sleeping module is hypothetical.
+        assert message.index("off the network") < message.index("model configuration")
 
     def test_it_is_latched_so_a_retry_loop_does_not_spam(self, caplog):
         """The poll loop retries with backoff forever. Without the latch

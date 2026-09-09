@@ -399,10 +399,13 @@ P_VIDEO_OUTPUTS = {
 P200_CONFIG = ModelConfig(
     model_name="p200",
     manufacturer="Lyngdorf",
-    # The P200 diverges from the rest of the family on all four of these -
-    # it has the streaming module, uses the MP stream-type numbering and
-    # the MP audio-input table, and answers the streaming queries. All
-    # measured (issue #60); P100 and P300 keep the manual's tables.
+    # The P200 is the MEASURED member of the family (issue #60): a live
+    # Spotify session gave !STREAMTYPE(2), and its audio-input indices
+    # settled the merged table above. Nothing here is P200-only any
+    # more - db50636 extended streaming to the whole family on the
+    # manual's own evidence, and d4510fb gave all three models the same
+    # merged P_AUDIO_INPUTS - so these values are shared, not divergent.
+    # The P200_* names are retained aliases; see their definitions.
     messages=P200_MESSAGES,
     setup_commands=P200_SETUP_MESSAGES,
     video_inputs=P_VIDEO_INPUTS,

@@ -11,7 +11,8 @@ range - see Values column).
 - Command framing: every command starts with `!` and ends with `<CR>` (0x0D). Status requests end with `?`. Malformed commands are ignored.
 - Feedback levels via `!VERB(X)<CR>` (X = 0, 1, or 2): 0 = reply only when queried; 1 = also pushes a status message whenever it changes; 2 = also echoes each command back prefixed with `#` instead of `!`.
 - Note: from deep sleep standby, the device may miss the first character(s) sent - send the ON command a couple of times to be sure.
-- No streaming source, channel trims (bass/treble/center/height/LFE/surround), or balance control exist in this protocol - this processor family relies on external sources and does not expose tone/channel trims over serial.
+- No channel trims (bass/treble/center/height/LFE/surround) or balance control exist in this protocol - this processor family does not expose tone/channel trims over serial.
+- **The manual also says no streaming source exists in this protocol. That is wrong.** A real P200 has the streaming module and answers `!STREAMTYPE` - see [Streaming](#streaming--the-p200-has-it) below.
 
 ## Hardware measurements (P200, firmware p20.5.4.1)
 
@@ -45,11 +46,37 @@ before emitting `!VOL`.
 
 ### Standby
 
-- Device answers **every query** while in standby.
+Two levels, and the difference matters. `!STANDBYLEVEL(1)` is **network
+standby** — the unit stays on the network. `!STANDBYLEVEL(0)` is **deep
+sleep**: off the network entirely, so neither port 84 nor port 8080 is
+reachable and only the serial port can wake it (that is what the "may
+miss the first character(s)" note above is about). Network standby is
+therefore a prerequisite for remote power-on, not a corner case.
+
+Measured in **network standby**:
+
+- Device answers **every query** on port 84.
+- **Port 8080 stays up.** Every request `streaming/client.py` makes
+  answers HTTP 200 with the unit in `!POWER(0)` — version, player data
+  (`state: stopped`, no `title`/`controls`), playTime `0`, play modes,
+  queue create/subscribe, and `pollQueue` returning `[]`. Across both
+  transitions: 0 failed requests in 75 s through a power-on, 0 in 180 s
+  after a power-off. A queue created in standby and long-polled survives
+  a power-on. So **the streaming module does not sleep**, and the
+  latched `:8080` error has no false positive to fire on here.
+- `!STREAMTYPE?` reads `0`, consistent with idle.
 - **Volume sets are silently discarded** — `!VOL(-794)` then `!VOL?` returned the
   unchanged `!VOL(-450)`. No error, no reply, no state change.
   See [#59](https://github.com/fishloa/lyngdorf/issues/59).
 - `!SRC(n)` **powers the main zone on** rather than being discarded.
+- On power-on the device re-reports **both** zone volumes unprompted —
+  `!ZVOL(...)` then `!VOL(...)` — *before* `!POWER(1)` arrives. So a
+  discarded standby write self-corrects at the moment it starts to
+  matter.
+
+**Probing note:** the streaming API lives under `/api/`, not `/smoip/`.
+A `/smoip/getData…` request answers **404** on this unit, so probing
+that path would produce a false "the module sleeps in standby".
 
 ### Streaming — the P200 has it
 

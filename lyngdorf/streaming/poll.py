@@ -181,10 +181,24 @@ class NowPlayingPoll:
         blocked port), and neither is discoverable from a silent absence
         of entities.
 
-        Latched, so a device that is simply off - or a module that sleeps
-        in standby - produces one line per outage rather than one per
-        retry. `_report_streaming_reachable` clears the latch, so a
-        genuine recovery is also visible.
+        Latched, so one line per outage rather than one per retry.
+
+        Measured since: the streaming module does NOT sleep in network
+        standby on a P200 or an MP-60 - port 8080 answers every request
+        with the unit in `!POWER(0)`, and across both power transitions
+        without dropping one. So this does not fire on a power-down, and
+        the module sleeping is a hypothetical rather than a known case.
+
+        What it DOES fire on is the device leaving the network - deep
+        sleep (`!STANDBYLEVEL(0)`), an unplugged cable - because
+        `_handle_disconnected` stops the monitor and the write queue but
+        NOT this poll. The `:84` reconnect loop logs only at DEBUG, so
+        for a whole-device outage this is the loudest thing in the log
+        and it must not blame the model configuration for it; the
+        message names that cause first.
+
+        `_report_streaming_reachable` clears the latch, so a genuine
+        recovery is also visible.
         """
         if self._streaming_unreachable_reported:
             return
@@ -193,9 +207,14 @@ class NowPlayingPoll:
             "%s: this model is configured as streaming-capable, but its "
             "streaming API on port %d is unreachable or returned a "
             "response this library could not parse. Now-playing metadata "
-            "and transport controls will not work. If this device really "
-            "has no streaming module, that is a bug in the library's "
-            "model configuration - please report it with the model name.",
+            "and transport controls will not work. Likely causes, in "
+            "rough order: the device is off the network entirely (check "
+            "whether the control connection on port 84 is also down - "
+            "that path only logs at DEBUG); the port is blocked or the "
+            "host is wrong; or this model does not in fact have a "
+            "streaming module, which would be a bug in this library's "
+            "model configuration - please report that with the model "
+            "name and firmware.",
             self._host,
             self._streaming._port,
         )
