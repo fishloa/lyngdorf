@@ -65,10 +65,21 @@ Measured in **network standby**:
   a power-on. So **the streaming module does not sleep**, and the
   latched `:8080` error has no false positive to fire on here.
 - `!STREAMTYPE?` reads `0`, consistent with idle.
-- **Volume sets are silently discarded** — `!VOL(-794)` then `!VOL?` returned the
-  unchanged `!VOL(-450)`. No error, no reply, no state change.
-  See [#59](https://github.com/fishloa/lyngdorf/issues/59).
-- `!SRC(n)` **powers the main zone on** rather than being discarded.
+- **Most writes are silently discarded** — no error, no reply, no state
+  change. Measured discarded: `!VOL(x)`, `!ZVOL(x)`, `!ZVOL±(n)`,
+  `!AUDMODE(x)`, `!RPFOC(x)`, `!RPVOI(x)`, `!MUTEOFF`, `!ZMUTEOFF`, and
+  `!ZSRC(n)` in full standby. **Zone B behaves exactly like the main
+  zone.** See [#59](https://github.com/fishloa/lyngdorf/issues/59).
+- **Two exceptions.** `!SRC(n)` **powers the main zone on** rather than
+  being discarded, and `!ZSRC(n)` does the same for Zone B *when the main
+  zone is already on* (though not from full standby). `!LIPSYNC(x)` is
+  applied. So discarding is the rule and `!SRC` is the exception — not,
+  as this section previously said, something specific to volume.
+- **Mute is not observable in standby.** `!MUTE?` answers `!MUTEON`
+  whenever the unit is in standby regardless of what was sent — before
+  and after a power cycle with no mute command in between — and
+  `!MUTEOFF` while on. So the mute setters cannot be confirmed either way
+  from standby.
 - On power-on the device re-reports **both** zone volumes unprompted —
   `!ZVOL(...)` then `!VOL(...)` — *before* `!POWER(1)` arrives. So a
   discarded standby write self-corrects at the moment it starts to

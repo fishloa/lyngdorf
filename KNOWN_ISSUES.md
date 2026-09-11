@@ -3,24 +3,49 @@
 Problems that are understood but not fixed. Each entry says what happens,
 why, how to avoid it, and what fixing it would involve.
 
-## Volume writes are silently discarded in standby
+## Most writes are silently discarded in standby
 
-Measured on a P200 (firmware p20.5.4.1): with the zone off, `!VOL(-794)`
-followed by `!VOL?` returned the unchanged previous value. The device
-answers every query while in standby but discards volume writes — no
-error, no reply, no state change — so the library cannot tell a
-discarded write from one that landed.
+Measured on a P200 (firmware p20.5.4.1) and, for main-zone volume, on an
+MP-60 (5.4.2). The device answers every query while in standby but
+discards most writes — no error, no reply, no state change — so the
+library cannot tell a discarded write from one that landed.
 
-Source selection is **not** affected: `!SRC(n)` powers the main zone on
-rather than being ignored, so this is specific to volume rather than a
-property of writes.
+Discarded in full standby on the P200:
 
-Avoid it by checking `receiver.power_on` before setting volume. Fixing it
-properly means raising a distinct, catchable exception from the volume
-setters when the zone is known to be off — scoped to where it is
-measured, and never raised when `power_on` is `None` (not yet reported),
-since a spurious failure during the startup window would be worse than
-the bug. Tracked in #59.
+| | |
+|---|---|
+| `!VOL(x)`, `!ZVOL(x)`, `!ZVOL±(n)` | volume, both zones |
+| `!AUDMODE(x)` | audio processing mode |
+| `!RPFOC(x)`, `!RPVOI(x)` | RoomPerfect position and voicing |
+| `!MUTEOFF`, `!ZMUTEOFF` | see the caveat below |
+| `!ZSRC(n)` | Zone B source, in full standby |
+
+Two exceptions, and they are the interesting part:
+
+- **`!SRC(n)` powers the main zone on** rather than being discarded.
+  `!ZSRC(n)` does the same for Zone B *when the main zone is already on* —
+  but is discarded when the whole unit is in standby.
+- **`!LIPSYNC(x)` is applied.**
+
+So this is **not volume-specific**. `!SRC` is the exception; discarding
+is the rule.
+
+**Mute is not observable in standby.** `!MUTE?` answers `!MUTEON`
+whenever the unit is in standby regardless of what was sent — it reads
+`!MUTEON` before and after a power cycle with no mute command in
+between, and `!MUTEOFF` while on. So the mute setters cannot be
+confirmed either way from standby, and an earlier record here claiming
+`!MUTEON` was *applied* was a misreading of that.
+
+Avoid it by checking `receiver.power_on` before writing. Raising a
+distinct exception instead was specified in detail and **dropped** — see
+[#59](https://github.com/fishloa/lyngdorf/issues/59) for why, in short:
+no other Home Assistant media player raises on device-off, and the
+device self-heals anyway, re-reporting both zone volumes unprompted on
+power-on before `!POWER(1)` arrives.
+
+Unmeasured: the TDAI family entirely, and everything but main-zone
+volume on the MP family.
 
 ## Resolved
 
