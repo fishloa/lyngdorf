@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 2.2.1
 
 ### Fixed
 
@@ -11,7 +11,7 @@
   `Control.action` property gives the name to send. Measured on an MP-60
   with Spotify Connect - see [docs/mp-60.md](docs/mp-60.md).
 
-## 2.2.0 (unreleased)
+## 2.2.0
 
 Mostly a hardware-truth release: a P200 owner measured a real device
 against the vendor manual and the manual lost repeatedly. See
