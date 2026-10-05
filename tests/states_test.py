@@ -67,10 +67,19 @@ class TestControlLeniency:
     def test_known_member(self):
         assert Control.PAUSE == "pause"
 
-    def test_next_track_has_trailing_underscore(self):
-        """The device really does spell it this way - nothing about the
-        name gives a caller any way to guess that."""
-        assert Control.NEXT_TRACK == "next_"
+    def test_next_track_capability_key_has_trailing_underscore(self):
+        """The `controls` dict really does spell it this way - nothing
+        about the name gives a caller any way to guess that."""
+        assert Control("next_") is Control.NEXT_TRACK
+
+    def test_next_track_action_has_no_underscore(self):
+        """The action the device accepts is `next`, not the key."""
+        assert Control.NEXT_TRACK.action == "next"
+
+    def test_action_defaults_to_the_capability_key(self):
+        assert Control.PAUSE.action == "pause"
+        assert Control.PREVIOUS_TRACK.action == "previous"
+        assert Control("someFutureControl").action == "someFutureControl"
 
     def test_unknown_value_does_not_raise(self):
         control = Control("someFutureControl")

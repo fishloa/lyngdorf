@@ -621,7 +621,8 @@ async def async_activate_control(
 
     Returns False on rejection or network failure rather than raising.
     """
-    return await _activate(host, {"control": control}, port, timeout, session)
+    action = Control(control).action
+    return await _activate(host, {"control": action}, port, timeout, session)
 
 
 async def async_seek(

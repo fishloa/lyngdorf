@@ -4,7 +4,8 @@ Three kinds of value cross the streaming (`:8080`) API's public surface as
 bare strings if left unmodelled: the play mode, the playback state, and the
 transport control names. Each is a closed-ish set the caller would otherwise
 have to know by heart, spelled exactly as the device spells it - down to the
-trailing underscore on `next_`, which nothing catches if mistyped.
+trailing underscore on `next_`, which nothing catches if mistyped (and
+which is a capability key only - the action sent is `next`).
 
 This module is importable on its own, without dragging in the HTTP layer in
 `lyngdorf/streaming.py`, so consumers (and the Home Assistant integration in
@@ -114,10 +115,16 @@ class PlayMode:
 class Control(StrEnum):
     """A transport action name, as spelled on the wire.
 
-    `NEXT_TRACK`'s value carries a trailing underscore - `next_` - because
+    The value is the key the device uses in the now-playing `controls`
+    dict. `NEXT_TRACK`'s carries a trailing underscore - `next_` - because
     the device really does spell it that way; nothing about the name gives
     a caller any way to guess that, which is exactly the kind of mistake
     typing this enum is meant to prevent.
+
+    The key is not always the action name. Sending `next_` back as an
+    action makes the MP-60 answer HTTP 500 "Directory is empty" and end the
+    stream; the action it accepts is `next`. Send `action`, never the value.
+    See docs/mp-60.md.
 
     Lenient: see `_missing_` and the module docstring. The known members
     are what has been observed on real hardware, not an exhaustive vendor
@@ -142,6 +149,15 @@ class Control(StrEnum):
         member._name_ = value
         member._value_ = value
         return member
+
+    @property
+    def action(self) -> str:
+        """The name the device accepts when this control is sent."""
+        return _CONTROL_ACTIONS.get(self, self.value)
+
+
+# Controls whose action name differs from their capability key.
+_CONTROL_ACTIONS: dict[Control, str] = {Control.NEXT_TRACK: "next"}
 
 
 class PlaybackState(StrEnum):

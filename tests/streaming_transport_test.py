@@ -120,12 +120,24 @@ class TestTransportWireFormat:
         assert json.dumps({"control": "pause"}) in _unquote(path)
 
     @pytest.mark.asyncio
-    async def test_next_uses_trailing_underscore(
+    async def test_next_sends_next_without_underscore(
+        self, fake_server: FakeStreamMagicServer
+    ):
+        """`next_` is only the capability key. Sent as an action, the MP-60
+        answers it with HTTP 500 and ends the stream - see docs/mp-60.md."""
+        host, port = fake_server.server_address
+        await async_activate_control(str(host), Control.NEXT_TRACK, port)
+        body = _unquote(fake_server.last_path)
+        assert '"control": "next"' in body
+        assert "next_" not in body
+
+    @pytest.mark.asyncio
+    async def test_next_sent_as_raw_capability_key_is_translated(
         self, fake_server: FakeStreamMagicServer
     ):
         host, port = fake_server.server_address
-        await async_activate_control(str(host), Control.NEXT_TRACK, port)
-        assert '"control": "next_"' in _unquote(fake_server.last_path)
+        await async_activate_control(str(host), "next_", port)
+        assert '"control": "next"' in _unquote(fake_server.last_path)
 
     @pytest.mark.asyncio
     async def test_seek_sends_milliseconds(self, fake_server: FakeStreamMagicServer):

@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- `Player.next_track()` sent `{"control":"next_"}`, which the MP-60 answers
+  with HTTP 500 "Directory is empty" and which ends the stream. `next_` is
+  only the key in the now-playing `controls` dict; the action is `next`.
+  `Control.NEXT_TRACK` keeps the value `next_` for parsing, and the new
+  `Control.action` property gives the name to send. Measured on an MP-60
+  with Spotify Connect - see [docs/mp-60.md](docs/mp-60.md).
+
 ## 2.2.0 (unreleased)
 
 Mostly a hardware-truth release: a P200 owner measured a real device

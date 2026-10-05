@@ -22,7 +22,10 @@ GET /api/setData?path=player:player/control&role=activate&value={"control":"paus
 
 The vendor left the valid actions in a comment in their own JavaScript:
 `pause`, `next_`, `previous`, `like`, `dislike` — note the trailing
-underscore on `next_`. That comment also claims `seekTime` and `seekTrack`
+underscore on `next_`. **Correction (2026-10-05, measured):** `next_` is the
+key in the `controls` dict, not the action. Sent as an action it answers
+HTTP 500 "Directory is empty" and ends the stream; the action is `next`.
+See `docs/mp-60.md`. That comment also claims `seekTime` and `seekTrack`
 are "not yet implemented", but the hardware contradicts it: Spotify Connect
 advertises `seekTime: true` (below). Treat the comment as stale and the
 device's own `controls` payload as the source of truth.
@@ -257,7 +260,7 @@ Fake-server tests, no device required, following `nowplaying_test.py`:
 - gating: allowed calls send, unsupported calls raise
 - the empty-`controls` (stopped) case refuses everything
 - enum validation rejects `bogusMode` before any request is made
-- request URL and payload shape, including the `next_` underscore
+- request URL and payload shape, including `next` being sent for the `next_` key
 - play modes round-trip through the device's declared enum
 - non-streaming models raise
 
