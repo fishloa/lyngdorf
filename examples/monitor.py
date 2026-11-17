@@ -32,6 +32,14 @@ def ts() -> str:
     return datetime.now().strftime("%H:%M:%S.%f")[:-3]
 
 
+def _v(reading: object) -> object:
+    return reading.value if reading is not None else None  # type: ignore[attr-defined]
+
+
+def _o(reading: object) -> object:
+    return reading.options if reading is not None else []  # type: ignore[attr-defined]
+
+
 def print_state(label: str, value: object) -> None:
     print(f"[{ts()}] {label:.<40s} {value}")
 
@@ -41,22 +49,22 @@ def dump_all_state(r: object) -> None:
     print(f"\n{'=' * 60}")
     print(f" Connected to: {r.name}  (model: {r.model.config.model_name})")  # type: ignore[union-attr]
     print(f"{'=' * 60}")
-    print_state("power", r.power_on)  # type: ignore[union-attr]
+    print_state("power", r.power.value)  # type: ignore[union-attr]
     print_state("volume", r.volume.value)  # type: ignore[union-attr]
-    print_state("mute", r.muted)  # type: ignore[union-attr]
-    print_state("source", r.source)  # type: ignore[union-attr]
-    print_state("available_sources", r.sources)  # type: ignore[union-attr]
-    print_state("streaming_source", r.streaming_source)  # type: ignore[union-attr]
-    print_state("audio_input", r.audio_input)  # type: ignore[union-attr]
-    print_state("video_input", r.video_input)  # type: ignore[union-attr]
-    print_state("audio_information", r.audio_information)  # type: ignore[union-attr]
-    print_state("video_information", r.video_information)  # type: ignore[union-attr]
-    print_state("sound_mode", r.sound_mode)  # type: ignore[union-attr]
-    print_state("available_sound_modes", r.sound_modes)  # type: ignore[union-attr]
-    print_state("room_perfect_position", r.room_perfect_position)  # type: ignore[union-attr]
-    print_state("available_rp_positions", r.room_perfect_positions)  # type: ignore[union-attr]
-    print_state("voicing", r.voicing)  # type: ignore[union-attr]
-    print_state("available_voicings", r.voicings)  # type: ignore[union-attr]
+    print_state("mute", r.mute.value)  # type: ignore[union-attr]
+    print_state("source", _v(r.source_selector))  # type: ignore[union-attr]
+    print_state("available_sources", _o(r.source_selector))  # type: ignore[union-attr]
+    print_state("streaming_source", _v(r.streaming_source_reading))  # type: ignore[union-attr]
+    print_state("audio_input", _v(r.audio_input_reading))  # type: ignore[union-attr]
+    print_state("video_input", _v(r.video_input_reading))  # type: ignore[union-attr]
+    print_state("audio_information", _v(r.audio_information_reading))  # type: ignore[union-attr]
+    print_state("video_information", _v(r.video_information_reading))  # type: ignore[union-attr]
+    print_state("sound_mode", _v(r.sound_mode_selector))  # type: ignore[union-attr]
+    print_state("available_sound_modes", _o(r.sound_mode_selector))  # type: ignore[union-attr]
+    print_state("room_perfect_position", _v(r.room_perfect_position_selector))  # type: ignore[union-attr]
+    print_state("available_rp_positions", _o(r.room_perfect_position_selector))  # type: ignore[union-attr]
+    print_state("voicing", _v(r.voicing_selector))  # type: ignore[union-attr]
+    print_state("available_voicings", _o(r.voicing_selector))  # type: ignore[union-attr]
     lip = r.lipsync  # type: ignore[union-attr]
     print_state("lipsync", lip.value if lip else None)  # type: ignore[union-attr]
     trims = r.trims  # type: ignore[union-attr]
@@ -73,12 +81,12 @@ def dump_all_state(r: object) -> None:
 
     if r.zone_b is not None:  # type: ignore[union-attr]
         zb = r.zone_b  # type: ignore[union-attr]
-        print_state("zone_b_power", zb.power_on)
+        print_state("zone_b_power", zb.power.value)
         print_state("zone_b_volume", zb.volume.value)
-        print_state("zone_b_mute", zb.muted)
-        print_state("zone_b_source", zb.source)
-        print_state("zone_b_available_sources", zb.sources)
-        print_state("zone_b_streaming_source", zb.streaming_source)
+        print_state("zone_b_mute", zb.mute.value)
+        print_state("zone_b_source", zb.source_selector.value)
+        print_state("zone_b_available_sources", zb.source_selector.options)
+        print_state("zone_b_streaming_source", _v(zb.streaming_source_reading))
 
     print_state("max_volume", r.max_volume)  # type: ignore[union-attr]
 
@@ -136,18 +144,18 @@ class Monitor:
             print_state(label, current)
 
     def on_notification(self) -> None:
-        self._check("power", self.r.power_on)  # type: ignore[union-attr]
+        self._check("power", self.r.power.value)  # type: ignore[union-attr]
         self._check("volume", self.r.volume.value)  # type: ignore[union-attr]
-        self._check("mute", self.r.muted)  # type: ignore[union-attr]
-        self._check("source", self.r.source)  # type: ignore[union-attr]
-        self._check("streaming_source", self.r.streaming_source)  # type: ignore[union-attr]
-        self._check("audio_input", self.r.audio_input)  # type: ignore[union-attr]
-        self._check("video_input", self.r.video_input)  # type: ignore[union-attr]
-        self._check("audio_information", self.r.audio_information)  # type: ignore[union-attr]
-        self._check("video_information", self.r.video_information)  # type: ignore[union-attr]
-        self._check("sound_mode", self.r.sound_mode)  # type: ignore[union-attr]
-        self._check("room_perfect_position", self.r.room_perfect_position)  # type: ignore[union-attr]
-        self._check("voicing", self.r.voicing)  # type: ignore[union-attr]
+        self._check("mute", self.r.mute.value)  # type: ignore[union-attr]
+        self._check("source", _v(self.r.source_selector))  # type: ignore[union-attr]
+        self._check("streaming_source", _v(self.r.streaming_source_reading))  # type: ignore[union-attr]
+        self._check("audio_input", _v(self.r.audio_input_reading))  # type: ignore[union-attr]
+        self._check("video_input", _v(self.r.video_input_reading))  # type: ignore[union-attr]
+        self._check("audio_information", _v(self.r.audio_information_reading))  # type: ignore[union-attr]
+        self._check("video_information", _v(self.r.video_information_reading))  # type: ignore[union-attr]
+        self._check("sound_mode", _v(self.r.sound_mode_selector))  # type: ignore[union-attr]
+        self._check("room_perfect_position", _v(self.r.room_perfect_position_selector))  # type: ignore[union-attr]
+        self._check("voicing", _v(self.r.voicing_selector))  # type: ignore[union-attr]
         lip = self.r.lipsync  # type: ignore[union-attr]
         self._check("lipsync", lip.value if lip else None)  # type: ignore[union-attr]
 
@@ -165,11 +173,11 @@ class Monitor:
 
         if self.r.zone_b is not None:  # type: ignore[union-attr]
             zb = self.r.zone_b  # type: ignore[union-attr]
-            self._check("zone_b_power", zb.power_on)
+            self._check("zone_b_power", zb.power.value)
             self._check("zone_b_volume", zb.volume.value)
-            self._check("zone_b_mute", zb.muted)
-            self._check("zone_b_source", zb.source)
-            self._check("zone_b_streaming_source", zb.streaming_source)
+            self._check("zone_b_mute", zb.mute.value)
+            self._check("zone_b_source", zb.source_selector.value)
+            self._check("zone_b_streaming_source", _v(zb.streaming_source_reading))
 
         if self.r.player is not None:  # type: ignore[union-attr]
             self._check("play_mode", self.r.player.play_mode)  # type: ignore[union-attr]

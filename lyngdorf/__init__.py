@@ -35,6 +35,7 @@ from .receiver import LyngdorfReceiver
 from .remote import RemoteKey
 from .states import Control, PlaybackState, PlayMode, Repeat
 from .streaming import NowPlaying
+from .values import Reading, Selector, Switch
 
 __all__ = [
     "LyngdorfReceiver",
@@ -42,6 +43,9 @@ __all__ = [
     "SteppableControl",
     "VolumeControl",
     "Trim",
+    "Reading",
+    "Selector",
+    "Switch",
     "ZoneB",
     "Player",
     "Remote",

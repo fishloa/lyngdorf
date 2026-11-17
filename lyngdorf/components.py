@@ -19,44 +19,75 @@ from datetime import datetime
 from typing import Protocol
 
 from .base import CountingNumberDict
+from .const import Msg
 from .controls import SteppableControl
-from .exceptions import LyngdorfInvalidValueError, LyngdorfUnsupportedError
+from .exceptions import LyngdorfUnsupportedError
 from .models import LyngdorfModel
 from .remote import RemoteKey, resolve_remote_key
 from .rio import RioClient
 from .states import Control, PlayMode, Repeat
 from .streaming import NowPlaying
+from .values import Reading, Selector, Switch, build_reading, warn_deprecated
 
 
 class ZoneB:
     """Zone B (Zone 2) of an MP- or P-series processor.
 
-    Mirrors the main-zone shapes exactly - power/set_power,
-    volume (SteppableControl), muted/set_muted, source/sources/set_source,
-    plus the read-only audio_input and streaming_source - so a consumer's
-    mental model transfers one-to-one (design §2.4). Zone B has exactly
-    what the hardware has: no sound_mode, no trims, so nothing here can
-    raise "unsupported".
+    `power`, `mute` and `source_selector` always exist; `audio_input_reading`
+    and `streaming_source_reading` are None where the model's protocol does
+    not define them. Zone B has exactly what the hardware has: no
+    sound_mode, no trims, so nothing here can raise "unsupported".
+
+    The flat power_on/set_power/muted/set_muted/source/sources/set_source/
+    audio_input/streaming_source names are deprecated and removed in 3.0.
     """
 
-    def __init__(self, *, volume: SteppableControl, rio: RioClient) -> None:
+    def __init__(
+        self,
+        *,
+        volume: SteppableControl,
+        rio: RioClient,
+        source_options: CountingNumberDict | None = None,
+        audio_input_reading: Reading | None = None,
+        streaming_source_reading: Reading | None = None,
+    ) -> None:
         self._rio = rio
         self._volume = volume
-        self._sources = CountingNumberDict()
-        self._power_on: bool | None = None
-        self._muted: bool | None = None
-        self._source: str | None = None
-        self._audio_input: str | None = None
-        self._streaming_source: str | None = None
+        self._sources = (
+            source_options if source_options is not None else CountingNumberDict()
+        )
+        self._power = Switch(rio.zone_b_power_on)
+        self._mute = Switch(rio.zone_b_mute_enabled)
+        self._source_selector = Selector(self._sources, rio.change_zone_b_source)
+        self._audio_input_reading = audio_input_reading
+        self._streaming_source_reading = streaming_source_reading
 
     @property
-    def power_on(self) -> bool | None:
-        """Zone B power state, or None until the device reports it."""
-        return self._power_on
+    def power(self) -> Switch:
+        """Zone B power."""
+        return self._power
 
-    async def set_power(self, on: bool) -> None:
-        """Power Zone B on or off (queued for paced delivery)."""
-        self._rio.zone_b_power_on(on)
+    @property
+    def mute(self) -> Switch:
+        """Zone B mute."""
+        return self._mute
+
+    @property
+    def source_selector(self) -> Selector:
+        """Zone B source, selectable by name."""
+        return self._source_selector
+
+    @property
+    def audio_input_reading(self) -> Reading | None:
+        """The physical audio input feeding Zone B; None on a model
+        without `ZAUDIN`."""
+        return self._audio_input_reading
+
+    @property
+    def streaming_source_reading(self) -> Reading | None:
+        """The active Zone B streaming source type; None on a model
+        without `ZSTREAMTYPE`."""
+        return self._streaming_source_reading
 
     @property
     def volume(self) -> SteppableControl:
@@ -65,64 +96,60 @@ class ZoneB:
         return self._volume
 
     @property
+    def power_on(self) -> bool | None:
+        """DEPRECATED, removed in 3.0. Use `power.value`."""
+        warn_deprecated("ZoneB.power_on", "power.value")
+        return self._power.value
+
+    async def set_power(self, on: bool) -> None:
+        """DEPRECATED, removed in 3.0. Use `power.set()`."""
+        warn_deprecated("ZoneB.set_power()", "power.set()")
+        await self._power.set(on)
+
+    @property
     def muted(self) -> bool | None:
-        """Zone B mute state, or None until the device reports it."""
-        return self._muted
+        """DEPRECATED, removed in 3.0. Use `mute.value`."""
+        warn_deprecated("ZoneB.muted", "mute.value")
+        return self._mute.value
 
     async def set_muted(self, muted: bool) -> None:
-        """Mute or unmute Zone B (queued for paced delivery)."""
-        self._rio.zone_b_mute_enabled(muted)
+        """DEPRECATED, removed in 3.0. Use `mute.set()`."""
+        warn_deprecated("ZoneB.set_muted()", "mute.set()")
+        await self._mute.set(muted)
 
     @property
     def source(self) -> str | None:
-        """The current Zone B source name, or None until reported."""
-        return self._source
+        """DEPRECATED, removed in 3.0. Use `source_selector.value`."""
+        warn_deprecated("ZoneB.source", "source_selector.value")
+        return self._source_selector.value
 
     @property
     def sources(self) -> list[str]:
-        """Selectable Zone B sources, in the device's own index order."""
-        return list(self._sources.values())
+        """DEPRECATED, removed in 3.0. Use `source_selector.options`."""
+        warn_deprecated("ZoneB.sources", "source_selector.options")
+        return self._source_selector.options
 
     async def set_source(self, name: str) -> None:
-        """Select a Zone B source by name.
+        """DEPRECATED, removed in 3.0. Use `source_selector.select()`.
 
-        Raises LyngdorfInvalidValueError for a name not in `sources`
-        (unchanged 1.x semantics): the wire carries an index, so an
-        unknown name has no index to send.
+        Raises LyngdorfInvalidValueError for a name not in the options.
         """
-        index = self._sources.lookupIndex(name)
-        if index < 0:
-            raise LyngdorfInvalidValueError(
-                f"{name} is not a valid Zone B source name, and cannot be chosen"
-            )
-        self._rio.change_zone_b_source(index)
+        warn_deprecated("ZoneB.set_source()", "source_selector.select()")
+        await self._source_selector.select(name)
 
     @property
     def audio_input(self) -> str | None:
-        """The physical audio input feeding Zone B, or None."""
-        return self._audio_input
+        """DEPRECATED, removed in 3.0. Use `audio_input_reading.value`."""
+        warn_deprecated("ZoneB.audio_input", "audio_input_reading.value")
+        reading = self._audio_input_reading
+        return reading.value if reading is not None else None
 
     @property
     def streaming_source(self) -> str | None:
-        """The active Zone B streaming source type, or None."""
-        return self._streaming_source
-
-    # -- internal wiring surface (receiver-layer callbacks, WP4) ----------
-
-    def _update_power(self, on: bool | None) -> None:
-        self._power_on = on
-
-    def _update_muted(self, muted: bool | None) -> None:
-        self._muted = muted
-
-    def _update_source(self, name: str | None) -> None:
-        self._source = name
-
-    def _update_audio_input(self, name: str | None) -> None:
-        self._audio_input = name
-
-    def _update_streaming_source(self, name: str | None) -> None:
-        self._streaming_source = name
+        """DEPRECATED, removed in 3.0. Use `streaming_source_reading.value`."""
+        warn_deprecated("ZoneB.streaming_source", "streaming_source_reading.value")
+        reading = self._streaming_source_reading
+        return reading.value if reading is not None else None
 
 
 def build_zone_b(rio: RioClient) -> ZoneB | None:
@@ -139,7 +166,16 @@ def build_zone_b(rio: RioClient) -> ZoneB | None:
         send_up=rio.zone_b_volume_up,
         send_down=rio.zone_b_volume_down,
     )
-    return ZoneB(volume=volume, rio=rio)
+    return ZoneB(
+        volume=volume,
+        rio=rio,
+        audio_input_reading=build_reading(
+            rio, Msg.ZONE_B_AUDIO_IN, config.audio_inputs
+        ),
+        streaming_source_reading=build_reading(
+            rio, Msg.ZONE_B_STREAM_TYPE, config.stream_types
+        ),
+    )
 
 
 class Remote:

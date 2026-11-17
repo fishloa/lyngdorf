@@ -76,10 +76,10 @@ class TestZoneB:
     async def test_wire_formats(self):
         rio = RecordingRio(LyngdorfModel.MP_60)
         zone_b = self._zone_b(rio)
-        await zone_b.set_power(True)
-        await zone_b.set_power(False)
-        await zone_b.set_muted(True)
-        await zone_b.set_muted(False)
+        await zone_b.power.set(True)
+        await zone_b.power.set(False)
+        await zone_b.mute.set(True)
+        await zone_b.mute.set(False)
         await zone_b.volume.set(-40.0)
         await zone_b.volume.up()
         await zone_b.volume.down()
@@ -103,34 +103,34 @@ class TestZoneB:
         zone_b._sources.count_callback("2", "")
         zone_b._sources.add(0, "Apple TV")
         zone_b._sources.add(1, "Wonk")
-        assert zone_b.sources == ["Apple TV", "Wonk"]
+        assert zone_b.source_selector.options == ["Apple TV", "Wonk"]
 
-        await zone_b.set_source("Wonk")
+        await zone_b.source_selector.select("Wonk")
         assert rio.writes == ["ZSRC(1)"]
 
         with pytest.raises(LyngdorfInvalidValueError):
-            await zone_b.set_source("Nope")
+            await zone_b.source_selector.select("Nope")
         assert rio.writes == ["ZSRC(1)"]  # nothing extra was sent
 
     def test_state_is_none_until_updated_then_tracks(self):
         zone_b = self._zone_b(RecordingRio(LyngdorfModel.MP_60))
-        assert zone_b.power_on is None
-        assert zone_b.muted is None
-        assert zone_b.source is None
-        assert zone_b.audio_input is None
-        assert zone_b.streaming_source is None
-        assert zone_b.sources == []
+        assert zone_b.power.value is None
+        assert zone_b.mute.value is None
+        assert zone_b.source_selector.value is None
+        assert zone_b.audio_input_reading.value is None
+        assert zone_b.streaming_source_reading.value is None
+        assert zone_b.source_selector.options == []
 
-        zone_b._update_power(True)
-        zone_b._update_muted(False)
-        zone_b._update_source("Apple TV")
-        zone_b._update_audio_input("HDMI 1")
-        zone_b._update_streaming_source("AirPlay")
-        assert zone_b.power_on is True
-        assert zone_b.muted is False
-        assert zone_b.source == "Apple TV"
-        assert zone_b.audio_input == "HDMI 1"
-        assert zone_b.streaming_source == "AirPlay"
+        zone_b.power._update(True)
+        zone_b.mute._update(False)
+        zone_b.source_selector._update("Apple TV")
+        zone_b.audio_input_reading._update("HDMI 1")
+        zone_b.streaming_source_reading._update("AirPlay")
+        assert zone_b.power.value is True
+        assert zone_b.mute.value is False
+        assert zone_b.source_selector.value == "Apple TV"
+        assert zone_b.audio_input_reading.value == "HDMI 1"
+        assert zone_b.streaming_source_reading.value == "AirPlay"
 
     def test_zone_b_has_no_sound_mode_and_no_trims(self):
         """spec §2.4: Zone B has exactly what the hardware has - no
