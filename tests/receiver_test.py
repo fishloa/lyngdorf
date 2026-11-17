@@ -95,9 +95,10 @@ class TestStructuralCapability:
     def test_host_is_str_and_informational_tables_come_from_config(self):
         r = LyngdorfReceiver(FAKE_IP, LyngdorfModel.MP_60)
         assert r.host == FAKE_IP  # str, not str | None (spec §2.2)
-        assert r.stream_types == list(LyngdorfModel.MP_60.config.stream_types.values())
-        assert r.audio_inputs == list(LyngdorfModel.MP_60.config.audio_inputs.values())
-        assert r.video_inputs == list(LyngdorfModel.MP_60.config.video_inputs.values())
+        config = LyngdorfModel.MP_60.config
+        assert r.streaming_source_reading.options == list(config.stream_types.values())
+        assert r.audio_input_reading.options == list(config.audio_inputs.values())
+        assert r.video_input_reading.options == list(config.video_inputs.values())
 
 
 class TestWireEventRouting:
@@ -133,14 +134,14 @@ class TestWireEventRouting:
         _process_event(r, "!ZVOL(-550)")
         _process_event(r, "!ZMUTEON")
         assert r.zone_b.volume.value == -55.0
-        assert r.zone_b.muted is True
+        assert r.zone_b.mute.value is True
 
     def test_power_on_requeries_mute(self):
         """#26: power cycling can silently clear mute; the power-on
         callback re-queries it (a query - never coalesced away)."""
         r, writes = _prepared(LyngdorfModel.MP_60)
         _process_event(r, "!POWER(1)")
-        assert r.power_on is True
+        assert r.power.value is True
         assert "MUTE?" in writes
 
 
@@ -148,8 +149,8 @@ class TestWrites:
     @pytest.mark.asyncio
     async def test_write_round_trips(self):
         r, writes = _prepared(LyngdorfModel.MP_60)
-        await r.set_power(True)
-        await r.set_muted(True)
+        await r.power.set(True)
+        await r.mute.set(True)
         await r.volume.set(-25.0)
         assert writes[-3:] == ["POWERONMAIN", "MUTEON", "VOL(-250)"]
 
@@ -159,10 +160,10 @@ class TestWrites:
         r._sources.count_callback("2", "")
         r._sources.add(0, "Apple TV")
         r._sources.add(1, "Playstation")
-        await r.set_source("Playstation")
+        await r.source_selector.select("Playstation")
         assert writes[-1] == "SRC(1)"
         with pytest.raises(LyngdorfInvalidValueError):
-            await r.set_source("Nope")
+            await r.source_selector.select("Nope")
 
     def test_no_property_setter_exists_anywhere_on_the_class(self):
         """spec §3/D9: zero writable properties - the async rule's
@@ -262,7 +263,7 @@ class TestUnknownAudioInputIsReported:
         r = self._receiver()
         with caplog.at_level(logging.DEBUG, logger="lyngdorf.receiver"):
             r._audio_input_callback("37", "")
-        assert r.audio_input == "Spotify"
+        assert r.audio_input_reading.value == "Spotify"
         assert caplog.records == []
 
     def test_unknown_index_falls_back_and_warns(self, caplog):
@@ -271,7 +272,7 @@ class TestUnknownAudioInputIsReported:
         r = self._receiver()
         with caplog.at_level(logging.WARNING, logger="lyngdorf.receiver"):
             r._audio_input_callback("99", "")
-        assert r.audio_input == "audio-99"
+        assert r.audio_input_reading.value == "audio-99"
         assert len(caplog.records) == 1
         message = caplog.records[0].getMessage()
         assert "p100" in message
@@ -323,7 +324,7 @@ class TestCallbackRegistrationMatchesModel:
         r = LyngdorfReceiver(FAKE_IP, LyngdorfModel.TDAI_1120)
         r._register_callbacks()
         _process_event(r, '!AUDTYPE("PCM")')
-        assert r.audio_information is None
+        assert r.audio_information_reading is None
 
     def test_p200_registers_max_volume_and_lipsync_but_not_trim_bass(self) -> None:
         config = LyngdorfModel.P_200.config

@@ -54,8 +54,18 @@ from .rio import (
 )
 from .states import PlayMode
 from .streaming import NowPlaying
+from .values import (
+    Reading,
+    Selector,
+    Switch,
+    build_reading,
+    build_selector,
+    warn_deprecated,
+)
 
 _LOGGER = logging.getLogger(__package__)
+
+_ALWAYS = object()
 
 
 def convert_decibel(value: float | str, scale: float = 10.0) -> float:
@@ -88,6 +98,10 @@ _DIALECTS: dict[LyngdorfModel, Dialect] = {
     LyngdorfModel.TDAI_3400: TDAI_DIALECT,
     LyngdorfModel.TDAI_2170: TDAI_2170_DIALECT,
 }
+
+
+def _value(reading: Reading | None) -> str | None:
+    return reading.value if reading is not None else None
 
 
 class LyngdorfReceiver:
@@ -146,7 +160,6 @@ class LyngdorfReceiver:
         self._player = build_player(model, self._poll if self._poll else self._api)
         self._remote = build_remote(self._api)
 
-        # Flat cached state (design §2.2's non-component members).
         config = model.config
         self._audio_inputs = config.audio_inputs
         # Indices already complained about - see _name_audio_input.
@@ -158,18 +171,40 @@ class LyngdorfReceiver:
         self._room_perfect_positions = CountingNumberDict()
         self._voicings = CountingNumberDict()
         self._name: str | None = None
-        self._power_on: bool | None = None
         self._max_volume: float | None = None
-        self._muted: bool | None = None
-        self._source: str | None = None
-        self._sound_mode: str | None = None
-        self._audio_input: str | None = None
-        self._video_input: str | None = None
-        self._audio_info: str | None = None
-        self._video_info: str | None = None
-        self._streaming_source: str | None = None
-        self._room_perfect_position: str | None = None
-        self._voicing: str | None = None
+        self._fixed_source: str | None = None
+
+        self._power = Switch(self._api.power_on)
+        self._mute = Switch(self._api.mute_enabled)
+        self._source_selector = build_selector(
+            self._api, Msg.SOURCES_COUNT, self._api.change_source, self._sources
+        )
+        self._sound_mode_selector = build_selector(
+            self._api, Msg.AUDIO_MODE, self._api.change_sound_mode, self._sound_modes
+        )
+        self._room_perfect_position_selector = build_selector(
+            self._api,
+            Msg.ROOM_PERFECT_POSITION,
+            self._api.change_room_perfect_position,
+            self._room_perfect_positions,
+        )
+        self._voicing_selector = build_selector(
+            self._api,
+            Msg.ROOM_PERFECT_VOICING,
+            self._api.change_voicing,
+            self._voicings,
+        )
+        self._audio_information_reading = build_reading(self._api, Msg.AUDIO_TYPE)
+        self._video_information_reading = build_reading(self._api, Msg.VIDEO_TYPE)
+        self._audio_input_reading = build_reading(
+            self._api, Msg.AUDIO_IN, self._audio_inputs
+        )
+        self._video_input_reading = build_reading(
+            self._api, Msg.VIDEO_IN, self._video_inputs
+        )
+        self._streaming_source_reading = build_reading(
+            self._api, Msg.STREAM_TYPE, self._stream_types
+        )
         self._notification_callbacks: list[Callable[[], None]] = []
 
         # Dialect tables address zone_b internals by dotted path; alias
@@ -244,11 +279,20 @@ class LyngdorfReceiver:
     # -- power ---------------------------------------------------------------
 
     @property
+    def power(self) -> Switch:
+        """Main-zone power."""
+        return self._power
+
+    @property
     def power_on(self) -> bool | None:
-        return self._power_on
+        """DEPRECATED, removed in 3.0. Use `power.value`."""
+        warn_deprecated("power_on", "power.value")
+        return self._power.value
 
     async def set_power(self, on: bool) -> None:
-        self._api.power_on(on)
+        """DEPRECATED, removed in 3.0. Use `power.set()`."""
+        warn_deprecated("set_power()", "power.set()")
+        await self._power.set(on)
 
     # -- volume & mute --------------------------------------------------------
 
@@ -288,25 +332,80 @@ class LyngdorfReceiver:
         return self._max_volume
 
     @property
+    def mute(self) -> Switch:
+        """Main-zone mute."""
+        return self._mute
+
+    @property
     def muted(self) -> bool | None:
-        return self._muted
+        """DEPRECATED, removed in 3.0. Use `mute.value`."""
+        warn_deprecated("muted", "mute.value")
+        return self._mute.value
 
     async def set_muted(self, muted: bool) -> None:
-        self._api.mute_enabled(muted)
+        """DEPRECATED, removed in 3.0. Use `mute.set()`."""
+        warn_deprecated("set_muted()", "mute.set()")
+        await self._mute.set(muted)
 
-    # -- selections (one shape each) -------------------------------------------
+    # -- selections and readings (None where the model's protocol lacks them) --
+
+    @property
+    def source_selector(self) -> Selector | None:
+        """None on TDAI-2170, which reports a fixed source only."""
+        return self._source_selector
+
+    @property
+    def sound_mode_selector(self) -> Selector | None:
+        return self._sound_mode_selector
+
+    @property
+    def room_perfect_position_selector(self) -> Selector | None:
+        return self._room_perfect_position_selector
+
+    @property
+    def voicing_selector(self) -> Selector | None:
+        return self._voicing_selector
+
+    @property
+    def audio_information_reading(self) -> Reading | None:
+        return self._audio_information_reading
+
+    @property
+    def video_information_reading(self) -> Reading | None:
+        return self._video_information_reading
+
+    @property
+    def audio_input_reading(self) -> Reading | None:
+        return self._audio_input_reading
+
+    @property
+    def video_input_reading(self) -> Reading | None:
+        return self._video_input_reading
+
+    @property
+    def streaming_source_reading(self) -> Reading | None:
+        return self._streaming_source_reading
 
     @property
     def source(self) -> str | None:
-        return self._source
+        """DEPRECATED, removed in 3.0. Use `source_selector.value`."""
+        warn_deprecated("source", "source_selector.value")
+        if self._source_selector is not None:
+            return self._source_selector.value
+        return self._fixed_source
 
     @property
     def sources(self) -> list[str]:
+        """DEPRECATED, removed in 3.0. Use `source_selector.options`."""
+        warn_deprecated("sources", "source_selector.options")
         return list(self._sources.values())
 
     async def set_source(self, name: str) -> None:
-        """Raises LyngdorfInvalidValueError for a name not in sources
+        """DEPRECATED, removed in 3.0. Use `source_selector.select()`.
+
+        Raises LyngdorfInvalidValueError for a name not in sources
         (unchanged 1.x semantics - the wire carries an index)."""
+        warn_deprecated("set_source()", "source_selector.select()")
         index = self._sources.lookupIndex(name)
         if index < 0:
             raise LyngdorfInvalidValueError(
@@ -316,13 +415,19 @@ class LyngdorfReceiver:
 
     @property
     def sound_mode(self) -> str | None:
-        return self._sound_mode
+        """DEPRECATED, removed in 3.0. Use `sound_mode_selector.value`."""
+        warn_deprecated("sound_mode", "sound_mode_selector.value")
+        return _value(self._sound_mode_selector)
 
     @property
     def sound_modes(self) -> list[str]:
+        """DEPRECATED, removed in 3.0. Use `sound_mode_selector.options`."""
+        warn_deprecated("sound_modes", "sound_mode_selector.options")
         return list(self._sound_modes.values())
 
     async def set_sound_mode(self, name: str) -> None:
+        """DEPRECATED, removed in 3.0. Use `sound_mode_selector.select()`."""
+        warn_deprecated("set_sound_mode()", "sound_mode_selector.select()")
         index = self._sound_modes.lookupIndex(name)
         if index < 0:
             raise LyngdorfInvalidValueError(
@@ -332,13 +437,26 @@ class LyngdorfReceiver:
 
     @property
     def room_perfect_position(self) -> str | None:
-        return self._room_perfect_position
+        """DEPRECATED, removed in 3.0. Use
+        `room_perfect_position_selector.value`."""
+        warn_deprecated("room_perfect_position", "room_perfect_position_selector.value")
+        return _value(self._room_perfect_position_selector)
 
     @property
     def room_perfect_positions(self) -> list[str]:
+        """DEPRECATED, removed in 3.0. Use
+        `room_perfect_position_selector.options`."""
+        warn_deprecated(
+            "room_perfect_positions", "room_perfect_position_selector.options"
+        )
         return list(self._room_perfect_positions.values())
 
     async def set_room_perfect_position(self, name: str) -> None:
+        """DEPRECATED, removed in 3.0. Use
+        `room_perfect_position_selector.select()`."""
+        warn_deprecated(
+            "set_room_perfect_position()", "room_perfect_position_selector.select()"
+        )
         index = self._room_perfect_positions.lookupIndex(name)
         if index < 0:
             raise LyngdorfInvalidValueError(
@@ -348,13 +466,19 @@ class LyngdorfReceiver:
 
     @property
     def voicing(self) -> str | None:
-        return self._voicing
+        """DEPRECATED, removed in 3.0. Use `voicing_selector.value`."""
+        warn_deprecated("voicing", "voicing_selector.value")
+        return _value(self._voicing_selector)
 
     @property
     def voicings(self) -> list[str]:
+        """DEPRECATED, removed in 3.0. Use `voicing_selector.options`."""
+        warn_deprecated("voicings", "voicing_selector.options")
         return list(self._voicings.values())
 
     async def set_voicing(self, name: str) -> None:
+        """DEPRECATED, removed in 3.0. Use `voicing_selector.select()`."""
+        warn_deprecated("set_voicing()", "voicing_selector.select()")
         index = self._voicings.lookupIndex(name)
         if index < 0:
             raise LyngdorfInvalidValueError(
@@ -362,38 +486,52 @@ class LyngdorfReceiver:
             )
         self._api.change_voicing(index)
 
-    # -- informational reads (None/empty when the model has no such thing) ----
-
     @property
     def audio_input(self) -> str | None:
-        return self._audio_input
+        """DEPRECATED, removed in 3.0. Use `audio_input_reading.value`."""
+        warn_deprecated("audio_input", "audio_input_reading.value")
+        return _value(self._audio_input_reading)
 
     @property
     def audio_inputs(self) -> list[str]:
+        """DEPRECATED, removed in 3.0. Use `audio_input_reading.options`."""
+        warn_deprecated("audio_inputs", "audio_input_reading.options")
         return list(self._audio_inputs.values())
 
     @property
     def audio_information(self) -> str | None:
-        return self._audio_info
+        """DEPRECATED, removed in 3.0. Use `audio_information_reading.value`."""
+        warn_deprecated("audio_information", "audio_information_reading.value")
+        return _value(self._audio_information_reading)
 
     @property
     def video_input(self) -> str | None:
-        return self._video_input
+        """DEPRECATED, removed in 3.0. Use `video_input_reading.value`."""
+        warn_deprecated("video_input", "video_input_reading.value")
+        return _value(self._video_input_reading)
 
     @property
     def video_inputs(self) -> list[str]:
+        """DEPRECATED, removed in 3.0. Use `video_input_reading.options`."""
+        warn_deprecated("video_inputs", "video_input_reading.options")
         return list(self._video_inputs.values())
 
     @property
     def video_information(self) -> str | None:
-        return self._video_info
+        """DEPRECATED, removed in 3.0. Use `video_information_reading.value`."""
+        warn_deprecated("video_information", "video_information_reading.value")
+        return _value(self._video_information_reading)
 
     @property
     def streaming_source(self) -> str | None:
-        return self._streaming_source
+        """DEPRECATED, removed in 3.0. Use `streaming_source_reading.value`."""
+        warn_deprecated("streaming_source", "streaming_source_reading.value")
+        return _value(self._streaming_source_reading)
 
     @property
     def stream_types(self) -> list[str]:
+        """DEPRECATED, removed in 3.0. Use `streaming_source_reading.options`."""
+        warn_deprecated("stream_types", "streaming_source_reading.options")
         return list(self._stream_types.values())
 
     # -- numeric controls ------------------------------------------------------
@@ -478,8 +616,24 @@ class LyngdorfReceiver:
             return
         self._api.register_callback(command, callback)
 
+    def _gating_object(self, msg: Msg) -> object | None:
+        """The object a message feeds, for messages whose callback only
+        exists to fill a Reading or Selector; messages with no entry
+        always register."""
+        return {
+            Msg.AUDIO_IN: self._audio_input_reading,
+            Msg.VIDEO_IN: self._video_input_reading,
+            Msg.VIDEO_TYPE: self._video_information_reading,
+            Msg.AUDIO_TYPE: self._audio_information_reading,
+            Msg.STREAM_TYPE: self._streaming_source_reading,
+            Msg.AUDIO_MODE: self._sound_mode_selector,
+            Msg.AUDIO_MODES_COUNT: self._sound_mode_selector,
+        }.get(msg, _ALWAYS)
+
     def _register_dialect_group(self, group: Sequence[tuple[Msg, str]]) -> None:
         for msg, attr in group:
+            if self._gating_object(msg) is None:
+                continue
             self._register_callback(msg, resolve_attr(self, attr))
 
     def _register_callbacks(self) -> None:
@@ -506,13 +660,12 @@ class LyngdorfReceiver:
             self._register_callback(Msg.TRIM_BASS, self._trim_bass_callback)
         if Trim.TREBLE in self._trims:
             self._register_callback(Msg.TRIM_TREBLE, self._trim_treble_callback)
-        if self._model.supports_message(Msg.AUDIO_TYPE):
+        if self._audio_information_reading is not None:
             self._register_callback(Msg.AUDIO_TYPE, self._audio_info_callback)
-        if self._model.supports_message(Msg.AUDIO_MODES_COUNT):
+        if self._sound_mode_selector is not None:
             self._register_callback(
                 Msg.AUDIO_MODES_COUNT, self._sound_modes.count_callback
             )
-        if self._model.supports_message(Msg.AUDIO_MODE):
             self._register_callback(Msg.AUDIO_MODE, self._sound_mode_callback)
         if self._lipsync is not None:
             self._register_callback(Msg.LIP_SYNC, self._lipsync_callback)
@@ -540,30 +693,41 @@ class LyngdorfReceiver:
         self._notify_notification_callbacks()
 
     def _mute_callback(self, param1: str, param2: str) -> None:
-        self._muted = param1 == "ON"
+        self._mute._update(param1 == "ON")
         self._notify_notification_callbacks()
 
     def _mute_on_callback(self, param1: str, param2: str) -> None:
-        self._muted = True
+        self._mute._update(True)
         self._notify_notification_callbacks()
 
     def _mute_off_callback(self, param1: str, param2: str) -> None:
-        self._muted = False
+        self._mute._update(False)
         self._notify_notification_callbacks()
 
     def _zone_b_mute_on_callback(self, param1: str, param2: str) -> None:
         if (zb := self._zone_b) is not None:
-            zb._update_muted(True)
+            zb._mute._update(True)
         self._notify_notification_callbacks()
 
     def _zone_b_mute_off_callback(self, param1: str, param2: str) -> None:
         if (zb := self._zone_b) is not None:
-            zb._update_muted(False)
+            zb._mute._update(False)
         self._notify_notification_callbacks()
+
+    @staticmethod
+    def _set_selector(selector: Selector | None, name: str | None) -> None:
+        if selector is not None:
+            selector._update(name)
+
+    def _set_source(self, name: str | None) -> None:
+        if self._source_selector is not None:
+            self._source_selector._update(name)
+        else:
+            self._fixed_source = name
 
     def _source_callback(self, param1: str, param2: str) -> None:
         if self._sources.is_full():
-            self._source = param2
+            self._set_source(param2)
             self._notify_notification_callbacks()
         else:
             self._sources.add(int(param1), param2)
@@ -572,7 +736,7 @@ class LyngdorfReceiver:
         index_str, _, name = param1.partition(",")
         name = name.strip('"')
         if self._sources.is_full():
-            self._source = name
+            self._set_source(name)
             self._notify_notification_callbacks()
         else:
             self._sources.add(int(index_str), name)
@@ -585,13 +749,13 @@ class LyngdorfReceiver:
         )
 
     def _fixed_source_callback(self, param1: str, param2: str) -> None:
-        self._source = self._sources.get(int(param1))
+        self._set_source(self._sources.get(int(param1)))
         self._notify_notification_callbacks()
 
     def _zone_b_source_callback(self, param1: str, param2: str) -> None:
         if (zb := self._zone_b) is not None:
             if zb._sources.is_full():
-                zb._update_source(param2)
+                zb._source_selector._update(param2)
             else:
                 zb._sources.add(int(param1), param2)
         self._notify_notification_callbacks()
@@ -634,57 +798,56 @@ class LyngdorfReceiver:
         return f"audio-{param1}"
 
     def _audio_input_callback(self, param1: str, param2: str) -> None:
-        self._audio_input = self._name_audio_input(param1)
+        if (reading := self._audio_input_reading) is not None:
+            reading._update(self._name_audio_input(param1))
         self._notify_notification_callbacks()
 
     def _zone_b_audio_input_callback(self, param1: str, param2: str) -> None:
         if (zb := self._zone_b) is not None:
-            zb._update_audio_input(self._name_audio_input(param1))
+            if (reading := zb._audio_input_reading) is not None:
+                reading._update(self._name_audio_input(param1))
         self._notify_notification_callbacks()
 
     def _video_input_callback(self, param1: str, param2: str) -> None:
-        if int(param1) in self._video_inputs:
-            self._video_input = self._video_inputs[int(param1)]
-        else:
-            self._video_input = f"video-{param1}"
+        if (reading := self._video_input_reading) is not None:
+            reading._update(self._video_inputs.get(int(param1), f"video-{param1}"))
         self._notify_notification_callbacks()
 
     def _stream_type_callback(self, param1: str, param2: str) -> None:
-        if int(param1) in self._stream_types:
-            self._streaming_source = self._stream_types[int(param1)]
-        else:
-            self._streaming_source = f"video-{param1}"
+        if (reading := self._streaming_source_reading) is not None:
+            reading._update(self._stream_types.get(int(param1), f"video-{param1}"))
         self._notify_notification_callbacks()
 
     def _zone_b_stream_type_callback(self, param1: str, param2: str) -> None:
         if (zb := self._zone_b) is not None:
-            if int(param1) in self._stream_types:
-                zb._update_streaming_source(self._stream_types[int(param1)])
-            else:
-                zb._update_streaming_source(f"video-{param1}")
+            if (reading := zb._streaming_source_reading) is not None:
+                reading._update(self._stream_types.get(int(param1), f"video-{param1}"))
         self._notify_notification_callbacks()
 
     def _audio_info_callback(self, param1: str, param2: str) -> None:
-        self._audio_info = param1
+        if (reading := self._audio_information_reading) is not None:
+            reading._update(param1)
         self._notify_notification_callbacks()
 
     def _video_info_callback(self, param1: str, param2: str) -> None:
-        self._video_info = param1
+        if (reading := self._video_information_reading) is not None:
+            reading._update(param1)
         self._notify_notification_callbacks()
 
     def _sound_mode_callback(self, param1: str, param2: str) -> None:
         if self._sound_modes.is_full():
-            self._sound_mode = param2
+            self._set_selector(self._sound_mode_selector, param2)
             self._notify_notification_callbacks()
         else:
             self._sound_modes.add(int(param1), param2)
 
     def _power_callback(self, param1: str, param2: str) -> None:
-        self._power_on = self._model.config.power_state_on == param1
-        if self._power_on:
+        is_on = self._model.config.power_state_on == param1
+        self._power._update(is_on)
+        if is_on:
             self._requery_mute()
         if self._poll is not None:
-            self._poll.set_power_state(self._power_on)
+            self._poll.set_power_state(is_on)
         self._notify_notification_callbacks()
 
     def _requery_mute(self) -> None:
@@ -693,7 +856,7 @@ class LyngdorfReceiver:
 
     def _zone_b_power_callback(self, param1: str, param2: str) -> None:
         if (zb := self._zone_b) is not None:
-            zb._update_power(self._model.config.power_state_on == param1)
+            zb._power._update(self._model.config.power_state_on == param1)
             if self._model.config.power_state_on == param1:
                 self._requery_zone_b_mute()
         self._notify_notification_callbacks()
@@ -709,7 +872,7 @@ class LyngdorfReceiver:
 
     def _room_perfect_position_callback(self, param1: str, param2: str) -> None:
         if self._room_perfect_positions.is_full():
-            self._room_perfect_position = param2
+            self._set_selector(self._room_perfect_position_selector, param2)
             self._notify_notification_callbacks()
         else:
             self._room_perfect_positions.add(int(param1), param2)
@@ -718,7 +881,7 @@ class LyngdorfReceiver:
         index_str, _, name = param1.partition(",")
         name = name.strip('"')
         if self._room_perfect_positions.is_full():
-            self._room_perfect_position = name
+            self._set_selector(self._room_perfect_position_selector, name)
             self._notify_notification_callbacks()
         else:
             self._room_perfect_positions.add(int(index_str), name)
@@ -735,12 +898,15 @@ class LyngdorfReceiver:
         )
 
     def _fixed_room_perfect_position_callback(self, param1: str, param2: str) -> None:
-        self._room_perfect_position = self._room_perfect_positions.get(int(param1))
+        self._set_selector(
+            self._room_perfect_position_selector,
+            self._room_perfect_positions.get(int(param1)),
+        )
         self._notify_notification_callbacks()
 
     def _voicing_callback(self, param1: str, param2: str) -> None:
         if self._voicings.is_full():
-            self._voicing = param2
+            self._set_selector(self._voicing_selector, param2)
             self._notify_notification_callbacks()
         else:
             self._voicings.add(int(param1), param2)
@@ -749,7 +915,7 @@ class LyngdorfReceiver:
         index_str, _, name = param1.partition(",")
         name = name.strip('"')
         if self._voicings.is_full():
-            self._voicing = name
+            self._set_selector(self._voicing_selector, name)
             self._notify_notification_callbacks()
         else:
             self._voicings.add(int(index_str), name)
@@ -762,7 +928,7 @@ class LyngdorfReceiver:
         )
 
     def _fixed_voicing_callback(self, param1: str, param2: str) -> None:
-        self._voicing = self._voicings.get(int(param1))
+        self._set_selector(self._voicing_selector, self._voicings.get(int(param1)))
         self._notify_notification_callbacks()
 
     def _lipsync_callback(self, param1: str, param2: str) -> None:
