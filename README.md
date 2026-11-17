@@ -6,6 +6,19 @@ Python library to control Lyngdorf A/V processors and integrated amplifiers over
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
 
+## Selections, readings and switches (2.3)
+
+```python
+await receiver.power.set(True)
+print(receiver.mute.value)
+if (sel := receiver.voicing_selector) is not None:
+    print(sel.options, sel.value)
+    await sel.select("Neutral")
+```
+
+A feature the model's protocol lacks has no object (`None`). The flat
+properties below this section are deprecated; see [MIGRATION.md](MIGRATION.md).
+
 ## Supported Models
 
 ### MP Series (Multichannel Processors)

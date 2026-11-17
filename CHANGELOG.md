@@ -1,5 +1,36 @@
 # Changelog
 
+## 2.3.0
+
+A bridge release: the structural-capability objects arrive under temporary
+names next to the old flat properties, which keep working and now emit
+`DeprecationWarning`. lyngdorf 3.0 removes the flat names and moves the
+objects to the natural names; see [MIGRATION.md](MIGRATION.md).
+
+### Added
+
+- `Reading`, `Selector` and `Switch` (exported from `lyngdorf`). A feature a
+  model's protocol does not define has no object at all, so `is None` is the
+  capability check.
+- Receiver: `power` and `mute` (`Switch`, always present), `source_selector`,
+  `sound_mode_selector`, `room_perfect_position_selector`, `voicing_selector`
+  (`Selector | None`), `audio_information_reading`, `video_information_reading`,
+  `audio_input_reading`, `video_input_reading`, `streaming_source_reading`
+  (`Reading | None`). `source_selector` is `None` on the TDAI-2170, which
+  reports a fixed source only.
+- ZoneB: `power`, `mute`, `source_selector` (always present),
+  `audio_input_reading`, `streaming_source_reading` (`Reading | None`).
+
+### Deprecated (removed in 3.0)
+
+- Receiver `power_on`, `set_power`, `muted`, `set_muted`, `source`, `sources`,
+  `set_source`, `sound_mode(s)`, `set_sound_mode`, `room_perfect_position(s)`,
+  `set_room_perfect_position`, `voicing(s)`, `set_voicing`, `audio_input(s)`,
+  `video_input(s)`, `audio_information`, `video_information`,
+  `streaming_source`, `stream_types`.
+- ZoneB `power_on`, `set_power`, `muted`, `set_muted`, `source`, `sources`,
+  `set_source`, `audio_input`, `streaming_source`.
+
 ## 2.2.2
 
 ### Fixed
