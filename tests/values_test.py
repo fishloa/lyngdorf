@@ -155,38 +155,51 @@ def _event(r, event):
 
 
 MP60_EVENTS = [
-    ('!SRC(0)"Apple TV"', "source_selector", "source"),
-    ('!AUDMODE(1)"Dolby"', "sound_mode_selector", "sound_mode"),
-    ('!RPFOC(1)"Focus 1"', "room_perfect_position_selector", "room_perfect_position"),
-    ('!RPVOI(1)"Voicing 1"', "voicing_selector", "voicing"),
-    ('!AUDTYPE("PCM 2.0")', "audio_information_reading", "audio_information"),
-    ('!VIDTYPE("4K")', "video_information_reading", "video_information"),
-    ("!AUDIN(1)", "audio_input_reading", "audio_input"),
-    ("!VIDIN(1)", "video_input_reading", "video_input"),
-    ("!STREAMTYPE(1)", "streaming_source_reading", "streaming_source"),
+    ('!SRC(1)"Playstation"', "source_selector", "source", "Playstation"),
+    (
+        '!AUDMODE(1)"Dolby Surround"',
+        "sound_mode_selector",
+        "sound_mode",
+        "Dolby Surround",
+    ),
+    (
+        '!RPFOC(1)"Focus 1"',
+        "room_perfect_position_selector",
+        "room_perfect_position",
+        "Focus 1",
+    ),
+    ('!RPVOI(1)"Neutral"', "voicing_selector", "voicing", "Neutral"),
+    (
+        "!AUDTYPE(PCM 2.0)",
+        "audio_information_reading",
+        "audio_information",
+        "PCM 2.0",
+    ),
+    ("!VIDTYPE(4K)", "video_information_reading", "video_information", "4K"),
+    ("!AUDIN(1)", "audio_input_reading", "audio_input", "HDMI"),
+    ("!VIDIN(1)", "video_input_reading", "video_input", "HDMI 1"),
+    ("!STREAMTYPE(1)", "streaming_source_reading", "streaming_source", "vTuner"),
 ]
 
 
 class TestBehaviourMP60:
-    @pytest.mark.parametrize("event,attr,old", MP60_EVENTS)
-    def test_object_value_equals_flat_property(self, event, attr, old):
+    @pytest.mark.parametrize("event,attr,old,expected", MP60_EVENTS)
+    def test_wire_line_sets_the_expected_value(self, event, attr, old, expected):
         r, _ = _prepared(LyngdorfModel.MP_60)
-        counts = {
-            "source_selector": ("SRCCOUNT", r._sources),
-            "sound_mode_selector": ("AUDMODECOUNT", r._sound_modes),
-            "room_perfect_position_selector": ("RPFOCCOUNT", r._room_perfect_positions),
-            "voicing_selector": ("RPVOICOUNT", r._voicings),
+        tables = {
+            "source_selector": r._sources,
+            "sound_mode_selector": r._sound_modes,
+            "room_perfect_position_selector": r._room_perfect_positions,
+            "voicing_selector": r._voicings,
         }
-        if attr in counts:
-            d = counts[attr][1]
-            d.count = 2
-            d.add(0, "x")
-            d.add(1, "y")
+        if attr in tables:
+            tables[attr].count = 2
+            tables[attr].add(0, "x")
+            tables[attr].add(1, "y")
         _event(r, event)
-        value = getattr(r, attr).value
-        assert value is not None
+        assert getattr(r, attr).value == expected
         with pytest.warns(DeprecationWarning):
-            assert getattr(r, old) == value
+            assert getattr(r, old) == expected
 
     def test_zone_b_events(self):
         r, _ = _prepared(LyngdorfModel.MP_60)
@@ -199,10 +212,16 @@ class TestBehaviourMP60:
         _event(r, "!ZMUTEON")
         _event(r, "!POWERZONE2(1)")
         assert zb.source_selector.value == "Apple TV"
-        assert zb.audio_input_reading.value is not None
-        assert zb.streaming_source_reading.value is not None
+        assert zb.audio_input_reading.value == "HDMI"
+        assert zb.streaming_source_reading.value == "vTuner"
         assert zb.mute.value is True
         assert zb.power.value is True
+        with pytest.warns(DeprecationWarning):
+            assert zb.source == "Apple TV"
+        with pytest.warns(DeprecationWarning):
+            assert zb.audio_input == "HDMI"
+        with pytest.warns(DeprecationWarning):
+            assert zb.streaming_source == "vTuner"
 
     def test_mute_switch_on_every_family(self):
         for model, on, off in (
