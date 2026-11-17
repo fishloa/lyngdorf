@@ -47,15 +47,12 @@ class ZoneB:
         *,
         volume: SteppableControl,
         rio: RioClient,
-        source_options: CountingNumberDict | None = None,
         audio_input_reading: Reading | None = None,
         streaming_source_reading: Reading | None = None,
     ) -> None:
         self._rio = rio
         self._volume = volume
-        self._sources = (
-            source_options if source_options is not None else CountingNumberDict()
-        )
+        self._sources = CountingNumberDict()
         self._power = Switch(rio.zone_b_power_on)
         self._mute = Switch(rio.zone_b_mute_enabled)
         self._source_selector = Selector(self._sources, rio.change_zone_b_source)

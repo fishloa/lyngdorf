@@ -172,13 +172,10 @@ class LyngdorfReceiver:
         self._voicings = CountingNumberDict()
         self._name: str | None = None
         self._max_volume: float | None = None
-        self._fixed_source: str | None = None
 
         self._power = Switch(self._api.power_on)
         self._mute = Switch(self._api.mute_enabled)
-        self._source_selector = build_selector(
-            self._api, Msg.SOURCES_COUNT, self._api.change_source, self._sources
-        )
+        self._source_selector = Selector(self._sources, self._api.change_source)
         self._sound_mode_selector = build_selector(
             self._api, Msg.AUDIO_MODE, self._api.change_sound_mode, self._sound_modes
         )
@@ -205,6 +202,18 @@ class LyngdorfReceiver:
         self._streaming_source_reading = build_reading(
             self._api, Msg.STREAM_TYPE, self._stream_types
         )
+        self._gated_objects: dict[Msg, object | None] = {
+            Msg.AUDIO_IN: self._audio_input_reading,
+            Msg.VIDEO_IN: self._video_input_reading,
+            Msg.VIDEO_TYPE: self._video_information_reading,
+            Msg.STREAM_TYPE: self._streaming_source_reading,
+            Msg.ZONE_B_AUDIO_IN: (
+                self._zone_b.audio_input_reading if self._zone_b else None
+            ),
+            Msg.ZONE_B_STREAM_TYPE: (
+                self._zone_b.streaming_source_reading if self._zone_b else None
+            ),
+        }
         self._notification_callbacks: list[Callable[[], None]] = []
 
         # Dialect tables address zone_b internals by dotted path; alias
@@ -347,11 +356,8 @@ class LyngdorfReceiver:
         warn_deprecated("set_muted()", "mute.set()")
         await self._mute.set(muted)
 
-    # -- selections and readings (None where the model's protocol lacks them) --
-
     @property
-    def source_selector(self) -> Selector | None:
-        """None on TDAI-2170, which reports a fixed source only."""
+    def source_selector(self) -> Selector:
         return self._source_selector
 
     @property
@@ -390,9 +396,7 @@ class LyngdorfReceiver:
     def source(self) -> str | None:
         """DEPRECATED, removed in 3.0. Use `source_selector.value`."""
         warn_deprecated("source", "source_selector.value")
-        if self._source_selector is not None:
-            return self._source_selector.value
-        return self._fixed_source
+        return self._source_selector.value
 
     @property
     def sources(self) -> list[str]:
@@ -616,23 +620,9 @@ class LyngdorfReceiver:
             return
         self._api.register_callback(command, callback)
 
-    def _gating_object(self, msg: Msg) -> object | None:
-        """The object a message feeds, for messages whose callback only
-        exists to fill a Reading or Selector; messages with no entry
-        always register."""
-        return {
-            Msg.AUDIO_IN: self._audio_input_reading,
-            Msg.VIDEO_IN: self._video_input_reading,
-            Msg.VIDEO_TYPE: self._video_information_reading,
-            Msg.AUDIO_TYPE: self._audio_information_reading,
-            Msg.STREAM_TYPE: self._streaming_source_reading,
-            Msg.AUDIO_MODE: self._sound_mode_selector,
-            Msg.AUDIO_MODES_COUNT: self._sound_mode_selector,
-        }.get(msg, _ALWAYS)
-
     def _register_dialect_group(self, group: Sequence[tuple[Msg, str]]) -> None:
         for msg, attr in group:
-            if self._gating_object(msg) is None:
+            if self._gated_objects.get(msg, _ALWAYS) is None:
                 continue
             self._register_callback(msg, resolve_attr(self, attr))
 
@@ -720,10 +710,7 @@ class LyngdorfReceiver:
             selector._update(name)
 
     def _set_source(self, name: str | None) -> None:
-        if self._source_selector is not None:
-            self._source_selector._update(name)
-        else:
-            self._fixed_source = name
+        self._source_selector._update(name)
 
     def _source_callback(self, param1: str, param2: str) -> None:
         if self._sources.is_full():

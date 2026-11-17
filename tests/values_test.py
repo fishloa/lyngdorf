@@ -70,7 +70,6 @@ class TestSelector:
 
 
 RECEIVER_ROWS = [
-    ("source_selector", Msg.SOURCES_COUNT),
     ("sound_mode_selector", Msg.AUDIO_MODE),
     ("room_perfect_position_selector", Msg.ROOM_PERFECT_POSITION),
     ("voicing_selector", Msg.ROOM_PERFECT_VOICING),
@@ -105,17 +104,26 @@ class TestFactories:
         assert isinstance(r.power, Switch)
         assert isinstance(r.mute, Switch)
 
-    @pytest.mark.parametrize("model", list(LyngdorfModel))
+    @pytest.mark.parametrize(
+        "model", [m for m in LyngdorfModel if not m.config.has_zone_b]
+    )
+    def test_no_zone_b_object_without_zone_b(self, model):
+        assert build_zone_b(RecordingRio(model)) is None
+
+    @pytest.mark.parametrize("model", [m for m in LyngdorfModel if m.config.has_zone_b])
     def test_zone_b_objects_match_model_config(self, model):
         zb = build_zone_b(RecordingRio(model))
-        if zb is None:
-            assert not model.config.has_zone_b
-            return
+        assert zb is not None
         for attr, msg in ZONE_B_ROWS:
             assert (getattr(zb, attr) is None) is (msg not in model.config.messages)
         assert isinstance(zb.source_selector, Selector)
         assert isinstance(zb.power, Switch)
         assert isinstance(zb.mute, Switch)
+
+    @pytest.mark.parametrize("model", list(LyngdorfModel))
+    def test_every_model_defines_source_so_source_selector_always_exists(self, model):
+        assert Msg.SOURCE in model.config.messages
+        assert isinstance(LyngdorfReceiver(FAKE_IP, model).source_selector, Selector)
 
     def test_anchors(self):
         mp = LyngdorfReceiver(FAKE_IP, LyngdorfModel.MP_60)
@@ -127,7 +135,8 @@ class TestFactories:
         assert tdai.video_input_reading is None
         assert tdai.voicing_selector is not None
         assert (
-            LyngdorfReceiver(FAKE_IP, LyngdorfModel.TDAI_2170).source_selector is None
+            LyngdorfReceiver(FAKE_IP, LyngdorfModel.TDAI_2170).source_selector
+            is not None
         )
 
     def test_reading_options_are_the_model_vocabularies(self):
@@ -170,12 +179,17 @@ MP60_EVENTS = [
     ),
     ('!RPVOI(1)"Neutral"', "voicing_selector", "voicing", "Neutral"),
     (
-        "!AUDTYPE(PCM 2.0)",
+        '!AUDTYPE("PCM 2.0")',
         "audio_information_reading",
         "audio_information",
-        "PCM 2.0",
+        '"PCM 2.0"',
     ),
-    ("!VIDTYPE(4K)", "video_information_reading", "video_information", "4K"),
+    (
+        '!VIDTYPE("4K")',
+        "video_information_reading",
+        "video_information",
+        '"4K"',
+    ),
     ("!AUDIN(1)", "audio_input_reading", "audio_input", "HDMI"),
     ("!VIDIN(1)", "video_input_reading", "video_input", "HDMI 1"),
     ("!STREAMTYPE(1)", "streaming_source_reading", "streaming_source", "vTuner"),
@@ -186,16 +200,15 @@ class TestBehaviourMP60:
     @pytest.mark.parametrize("event,attr,old,expected", MP60_EVENTS)
     def test_wire_line_sets_the_expected_value(self, event, attr, old, expected):
         r, _ = _prepared(LyngdorfModel.MP_60)
-        tables = {
-            "source_selector": r._sources,
-            "sound_mode_selector": r._sound_modes,
-            "room_perfect_position_selector": r._room_perfect_positions,
-            "voicing_selector": r._voicings,
-        }
-        if attr in tables:
-            tables[attr].count = 2
-            tables[attr].add(0, "x")
-            tables[attr].add(1, "y")
+        for table in (
+            r._sources,
+            r._sound_modes,
+            r._room_perfect_positions,
+            r._voicings,
+        ):
+            table.count = 2
+            table.add(0, "x")
+            table.add(1, "y")
         _event(r, event)
         assert getattr(r, attr).value == expected
         with pytest.warns(DeprecationWarning):
@@ -234,13 +247,30 @@ class TestBehaviourMP60:
             _event(r, off)
             assert r.mute.value is False
 
-    def test_2170_keeps_fixed_source_without_selector(self):
-        r, _ = _prepared(LyngdorfModel.TDAI_2170)
+    @pytest.mark.asyncio
+    async def test_2170_source_selector_over_the_fixed_table(self):
+        r, writes = _prepared(LyngdorfModel.TDAI_2170)
+        fixed = LyngdorfModel.TDAI_2170.config.fixed_sources
         _event(r, "!SRCENABLED(0011)")
-        _event(r, "!SRC(0)")
-        assert r.source_selector is None
+        _event(r, "!SRC(1)")
+        assert r.source_selector.options == [fixed[0], fixed[1]]
+        assert r.source_selector.value == fixed[1]
+        await r.source_selector.select(fixed[1])
+        assert writes[-1] == "SRC(1)"
+
+    @pytest.mark.asyncio
+    async def test_2170_deprecated_source_names_unchanged(self):
+        r, writes = _prepared(LyngdorfModel.TDAI_2170)
+        fixed = LyngdorfModel.TDAI_2170.config.fixed_sources
+        _event(r, "!SRCENABLED(0011)")
+        _event(r, "!SRC(1)")
         with pytest.warns(DeprecationWarning):
-            assert r.source == r._sources[0]
+            assert r.source == fixed[1]
+        with pytest.warns(DeprecationWarning):
+            assert r.sources == [fixed[0], fixed[1]]
+        with pytest.warns(DeprecationWarning):
+            await r.set_source(fixed[1])
+        assert writes[-1] == "SRC(1)"
 
 
 class TestDeprecations:
