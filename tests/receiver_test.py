@@ -101,6 +101,23 @@ class TestStructuralCapability:
         assert r.video_input_reading.options == list(config.video_inputs.values())
 
 
+class TestDeprecatedInformationalTables:
+    def test_tables_come_from_config(self):
+        r = LyngdorfReceiver(FAKE_IP, LyngdorfModel.MP_60)
+        with pytest.warns(DeprecationWarning):
+            assert r.stream_types == list(
+                LyngdorfModel.MP_60.config.stream_types.values()
+            )
+        with pytest.warns(DeprecationWarning):
+            assert r.audio_inputs == list(
+                LyngdorfModel.MP_60.config.audio_inputs.values()
+            )
+        with pytest.warns(DeprecationWarning):
+            assert r.video_inputs == list(
+                LyngdorfModel.MP_60.config.video_inputs.values()
+            )
+
+
 class TestWireEventRouting:
     def test_volume_event_updates_the_control(self):
         r, _ = _prepared(LyngdorfModel.MP_60)
@@ -143,6 +160,48 @@ class TestWireEventRouting:
         _process_event(r, "!POWER(1)")
         assert r.power.value is True
         assert "MUTE?" in writes
+
+
+class TestDeprecatedRouting:
+    def test_zone_b_muted(self):
+        r, _ = _prepared(LyngdorfModel.MP_60)
+        _process_event(r, "!ZMUTEON")
+        with pytest.warns(DeprecationWarning):
+            assert r.zone_b.muted is True
+
+    def test_power_on(self):
+        r, writes = _prepared(LyngdorfModel.MP_60)
+        _process_event(r, "!POWER(1)")
+        with pytest.warns(DeprecationWarning):
+            assert r.power_on is True
+        assert "MUTE?" in writes
+
+
+class TestDeprecatedWrites:
+    @pytest.mark.asyncio
+    async def test_write_round_trips(self):
+        r, writes = _prepared(LyngdorfModel.MP_60)
+        with pytest.warns(DeprecationWarning):
+            await r.set_power(True)
+        with pytest.warns(DeprecationWarning):
+            await r.set_muted(True)
+        await r.volume.set(-25.0)
+        assert writes[-3:] == ["POWERONMAIN", "MUTEON", "VOL(-250)"]
+
+    @pytest.mark.asyncio
+    async def test_set_source_validates_name_and_sends_index(self):
+        r, writes = _prepared(LyngdorfModel.MP_60)
+        r._sources.count_callback("2", "")
+        r._sources.add(0, "Apple TV")
+        r._sources.add(1, "Playstation")
+        with pytest.warns(DeprecationWarning):
+            await r.set_source("Playstation")
+        assert writes[-1] == "SRC(1)"
+        sent = len(writes)
+        with pytest.warns(DeprecationWarning):
+            with pytest.raises(LyngdorfInvalidValueError):
+                await r.set_source("Nope")
+        assert len(writes) == sent
 
 
 class TestWrites:
@@ -291,6 +350,24 @@ class TestUnknownAudioInputIsReported:
             r._audio_input_callback("98", "")
             r._audio_input_callback("99", "")
         assert len(caplog.records) == 2
+
+
+class TestDeprecatedAudioInputNames:
+    def test_known_and_unknown_index(self, caplog):
+        r = LyngdorfReceiver("127.0.0.1", LyngdorfModel.P_100)
+        r._audio_input_callback("37", "")
+        with pytest.warns(DeprecationWarning):
+            assert r.audio_input == "Spotify"
+        r._audio_input_callback("99", "")
+        with pytest.warns(DeprecationWarning):
+            assert r.audio_input == "audio-99"
+
+    def test_unregistered_reply_is_ignored(self):
+        r = LyngdorfReceiver(FAKE_IP, LyngdorfModel.TDAI_1120)
+        r._register_callbacks()
+        _process_event(r, '!AUDTYPE("PCM")')
+        with pytest.warns(DeprecationWarning):
+            assert r.audio_information is None
 
 
 class TestCallbackRegistrationMatchesModel:

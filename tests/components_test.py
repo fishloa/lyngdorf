@@ -140,6 +140,82 @@ class TestZoneB:
         assert not hasattr(zone_b, "trims")
 
 
+class TestZoneBDeprecatedNames:
+    def _zone_b(self, rio: RecordingRio) -> ZoneB:
+        zone_b = build_zone_b(rio)
+        assert zone_b is not None
+        return zone_b
+
+    @pytest.mark.asyncio
+    async def test_wire_formats(self):
+        rio = RecordingRio(LyngdorfModel.MP_60)
+        zone_b = self._zone_b(rio)
+        with pytest.warns(DeprecationWarning):
+            await zone_b.set_power(True)
+        with pytest.warns(DeprecationWarning):
+            await zone_b.set_power(False)
+        with pytest.warns(DeprecationWarning):
+            await zone_b.set_muted(True)
+        with pytest.warns(DeprecationWarning):
+            await zone_b.set_muted(False)
+        assert rio.writes == [
+            "POWERONZONE2",
+            "POWEROFFZONE2",
+            "ZMUTEON",
+            "ZMUTEOFF",
+        ]
+
+    @pytest.mark.asyncio
+    async def test_set_source_validates_by_name_and_sends_the_index(self):
+        rio = RecordingRio(LyngdorfModel.MP_60)
+        zone_b = self._zone_b(rio)
+        zone_b._sources.count_callback("2", "")
+        zone_b._sources.add(0, "Apple TV")
+        zone_b._sources.add(1, "Wonk")
+        with pytest.warns(DeprecationWarning):
+            assert zone_b.sources == ["Apple TV", "Wonk"]
+
+        with pytest.warns(DeprecationWarning):
+            await zone_b.set_source("Wonk")
+        assert rio.writes == ["ZSRC(1)"]
+
+        with pytest.warns(DeprecationWarning):
+            with pytest.raises(LyngdorfInvalidValueError):
+                await zone_b.set_source("Nope")
+        assert rio.writes == ["ZSRC(1)"]
+
+    def test_state_is_none_until_updated_then_tracks(self):
+        zone_b = self._zone_b(RecordingRio(LyngdorfModel.MP_60))
+        with pytest.warns(DeprecationWarning):
+            assert zone_b.power_on is None
+        with pytest.warns(DeprecationWarning):
+            assert zone_b.muted is None
+        with pytest.warns(DeprecationWarning):
+            assert zone_b.source is None
+        with pytest.warns(DeprecationWarning):
+            assert zone_b.audio_input is None
+        with pytest.warns(DeprecationWarning):
+            assert zone_b.streaming_source is None
+        with pytest.warns(DeprecationWarning):
+            assert zone_b.sources == []
+
+        zone_b.power._update(True)
+        zone_b.mute._update(False)
+        zone_b.source_selector._update("Apple TV")
+        zone_b.audio_input_reading._update("HDMI 1")
+        zone_b.streaming_source_reading._update("AirPlay")
+        with pytest.warns(DeprecationWarning):
+            assert zone_b.power_on is True
+        with pytest.warns(DeprecationWarning):
+            assert zone_b.muted is False
+        with pytest.warns(DeprecationWarning):
+            assert zone_b.source == "Apple TV"
+        with pytest.warns(DeprecationWarning):
+            assert zone_b.audio_input == "HDMI 1"
+        with pytest.warns(DeprecationWarning):
+            assert zone_b.streaming_source == "AirPlay"
+
+
 class TestRemoteFactory:
     @pytest.mark.parametrize("model", list(LyngdorfModel))
     def test_presence_and_keys_match_model_config(self, model):
