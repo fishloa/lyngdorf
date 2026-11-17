@@ -1,5 +1,16 @@
 # Changelog
 
+## 2.2.2
+
+### Fixed
+
+- Connecting to a receiver logged a WARNING per message it did not define
+  ("Model X does not support message Y; skipping callback registration")
+  on every connect attempt, including every Home Assistant setup retry for
+  an offline device (#61). `Receiver._register_callbacks` now registers only
+  the messages the model defines. The WARNING is reserved for a genuine
+  protocol-table gap.
+
 ## 2.2.1
 
 ### Fixed
