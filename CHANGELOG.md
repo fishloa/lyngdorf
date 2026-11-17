@@ -12,12 +12,12 @@ objects to the natural names; see [MIGRATION.md](MIGRATION.md).
 - `Reading`, `Selector` and `Switch` (exported from `lyngdorf`). A feature a
   model's protocol does not define has no object at all, so `is None` is the
   capability check.
-- Receiver: `power` and `mute` (`Switch`, always present), `source_selector`,
+- Receiver: `power`, `mute` and `source_selector` (always present; on the
+  TDAI-2170 the selector covers its fixed hardware source table),
   `sound_mode_selector`, `room_perfect_position_selector`, `voicing_selector`
   (`Selector | None`), `audio_information_reading`, `video_information_reading`,
   `audio_input_reading`, `video_input_reading`, `streaming_source_reading`
-  (`Reading | None`). `source_selector` is `None` on the TDAI-2170, which
-  reports a fixed source only.
+  (`Reading | None`).
 - ZoneB: `power`, `mute`, `source_selector` (always present),
   `audio_input_reading`, `streaming_source_reading` (`Reading | None`).
 

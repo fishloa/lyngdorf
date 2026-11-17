@@ -379,7 +379,7 @@ there is no fixed vocabulary), `Selector.select(name)` raises
 |---|---|---|---|
 | receiver | `power_on`, `set_power()` | `power` | always |
 | receiver | `muted`, `set_muted()` | `mute` | always |
-| receiver | `source`, `sources`, `set_source()` | `source_selector` | source-list messages (not TDAI-2170) |
+| receiver | `source`, `sources`, `set_source()` | `source_selector` | `Msg.SOURCE` (every model) |
 | receiver | `sound_mode`, `sound_modes`, `set_sound_mode()` | `sound_mode_selector` | `Msg.AUDIO_MODE` |
 | receiver | `room_perfect_position`, `room_perfect_positions`, `set_room_perfect_position()` | `room_perfect_position_selector` | `Msg.ROOM_PERFECT_POSITION` |
 | receiver | `voicing`, `voicings`, `set_voicing()` | `voicing_selector` | `Msg.ROOM_PERFECT_VOICING` |
@@ -394,5 +394,6 @@ there is no fixed vocabulary), `Selector.select(name)` raises
 | zone_b | `audio_input` | `audio_input_reading` | `Msg.ZONE_B_AUDIO_IN` |
 | zone_b | `streaming_source` | `streaming_source_reading` | `Msg.ZONE_B_STREAM_TYPE` |
 
-On the TDAI-2170 the deprecated `receiver.source` keeps returning the fixed
-source name; there is no `source_selector` there.
+On the TDAI-2170 `source_selector` selects over the fixed hardware source
+table, filtered by the enabled-sources bitmask, like its RoomPerfect position
+and voicing selectors.

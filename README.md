@@ -17,7 +17,8 @@ if (sel := receiver.voicing_selector) is not None:
 ```
 
 A feature the model's protocol lacks has no object (`None`). The flat
-properties below this section are deprecated; see [MIGRATION.md](MIGRATION.md).
+selection, reading and power/mute properties (`power_on`, `muted`, `source`,
+`sources`, `sound_mode`, ...) are deprecated; see [MIGRATION.md](MIGRATION.md).
 
 ## Supported Models
 
@@ -111,16 +112,17 @@ async def main():
     await receiver.connect()
 
     # Control the receiver
-    receiver.power_on = True
+    await receiver.power.set(True)
     print(f"Volume: {receiver.volume} dB")
     await receiver.volume.set(-22.5)
-    receiver.muted = False
+    await receiver.mute.set(False)
 
     # Change source
-    receiver.source = "HDMI 1"
+    await receiver.source_selector.select("HDMI 1")
 
     # RoomPerfect control
-    receiver.room_perfect_position = "Focus 1"
+    if receiver.room_perfect_position_selector is not None:
+        await receiver.room_perfect_position_selector.select("Focus 1")
 
     # Disconnect when done
     await receiver.disconnect()
@@ -132,9 +134,9 @@ asyncio.run(main())
 
 ### Power Control
 ```python
-receiver.power_on = True   # Turn on
-receiver.power_on = False  # Turn off
-print(receiver.power_on)   # Check power state
+await receiver.power.set(True)   # Turn on
+await receiver.power.set(False)  # Turn off
+print(receiver.power.value)      # Check power state
 ```
 
 ### Volume Control
@@ -142,7 +144,7 @@ print(receiver.power_on)   # Check power state
 await receiver.volume.set(-25.0)   # Set volume in dB
 await receiver.volume.up()      # Increase volume
 await receiver.volume.down()    # Decrease volume
-receiver.muted = True  # Mute
+await receiver.mute.set(True)  # Mute
 
 # volume_range is the model's fixed, documented capability -
 # NumericRange(min, max, step). It differs by family: the MP and P
@@ -177,10 +179,10 @@ if isinstance(receiver.volume, VolumeControl):
 ### Source Selection
 ```python
 # List available sources
-print(receiver.sources)
+print(receiver.source_selector.options)
 
 # Select source by name
-receiver.source = "HDMI 1"
+await receiver.source_selector.select("HDMI 1")
 ```
 
 ### Audio/Video Inputs & Stream Types
@@ -202,18 +204,18 @@ not guaranteed to appear in its corresponding `available_*` list.
 ### RoomPerfect™ & Voicing
 ```python
 # List available positions
-print(receiver.room_perfect_positions)
+print(receiver.room_perfect_position_selector.options)
 
 # Select position
-receiver.room_perfect_position = "Focus 1"
-receiver.room_perfect_position = "Global"
-receiver.room_perfect_position = "Bypass"
+await receiver.room_perfect_position_selector.select("Focus 1")
+await receiver.room_perfect_position_selector.select("Global")
+await receiver.room_perfect_position_selector.select("Bypass")
 
 # List available voicings
-print(receiver.voicings)
+print(receiver.voicing_selector.options)
 
 # Select voicing
-receiver.voicing = "Neutral"
+await receiver.voicing_selector.select("Neutral")
 ```
 
 ### Trim Controls (MP Series)
@@ -288,13 +290,13 @@ tables of small callables, where a lambda cannot contain an assignment and
 ```python
 receiver.volume.set(-25.0)
 receiver.trims[Trim.BASS].set(1.5)
-receiver.set_room_perfect_position("Focus 1")
+await receiver.room_perfect_position_selector.select("Focus 1")
 ```
 
 ### Zone B Control (MP Series)
 ```python
 # Zone B power
-receiver.zone_b.power_on = True
+await receiver.zone_b.power.set(True)
 
 # Zone B volume - zone_b.volume.range is None on a model with no Zone B
 # at all (e.g. every TDAI), otherwise identical to volume_range
@@ -303,7 +305,7 @@ await receiver.zone_b.volume.up()
 await receiver.zone_b.volume.down()
 
 # Zone B source
-receiver.zone_b.source = "Apple TV"
+await receiver.zone_b.source_selector.select("Apple TV")
 ```
 
 ### Remote Control (MP and P Series)
