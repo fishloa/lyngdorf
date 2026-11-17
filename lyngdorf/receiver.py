@@ -489,7 +489,8 @@ class LyngdorfReceiver:
         without a socket."""
         self._register_callback(Msg.DEVICE, self._name_callback)
         self._register_callback(Msg.VOLUME, self._volume_callback)
-        self._register_callback(Msg.MAX_VOLUME, self._max_volume_callback)
+        if isinstance(self._volume, VolumeControl):
+            self._register_callback(Msg.MAX_VOLUME, self._max_volume_callback)
         self._register_callback(Msg.POWER, self._power_callback)
         for group in (
             self._dialect.mute,
@@ -501,13 +502,21 @@ class LyngdorfReceiver:
             self._dialect.surround_trim,
         ):
             self._register_dialect_group(group)
-        self._register_callback(Msg.TRIM_BASS, self._trim_bass_callback)
-        self._register_callback(Msg.TRIM_TREBLE, self._trim_treble_callback)
-        self._register_callback(Msg.AUDIO_TYPE, self._audio_info_callback)
-        self._register_callback(Msg.AUDIO_MODES_COUNT, self._sound_modes.count_callback)
-        self._register_callback(Msg.AUDIO_MODE, self._sound_mode_callback)
-        self._register_callback(Msg.LIP_SYNC, self._lipsync_callback)
-        self._register_callback(Msg.LIP_SYNC_MIN_MAX, self._lipsync_range_callback)
+        if Trim.BASS in self._trims:
+            self._register_callback(Msg.TRIM_BASS, self._trim_bass_callback)
+        if Trim.TREBLE in self._trims:
+            self._register_callback(Msg.TRIM_TREBLE, self._trim_treble_callback)
+        if self._model.supports_message(Msg.AUDIO_TYPE):
+            self._register_callback(Msg.AUDIO_TYPE, self._audio_info_callback)
+        if self._model.supports_message(Msg.AUDIO_MODES_COUNT):
+            self._register_callback(
+                Msg.AUDIO_MODES_COUNT, self._sound_modes.count_callback
+            )
+        if self._model.supports_message(Msg.AUDIO_MODE):
+            self._register_callback(Msg.AUDIO_MODE, self._sound_mode_callback)
+        if self._lipsync is not None:
+            self._register_callback(Msg.LIP_SYNC, self._lipsync_callback)
+            self._register_callback(Msg.LIP_SYNC_MIN_MAX, self._lipsync_range_callback)
 
     # -- wire callbacks --------------------------------------------------------
 
