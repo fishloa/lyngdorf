@@ -290,3 +290,59 @@ class TestUnknownAudioInputIsReported:
             r._audio_input_callback("98", "")
             r._audio_input_callback("99", "")
         assert len(caplog.records) == 2
+
+
+class TestCallbackRegistrationMatchesModel:
+    @pytest.mark.parametrize("model", list(LyngdorfModel))
+    def test_registers_nothing_the_model_lacks(
+        self, model: LyngdorfModel, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        r = LyngdorfReceiver(FAKE_IP, model)
+        with caplog.at_level(logging.WARNING, logger="lyngdorf"):
+            r._register_callbacks()
+        assert not [x for x in caplog.records if "skipping callback" in x.getMessage()]
+
+    @pytest.mark.parametrize("model", list(LyngdorfModel))
+    def test_every_registered_command_is_in_the_table(
+        self, model: LyngdorfModel
+    ) -> None:
+        r = LyngdorfReceiver(FAKE_IP, model)
+        r._register_callbacks()
+        assert set(r._api._callbacks) <= set(model.config.messages.values())
+
+    def test_repeated_register_logs_nothing(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        r = LyngdorfReceiver(FAKE_IP, LyngdorfModel.TDAI_1120)
+        with caplog.at_level(logging.WARNING, logger="lyngdorf"):
+            for _ in range(5):
+                r._register_callbacks()
+        assert caplog.records == []
+
+    def test_unregistered_reply_is_ignored(self) -> None:
+        r = LyngdorfReceiver(FAKE_IP, LyngdorfModel.TDAI_1120)
+        r._register_callbacks()
+        _process_event(r, '!AUDTYPE("PCM")')
+        assert r.audio_information is None
+
+    def test_p200_registers_max_volume_and_lipsync_but_not_trim_bass(self) -> None:
+        config = LyngdorfModel.P_200.config
+        r = LyngdorfReceiver(FAKE_IP, LyngdorfModel.P_200)
+        r._register_callbacks()
+        assert config.lookup_command(Msg.MAX_VOLUME) in r._api._callbacks
+        assert config.lookup_command(Msg.LIP_SYNC) in r._api._callbacks
+        assert Msg.TRIM_BASS not in config.messages
+
+    def test_tdai_2170_registers_none_of_the_issue_61_messages(self) -> None:
+        config = LyngdorfModel.TDAI_2170.config
+        issue_61 = (
+            Msg.MAX_VOLUME,
+            Msg.TRIM_BASS,
+            Msg.TRIM_TREBLE,
+            Msg.LIP_SYNC,
+            Msg.LIP_SYNC_MIN_MAX,
+            Msg.AUDIO_TYPE,
+            Msg.AUDIO_MODES_COUNT,
+            Msg.AUDIO_MODE,
+        )
+        assert not [msg for msg in issue_61 if msg in config.messages]
