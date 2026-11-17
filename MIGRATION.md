@@ -360,3 +360,39 @@ helper makes every downstream failure misleading.
 keeps passing type checks and keeps failing at runtime for a reason that
 looks like a behaviour change. It is not — the method was renamed and the
 mock happily recorded nothing.
+
+
+# Migration — lyngdorf 2.2 → 2.3 (bridge to 3.0)
+
+2.3 adds the final objects under temporary names and deprecates the flat
+properties; each old name still returns what it did and warns once, naming
+its replacement. 3.0 removes the flat names and gives the objects the
+natural names (the suffix is dropped); the suffixed names then stay as
+deprecated aliases for one release.
+
+`Reading.value` is `str | None`, `Reading.options` is `list[str]` (`[]` where
+there is no fixed vocabulary), `Selector.select(name)` raises
+`LyngdorfInvalidValueError` for a name not in `options`, `Switch.value` is
+`bool | None`.
+
+| Owner | Old (deprecated) | 2.3 replacement | Present when |
+|---|---|---|---|
+| receiver | `power_on`, `set_power()` | `power` | always |
+| receiver | `muted`, `set_muted()` | `mute` | always |
+| receiver | `source`, `sources`, `set_source()` | `source_selector` | source-list messages (not TDAI-2170) |
+| receiver | `sound_mode`, `sound_modes`, `set_sound_mode()` | `sound_mode_selector` | `Msg.AUDIO_MODE` |
+| receiver | `room_perfect_position`, `room_perfect_positions`, `set_room_perfect_position()` | `room_perfect_position_selector` | `Msg.ROOM_PERFECT_POSITION` |
+| receiver | `voicing`, `voicings`, `set_voicing()` | `voicing_selector` | `Msg.ROOM_PERFECT_VOICING` |
+| receiver | `audio_information` | `audio_information_reading` | `Msg.AUDIO_TYPE` |
+| receiver | `video_information` | `video_information_reading` | `Msg.VIDEO_TYPE` |
+| receiver | `audio_input`, `audio_inputs` | `audio_input_reading` | `Msg.AUDIO_IN` |
+| receiver | `video_input`, `video_inputs` | `video_input_reading` | `Msg.VIDEO_IN` |
+| receiver | `streaming_source`, `stream_types` | `streaming_source_reading` | `Msg.STREAM_TYPE` |
+| zone_b | `power_on`, `set_power()` | `power` | always |
+| zone_b | `muted`, `set_muted()` | `mute` | always |
+| zone_b | `source`, `sources`, `set_source()` | `source_selector` | always |
+| zone_b | `audio_input` | `audio_input_reading` | `Msg.ZONE_B_AUDIO_IN` |
+| zone_b | `streaming_source` | `streaming_source_reading` | `Msg.ZONE_B_STREAM_TYPE` |
+
+On the TDAI-2170 the deprecated `receiver.source` keeps returning the fixed
+source name; there is no `source_selector` there.
