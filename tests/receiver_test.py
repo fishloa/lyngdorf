@@ -331,18 +331,26 @@ class TestCallbackRegistrationMatchesModel:
         r._register_callbacks()
         assert config.lookup_command(Msg.MAX_VOLUME) in r._api._callbacks
         assert config.lookup_command(Msg.LIP_SYNC) in r._api._callbacks
-        assert Msg.TRIM_BASS not in config.messages
-
-    def test_tdai_2170_registers_none_of_the_issue_61_messages(self) -> None:
-        config = LyngdorfModel.TDAI_2170.config
-        issue_61 = (
-            Msg.MAX_VOLUME,
-            Msg.TRIM_BASS,
-            Msg.TRIM_TREBLE,
-            Msg.LIP_SYNC,
-            Msg.LIP_SYNC_MIN_MAX,
-            Msg.AUDIO_TYPE,
-            Msg.AUDIO_MODES_COUNT,
-            Msg.AUDIO_MODE,
+        assert (
+            LyngdorfModel.MP_60.config.lookup_command(Msg.TRIM_BASS)
+            not in r._api._callbacks
         )
-        assert not [msg for msg in issue_61 if msg in config.messages]
+
+    def test_tdai_2170_registers_none_of_the_issue_61_commands(self) -> None:
+        r = LyngdorfReceiver(FAKE_IP, LyngdorfModel.TDAI_2170)
+        r._register_callbacks()
+        mp_60 = LyngdorfModel.MP_60.config
+        issue_61_commands = {
+            mp_60.lookup_command(msg)
+            for msg in (
+                Msg.MAX_VOLUME,
+                Msg.TRIM_BASS,
+                Msg.TRIM_TREBLE,
+                Msg.LIP_SYNC,
+                Msg.LIP_SYNC_MIN_MAX,
+                Msg.AUDIO_TYPE,
+                Msg.AUDIO_MODES_COUNT,
+                Msg.AUDIO_MODE,
+            )
+        }
+        assert not issue_61_commands & set(r._api._callbacks)
