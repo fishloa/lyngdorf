@@ -139,31 +139,31 @@ class LyngdorfModel(Enum):
     def trim_centre_range(self) -> NumericRange | None:
         """The documented dB range (and step) for centre channel trim, or
         None on a model with no discrete channel trims (see
-        has_surround_feature)."""
+        receiver.trims)."""
         return self._config.trim_centre_range
 
     def trim_height_range(self) -> NumericRange | None:
         """The documented dB range (and step) for height channel trim, or
         None on a model with no discrete channel trims (see
-        has_surround_feature)."""
+        receiver.trims)."""
         return self._config.trim_height_range
 
     def trim_lfe_range(self) -> NumericRange | None:
         """The documented dB range (and step) for LFE channel trim, or
         None on a model with no discrete channel trims (see
-        has_surround_feature)."""
+        receiver.trims)."""
         return self._config.trim_lfe_range
 
     def trim_surround_range(self) -> NumericRange | None:
         """The documented dB range (and step) for surround channel trim,
         or None on a model with no discrete channel trims (see
-        has_surround_feature)."""
+        receiver.trims)."""
         return self._config.trim_surround_range
 
     def lipsync_default_range(self) -> NumericRange | None:
         """The range to assume for lipsync before the device answers a
         LIPSYNCRANGE? query, or None on a model with no lip sync control
-        at all (the TDAI family - see has_lipsync_feature)."""
+        at all (the TDAI family - see receiver.lipsync is None)."""
         return self._config.lipsync_default_range
 
     def volume_range(self) -> NumericRange | None:
